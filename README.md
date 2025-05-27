@@ -16,18 +16,18 @@ requests, please file a
 [Github issue](https://github.com/humancompatible/train/issues). 
 
 ## Basic installation instructions
-The code requires Python version ```3.10```.
+The code requires Python version ```3.11```.
 
 1. Create a virtual environment
 
 **bash** (Linux)
 ```
-python3.10 -m venv fairbenchenv
+python3.11 -m venv fairbenchenv
 source fairbenchenv/bin/activate
 ```
 **cmd** (Windows)
 ```
-python3.10 -m venv fairbenchenv
+python -m venv fairbenchenv
 fairbenchenv\Scripts\activate.bat
 ```
 2. Install from source (*as an editable package*).
