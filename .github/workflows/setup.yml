@@ -29,6 +29,13 @@ jobs:
         pip install -r requirements.txt
         pip install --force-reinstall -i https://software.repos.intel.com/python/pypi numpy scipy
         pip install -e .
+    - name: Run algorithms
+        run: |
+          python run_folktables.py alg=sslalm n_runs=2 run_maxtime=2
+          python run_folktables.py alg=ghost n_runs=2 run_maxtime=2
+          python run_folktables.py alg=alm n_runs=2 run_maxtime=2
+          python run_folktables.py alg=sgd n_runs=2 run_maxtime=2
+          python run_folktables.py alg=fairret n_runs=2 run_maxtime=2
 
   run-on-windows:
     name: Setup on windows
@@ -51,6 +58,13 @@ jobs:
         pip install -r requirements.txt
         pip install --force-reinstall -i https://software.repos.intel.com/python/pypi numpy scipy
         pip install -e .
+    - name: Run algorithms
+        run: |
+          python run_folktables.py alg=sslalm n_runs=2 run_maxtime=2
+          python run_folktables.py alg=ghost n_runs=2 run_maxtime=2
+          python run_folktables.py alg=alm n_runs=2 run_maxtime=2
+          python run_folktables.py alg=sgd n_runs=2 run_maxtime=2
+          python run_folktables.py alg=fairret n_runs=2 run_maxtime=2
 
   run-on-macos:
     name: Setup on macos
@@ -72,3 +86,10 @@ jobs:
         python -m pip install flake8 pytest
         pip install -r requirements.txt
         pip install -e .
+    - name: Run algorithms
+        run: |
+          python run_folktables.py alg=sslalm n_runs=2 run_maxtime=2
+          python run_folktables.py alg=ghost n_runs=2 run_maxtime=2
+          python run_folktables.py alg=alm n_runs=2 run_maxtime=2
+          python run_folktables.py alg=sgd n_runs=2 run_maxtime=2
+          python run_folktables.py alg=fairret n_runs=2 run_maxtime=2
