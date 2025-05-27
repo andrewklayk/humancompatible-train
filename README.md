@@ -38,6 +38,9 @@ pip install -r requirements.txt
 pip install --force-reinstall -i https://software.repos.intel.com/python/pypi numpy scipy
 pip install -e .
 ```
+
+*__Warning__: mkl-accelerated versions of `numpy` and `scipy` are not supported on MacOS. To install the dependencies on MacOS, please skip line 4. This will lead to a performance drop for Stochastic Ghost.*
+
 <!-- Install via pip -->
 <!-- ``` -->
 <!-- pip install folktables -->
