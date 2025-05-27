@@ -35,11 +35,13 @@ fairbenchenv\Scripts\activate.bat
 git clone https://github.com/humancompatible/train.git
 cd train
 pip install -r requirements.txt
-pip install --force-reinstall -i https://software.repos.intel.com/python/pypi scipy
 pip install -e .
 ```
+__Warning__: it is recommended to use Stochastic Ghost with the mkl-accelerated version of the scipy package with Stochastic Ghost; to install it, run
 
-*__Warning__: mkl-accelerated versions of `numpy` and `scipy` are not supported on MacOS. To install the dependencies on MacOS, please skip line 4. This will lead to a performance drop for Stochastic Ghost.*
+```pip install --force-reinstall -i https://software.repos.intel.com/python/pypi scipy```
+
+after installing requirements.txt; otherwise, the algorithm will run slower. However, this is not supported on MacOS and may fail on some Windows devices.
 
 <!-- Install via pip -->
 <!-- ``` -->
