@@ -27,7 +27,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
         pip install -r requirements.txt
-        pip install --force-reinstall -i https://software.repos.intel.com/python/pypi numpy scipy
+        pip install --force-reinstall -i https://software.repos.intel.com/python/pypi scipy
         pip install -e .
     - name: Run algorithms
       run: |
@@ -56,7 +56,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
         pip install -r requirements.txt
-        pip install --force-reinstall -i https://software.repos.intel.com/python/pypi numpy scipy
+        pip install --force-reinstall -i https://software.repos.intel.com/python/pypi scipy
         pip install -e .
     - name: Run algorithms
       run: |

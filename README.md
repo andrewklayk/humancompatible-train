@@ -35,7 +35,7 @@ fairbenchenv\Scripts\activate.bat
 git clone https://github.com/humancompatible/train.git
 cd train
 pip install -r requirements.txt
-pip install --force-reinstall -i https://software.repos.intel.com/python/pypi numpy scipy
+pip install --force-reinstall -i https://software.repos.intel.com/python/pypi scipy
 pip install -e .
 ```
 
