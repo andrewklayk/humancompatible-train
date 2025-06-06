@@ -30,9 +30,11 @@ class SSLALM(Algorithm):
         rho,
         tau,
         mu,
+        alpha,
         beta,
         batch_size,
         epochs,
+        N_vr = 5,
         start_lambda=None,
         max_runtime=None,
         max_iter=None,
@@ -72,6 +74,22 @@ class SSLALM(Algorithm):
         epoch = 0
         iteration = 0
         total_iters = 0
+    
+        f_grad_vr = 0
+        prev_f_grad = 0
+        
+        ### STORM variance reduction f_grad estimate ###
+        if alpha != 1:
+            (f_inputs, f_labels) = next(loss_iter)
+            outputs = self.net(f_inputs)
+            if f_labels.dim() < outputs.dim():
+                f_labels = f_labels.unsqueeze(1)
+            loss_eval = self.loss_fn(outputs, f_labels)
+            f_grad_vr = torch.autograd.grad(loss_eval, self.net.parameters())
+            f_grad_vr = torch.concat(
+                [*[g.flatten() for g in f_grad_vr], torch.zeros(m)]
+            )  # add zeros for slack vars
+        
         while True:
             elapsed = timeit.default_timer() - run_start
             iteration += 1
@@ -125,6 +143,12 @@ class SSLALM(Algorithm):
             f_grad = torch.concat(
                 [*[g.flatten() for g in f_grad], torch.zeros(m)]
             )  # add zeros for slack vars
+            
+            f_grad_vr = f_grad + (1-alpha)*(f_grad_vr - prev_f_grad)
+            # print(torch.norm(f_grad_vr), torch.norm(f_grad))
+            prev_f_grad = f_grad.clone()
+            f_grad = f_grad_vr.clone()
+            
             self.net.zero_grad()
 
             # constraint grad estimate

@@ -10,3 +10,4 @@ params:
   tau: 0.01
   eta: 5e-2
   beta: 0.5
+  alpha: 1.
