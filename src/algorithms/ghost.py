@@ -89,7 +89,7 @@ class StochasticGhost(Algorithm):
 
         rng = np.random.default_rng(seed=seed)
         run_start = timeit.default_timer()
-        
+
         iteration = 0
         while True:
             iteration += 1

@@ -34,7 +34,7 @@ class SSLALM(Algorithm):
         beta,
         batch_size,
         epochs,
-        N_vr = 5,
+        N_vr=5,
         start_lambda=None,
         max_runtime=None,
         max_iter=None,
@@ -74,22 +74,21 @@ class SSLALM(Algorithm):
         epoch = 0
         iteration = 0
         total_iters = 0
-    
-        f_grad_vr = 0
+
+        f_grad_estimate = 0
         prev_f_grad = 0
-        
         ### STORM variance reduction f_grad estimate ###
-        if alpha != 1:
-            (f_inputs, f_labels) = next(loss_iter)
-            outputs = self.net(f_inputs)
-            if f_labels.dim() < outputs.dim():
-                f_labels = f_labels.unsqueeze(1)
-            loss_eval = self.loss_fn(outputs, f_labels)
-            f_grad_vr = torch.autograd.grad(loss_eval, self.net.parameters())
-            f_grad_vr = torch.concat(
-                [*[g.flatten() for g in f_grad_vr], torch.zeros(m)]
-            )  # add zeros for slack vars
-        
+        storm_batch_size = 48
+        pre_loader = torch.utils.data.DataLoader(
+            self.dataset, storm_batch_size, shuffle=True, generator=gen
+        )
+        pre_iter = iter(pre_loader)
+
+        # if alpha != 1:
+        (f_inputs, f_labels) = next(pre_iter)
+        _, f_grad_estimate = self._objective_estimate(f_inputs, f_labels)
+        self.net.zero_grad()
+
         while True:
             elapsed = timeit.default_timer() - run_start
             iteration += 1
@@ -132,36 +131,10 @@ class SSLALM(Algorithm):
             if torch.norm(_lambda) >= lambda_bound:
                 _lambda = torch.zeros_like(_lambda, requires_grad=True)
 
-            #######################
-            ## UPDATE PARAMETERS ##
-            #######################
-            outputs = self.net(f_inputs)
-            if f_labels.dim() < outputs.dim():
-                f_labels = f_labels.unsqueeze(1)
-            loss_eval = self.loss_fn(outputs, f_labels)
-            f_grad = torch.autograd.grad(loss_eval, self.net.parameters())
-            f_grad = torch.concat(
-                [*[g.flatten() for g in f_grad], torch.zeros(m)]
-            )  # add zeros for slack vars
-            
-            f_grad_vr = f_grad + (1-alpha)*(f_grad_vr - prev_f_grad)
-            # print(torch.norm(f_grad_vr), torch.norm(f_grad))
-            prev_f_grad = f_grad.clone()
-            f_grad = f_grad_vr.clone()
-            
-            self.net.zero_grad()
-
-            # constraint grad estimate
-            c_grad = []
-            for ci in c_1:
-                ci_grad = torch.autograd.grad(ci, self.net.parameters())
-                slack_grad = torch.autograd.grad(ci, slack_vars)
-                c_grad.append(
-                    torch.concat([*[g.flatten() for g in ci_grad], *slack_grad])
-                )
-                self.net.zero_grad()
-                slack_vars.grad = None
-            c_grad = torch.stack(c_grad)
+            #########################
+            ## CONSTRAINT GRADIENT ##
+            #########################
+            c_grad = self._constraint_grad_estimate(slack_vars, c_1)
 
             # independent constraint estimate
             with torch.no_grad():
@@ -180,18 +153,43 @@ class SSLALM(Algorithm):
                 ]
             )
 
-            G = f_grad + c_grad.T @ _lambda + rho * (c_grad.T @ c_2) + mu * (x_t - z)
+            G = (
+                f_grad_estimate
+                + c_grad.T @ _lambda
+                + rho * (c_grad.T @ c_2)
+                + mu * (x_t - z)
+            )
             x_t1 = self.project(x_t - tau * G, m)
             z += beta * (x_t - z)
+
+            ########################
+            ## OBJECTIVE GRADIENT ##
+            ########################
+            # xt, et1
+            _, f_grad = self._objective_estimate(f_inputs, f_labels)
+            self.net.zero_grad()
+
+            # set network weights to updated values
             with torch.no_grad():
                 _set_weights(self.net, x_t1)
                 for i in range(len(slack_vars)):
                     slack_vars[i] = x_t1[i - len(slack_vars)]
+            # xt1, et1
+            loss_eval, f_grad_1 = self._objective_estimate(f_inputs, f_labels)
+            self.net.zero_grad()
+
+            f_grad_estimate = f_grad_1 + (1 - alpha) * (f_grad_estimate - f_grad)
+
+            if torch.any(torch.isnan(f_grad_estimate)):
+                breakpoint()
+                print(f_grad)
+                print(f_grad_1)
+                raise ValueError()
 
             if verbose:
                 with np.printoptions(precision=6, suppress=True, floatmode="fixed"):
                     print(
-                        f"""{epoch:2}|{iteration:5} | {loss_eval.detach().cpu().numpy()}|{_lambda.detach().cpu().numpy()}|{c_2.detach().cpu().numpy()}|{slack_vars.detach().cpu().numpy()}""",
+                        f"""{epoch:2}|{iteration:5} | e: {torch.norm(f_grad_estimate)} | g1: {torch.norm(f_grad_1)} | {loss_eval.detach().cpu().numpy()}|{_lambda.detach().cpu().numpy()}|{c_2.detach().cpu().numpy()}|{slack_vars.detach().cpu().numpy()}""",
                         end="\r",
                     )
 
@@ -207,30 +205,15 @@ class SSLALM(Algorithm):
 
         self.net.zero_grad()
         slack_vars.grad = None
-        # loss
-        outputs = self.net(f_inputs)
-        if f_labels.dim() < outputs.dim():
-            f_labels = f_labels.unsqueeze(1)
-        loss_eval = self.loss_fn(outputs, f_labels)
-        # loss grad
-        loss_eval = self.loss_fn(outputs, f_labels)
-        f_grad = torch.autograd.grad(loss_eval, self.net.parameters())
-        f_grad = torch.concat(
-            [*[g.flatten() for g in f_grad], torch.zeros(m)]
-        )  # add zeros for slack vars
+
+        _, f_grad = self._objective_estimate(f_inputs, f_labels)
         self.net.zero_grad()
         # constraint grad estimate
         c_1 = [
             ci.eval(self.net, c_sample[i]).reshape(1) + slack_vars[i]
             for i, ci in enumerate(c)
         ]
-        c_grad = []
-        for ci in c_1:
-            ci_grad = torch.autograd.grad(ci, self.net.parameters())
-            slack_grad = torch.autograd.grad(ci, slack_vars)
-            c_grad.append(torch.concat([*[g.flatten() for g in ci_grad], *slack_grad]))
-            self.net.zero_grad()
-        c_grad = torch.stack(c_grad)
+        c_grad = self._constraint_grad_estimate(slack_vars, c_1)
 
         # independent constraint estimate
         with torch.no_grad():
@@ -255,3 +238,25 @@ class SSLALM(Algorithm):
         self.history["n_samples"].append(batch_size * 3)
 
         return self.history
+
+    def _objective_estimate(self, f_inputs, f_labels):
+        m = len(self.constraints)
+        outputs = self.net(f_inputs)
+        if f_labels.dim() < outputs.dim():
+            f_labels = f_labels.unsqueeze(1)
+        loss_eval = self.loss_fn(outputs, f_labels)
+        f_grad = torch.autograd.grad(loss_eval, self.net.parameters())
+        f_grad = torch.concat([*[g.flatten() for g in f_grad], torch.zeros(m)])
+
+        return loss_eval, f_grad
+
+    def _constraint_grad_estimate(self, slack_vars, c):
+        c_grad = []
+        for ci in c:
+            ci_grad = torch.autograd.grad(ci, self.net.parameters())
+            slack_grad = torch.autograd.grad(ci, slack_vars)
+            c_grad.append(torch.concat([*[g.flatten() for g in ci_grad], *slack_grad]))
+            self.net.zero_grad()
+            slack_vars.grad = None
+        c_grad = torch.stack(c_grad)
+        return c_grad

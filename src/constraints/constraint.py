@@ -11,8 +11,8 @@ def _dataloader_from_subset(dataset, indices, *args, **kwargs):
     return loader_s
 
 
-def _make_dataloaders(dataset, group_indices, batch_size, seed):
-    g = torch.Generator()
+def _make_dataloaders(dataset, group_indices, batch_size, device, seed):
+    g = torch.Generator(device=device)
     if seed is not None:
         g.manual_seed(seed)
     dataloaders = []
@@ -30,6 +30,7 @@ class FairnessConstraint:
         fn: Callable,
         batch_size: int = None,
         use_dataloaders=True,
+        device="cpu",
         seed=None,
     ):
         self.dataset = dataset
@@ -40,11 +41,12 @@ class FairnessConstraint:
         self.fn = fn
         self._seed = seed
         self._rng = np.random.default_rng(seed)
+        self._device = device
         if batch_size is not None:
             self._batch_size = batch_size
             if use_dataloaders:
                 self.group_dataloaders = _make_dataloaders(
-                    dataset, group_indices, batch_size, seed
+                    dataset, group_indices, batch_size, device, seed
                 )
 
     def group_sizes(self):
@@ -58,7 +60,11 @@ class FairnessConstraint:
             sample = [next(l) for l in self.group_dataloaders]
         except StopIteration:
             self.group_dataloaders = _make_dataloaders(
-                self.dataset, self._group_indices, self._batch_size, self._seed
+                self.dataset,
+                self._group_indices,
+                self._batch_size,
+                self._device,
+                self._seed,
             )
             sample = [next(l) for l in self.group_dataloaders]
         return sample

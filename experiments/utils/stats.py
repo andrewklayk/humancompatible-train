@@ -9,9 +9,9 @@ from src.constraints.constraint_fns import *
 
 
 def fair_stats(p_1, y_1, p_2, y_2):
-    '''
+    """
     Compute Independence, Separation, Inaccuracy, Sufficiency.
-    '''
+    """
     p = torch.concat([torch.tensor(p_1), torch.tensor(p_2)]).unsqueeze(1)
     w_onehot = torch.tensor([[0.0, 1.0]] * len(p_1))
     b_onehot = torch.tensor([[1.0, 0.0]] * len(p_2))
@@ -114,6 +114,7 @@ def make_model_stats_table(X_w, y_w, X_nw, y_nw, loaded_models):
     res_df = pd.DataFrame(results_list)
     return res_df
 
+
 # def get_alg_name(alg: str):
 #     if alg.startswith("swsg"):
 #         return "Switching Subgradient"
@@ -127,6 +128,7 @@ def make_model_stats_table(X_w, y_w, X_nw, y_nw, loaded_models):
 #         return "SSL-ALM"
 #     elif alg.startswith("fairret"):
 #         return "SGD + Fairret"
+
 
 def aggregate_model_stats_table(table: pd.DataFrame, agg_fns):
     if len(agg_fns) == 1 and not isinstance(agg_fns, str):

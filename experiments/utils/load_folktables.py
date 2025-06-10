@@ -6,44 +6,49 @@ from sklearn.preprocessing import StandardScaler
 
 # sys.path.append("..")
 
-from folktables import (ACSDataSource, ACSEmployment, ACSIncome,
-                        ACSPublicCoverage, generate_categories)
+from folktables import (
+    ACSDataSource,
+    ACSEmployment,
+    ACSIncome,
+    ACSPublicCoverage,
+    generate_categories,
+)
 
 RAC1P_WHITE = 1
 
+
 def download_folktables(
     state="AL",
-    horizon='1-Year',
-    survey='person',
+    horizon="1-Year",
+    survey="person",
     year=2018,
     download=False,
-    path=None,):
+    path=None,
+):
+    if path is None:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "raw_data"))
+    else:
+        base_dir = path
 
-        if path is None:
-            base_dir = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "raw_data")
-            )
-        else:
-            base_dir = path
-        
-        data_dir = os.path.join(base_dir, str(year), horizon)
-        if not os.path.isdir(data_dir):
-            os.makedirs(data_dir)
-            
-        data_source = ACSDataSource(
+    data_dir = os.path.join(base_dir, str(year), horizon)
+    if not os.path.isdir(data_dir):
+        os.makedirs(data_dir)
+
+    data_source = ACSDataSource(
         survey_year=year, horizon=horizon, survey=survey, root_dir=base_dir
-        )
-        
-        definition_df = data_source.get_definitions(download=download)
-        acs_data = data_source.get_data(states=[state], download=download)
-            
-        return acs_data, definition_df
+    )
+
+    definition_df = data_source.get_definitions(download=download)
+    acs_data = data_source.get_data(states=[state], download=download)
+
+    return acs_data, definition_df
+
 
 def prepare_folktables(
     dataset: str = "income",
     state="AL",
-    horizon='1-Year',
-    survey='person',
+    horizon="1-Year",
+    survey="person",
     year=2018,
     random_state=None,
     onehot=True,
@@ -51,8 +56,10 @@ def prepare_folktables(
     download=False,
     path=None,
 ):
-    acs_data, definition_df = download_folktables(state, horizon, survey, year, download, path)
-        
+    acs_data, definition_df = download_folktables(
+        state, horizon, survey, year, download, path
+    )
+
     # group here refers to race (RAC1P)
     if dataset == "employment":
         features, label, group = ACSEmployment.df_to_numpy(acs_data)
