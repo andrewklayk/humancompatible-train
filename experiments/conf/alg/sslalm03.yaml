@@ -10,6 +10,6 @@ params:
   tau: 0.01
   eta: 5e-2
   beta: 0.5
-  vr_mult_obj: 1.
-  vr_mult_cval: 1.
-  vr_mult_cgrad: 1.
+  vr_mult_obj: 0.3
+  vr_mult_cval: 0.3
+  vr_mult_cgrad: 0.3

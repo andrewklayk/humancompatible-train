@@ -35,6 +35,7 @@ def plot_iter(
     ax1.plot(q_higher["Loss"], label=f"Q{int(q2 * 100)}", c="black", lw=0.6)
     ax1.plot(q_mid["Loss"], label="Median", c="darkorange", lw=0.6)
     ax1.plot(means["Loss"], label="Mean")
+    ax1.set_ylim(f_ylim)
     xt = ax1.get_xticks()
     xt_ind = xt[1:-1] - 1
     xt_ind[0] = 0
@@ -56,6 +57,7 @@ def plot_iter(
     ax2.plot(q_higher["C1"], ls="-", label=f"Q{int(q2 * 100)}", c="black", lw=0.6)
     ax2.plot(q_mid["C1"], label="Median", c="darkorange")
     ax2.plot(means["C1"], label="Mean")
+    ax2.set_ylim(c_ylim)
 
     ax2.set_xlabel("Iteration")
     # ax2.set_ylim(bottom=-0.02, top=0.02)
@@ -79,7 +81,7 @@ def plot_iter(
     return f
 
 
-def plot_trajectories(data, lb, x_axis, alpha=0.5, lw=1, legend=True, w=14):
+def plot_trajectories(data, lb, x_axis, alpha=0.5, lw=1, legend=True, w=14, f_ylim=(0.4, 0.77), c_ylim=(-0.12, 0.12)):
     f = plt.figure()
     ax1 = f.add_subplot(1, 2, 1)
     ax2 = f.add_subplot(1, 2, 2)
@@ -97,7 +99,8 @@ def plot_trajectories(data, lb, x_axis, alpha=0.5, lw=1, legend=True, w=14):
             continue
         ax1.plot(x, traj["Loss"], label="Loss - trial {EXP_NUM}", alpha=_a, lw=lw)
         ax2.plot(x, traj["C1"], label=f"C1 - trial {EXP_NUM}", alpha=_a, lw=lw)
-
+    ax1.set_ylim(f_ylim)
+    ax2.set_ylim(c_ylim)
     ax1.set_xlabel("iteration" if x_axis == "iteration" else "time, s")
     # ax1.set_ybound(0, 1)
     ax2.set_xlabel("iteration" if x_axis == "iteration" else "time, s")
