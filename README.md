@@ -140,6 +140,20 @@ For more information, see https://www.census.gov/data/developers/about/terms-of-
 
 ## References
 
+If you use this work, we encourage you to cite [our paper](https://arxiv.org/abs/2507.04033),
+
+```
+@misc{kliachkin2025benchmarkingstochasticapproximationalgorithms,
+      title={Benchmarking Stochastic Approximation Algorithms for Fairness-Constrained Training of Deep Neural Networks}, 
+      author={Andrii Kliachkin and Jana Lepšová and Gilles Bareilles and Jakub Mareček},
+      year={2025},
+      eprint={2507.04033},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2507.04033}, 
+}
+```
+
 <a id="1">[1]</a> 
 Ding, Hardt & Miller et al. (2021) Retiring Adult: New Datasets for Fair Machine Learning, Curran Associates, Inc..
 
