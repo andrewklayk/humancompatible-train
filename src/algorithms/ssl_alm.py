@@ -36,16 +36,20 @@ class SSLALM(Algorithm):
         beta,
         batch_size,
         epochs,
-        N_vr_obj=32,
-        N_vr_cval=32,
-        N_vr_cgrad=32,
         start_lambda=None,
         max_runtime=None,
         max_iter=None,
         seed=None,
         device="cpu",
         verbose=True,
+        use_unbiased_penalty_grad=True,
+        save_state_interval=1
     ):
+        self.state_history = {}
+        self.state_history["params"] = {"w": {}, "dual_ms": {}, "z": {}, "slack": {}}
+        self.state_history["values"] = {"G": {}, "f": {}, "fg": {}, "c": {}, "cg": {}}
+        self.state_history["time"] = {}
+        
         m = len(self.constraints)
         slack_vars = torch.zeros(m, requires_grad=True)
         _lambda = (
@@ -80,29 +84,6 @@ class SSLALM(Algorithm):
         total_iters = 0
 
         f_grad_estimate = 0
-        ### STORM initial f_grad estimate ###
-        storm_batch_size = N_vr_obj
-        pre_loader = torch.utils.data.DataLoader(
-            self.dataset, storm_batch_size, shuffle=True, generator=gen
-        )
-        pre_iter = iter(pre_loader)
-        (f_inputs, f_labels) = next(pre_iter)
-        _, f_grad_estimate = self._objective_estimate(f_inputs, f_labels)
-        self.net.zero_grad()
-        
-        
-        ### STORM initial c_val estimate ###
-        with torch.no_grad():
-            c_sample = [ci.sample_dataset(N_vr_cval) for ci in c]
-            c_val_estimate = torch.concat([
-                ci.eval(self.net, c_sample[i]).reshape(1) + slack_vars[i]
-                for i, ci in enumerate(c)
-            ])
-            
-        ### STORM initial c_grad estimate ###
-        c_sample = [ci.sample_dataset(N_vr_cgrad) for ci in c]
-        _cv = self._c_value_estimate(slack_vars, c, c_sample)
-        c_grad_estimate = self._constraint_grad_estimate(slack_vars, _cv)
 
         while True:
             elapsed = timeit.default_timer() - run_start
@@ -111,22 +92,31 @@ class SSLALM(Algorithm):
             if epoch >= epochs or total_iters >= max_iter or elapsed > max_runtime:
                 break
 
-            self.history["w"].append(deepcopy(self.net.state_dict()))
-            self.history["time"].append(elapsed)
-            self.history["n_samples"].append(batch_size * 3)
+            self.state_history["time"][total_iters] = elapsed
+            if total_iters % save_state_interval == 0:
+                self.state_history["params"]["w"][total_iters] = deepcopy(
+                    self.net.state_dict()
+                )
+                self.state_history["params"]["dual_ms"][total_iters] = (
+                    _lambda.detach().cpu().numpy()
+                )
+                self.state_history["params"]["z"][total_iters] = (
+                    z_par.detach().cpu().numpy()
+                )
+                self.state_history["params"]["slack"][total_iters] = (
+                    slack_vars.detach().cpu().numpy()
+                )
 
             try:
                 (f_inputs, f_labels) = next(loss_iter)
             except StopIteration:
                 epoch += 1
                 iteration = 0
-                #gen.manual_seed(epoch)
                 loss_loader = torch.utils.data.DataLoader(
                     self.dataset, batch_size, shuffle=True, generator=gen
                 )
                 loss_iter = iter(loss_loader)
                 (f_inputs, f_labels) = next(loss_iter)
-                tau  /= 10
 
             ########################
             ## UPDATE MULTIPLIERS ##
@@ -152,28 +142,11 @@ class SSLALM(Algorithm):
             G = (
                 f_grad_estimate
                 + c_grad_estimate.T @ _lambda
-                + rho * (c_grad_estimate.T @ c_val_estimate)
+                + rho * (c_grad_estimate.T @ c_val_estimate_2)
                 + mu * (x_t - z)
             )
             x_t1 = self.project(x_t - tau * G, m)
             z += beta * (x_t - z)
-            
-            if vr_mult_obj != 1:
-                # objective gradient
-                _, f_grad = self._objective_estimate(f_inputs, f_labels)
-                self.net.zero_grad()
-            
-            if vr_mult_cval != 1:
-                # constraint value
-                with torch.inference_mode():
-                    c_sample = [ci.sample_loader() for ci in c]
-                    c_val = torch.concat(self._c_value_estimate(slack_vars, c, c_sample))
-            
-            if vr_mult_cgrad != 1:
-                # constraint grad (independent)
-                c_sample = [ci.sample_loader() for ci in c]
-                _cv = self._c_value_estimate(slack_vars, c, c_sample)
-                c_grad = self._constraint_grad_estimate(slack_vars, _cv)
             
             #### UPDATE NETWORK WEIGHTS ####
             with torch.no_grad():
@@ -184,19 +157,48 @@ class SSLALM(Algorithm):
             loss_eval, f_grad_1 = self._objective_estimate(f_inputs, f_labels)
             self.net.zero_grad()
 
-            # constraint value
-            with torch.inference_mode():
-                c_sample = [ci.sample_loader() for ci in c]
-                c_val_1 = torch.concat(self._c_value_estimate(slack_vars, c, c_sample))
-            
-            # constraint grad (independent)
             c_sample = [ci.sample_loader() for ci in c]
-            _cv1 = self._c_value_estimate(slack_vars, c, c_sample)
-            c_grad_1 = self._constraint_grad_estimate(slack_vars, _cv1)
+            _c_val_1 = self._c_value_estimate(slack_vars, c, c_sample)
+            c_val_1 = torch.concat(_c_val_1)
+            c_grad_1 = self._constraint_grad_estimate(slack_vars, _c_val_1)
 
-            f_grad_estimate = f_grad_1 + ((1 - vr_mult_obj) * (f_grad_estimate - f_grad) if vr_mult_obj != 1 else 0)
-            c_val_estimate = c_val_1 + ((1-vr_mult_cval) * (c_val_estimate - c_val) if vr_mult_cval != 1 else 0)
-            c_grad_estimate = c_grad_1 + ((1-vr_mult_cgrad) * (c_grad_estimate - c_grad) if vr_mult_cgrad != 1 else 0)
+            # constraint value (2) (independent)
+            if use_unbiased_penalty_grad:
+                c_sample = [ci.sample_loader() for ci in c]
+                c_val_2 = torch.concat(self._c_value_estimate(slack_vars, c, c_sample))
+            else:
+                c_val_2 = c_val_1
+
+            f_grad_estimate = f_grad_1
+            c_val_estimate = c_val_1
+            c_val_estimate_2 = c_val_2
+            c_grad_estimate = c_grad_1
+            
+            with torch.no_grad():
+                f_grad_par = torch.narrow(
+                    f_grad_estimate, 0, 0, f_grad_estimate.shape[-1] - m
+                )
+                c_grad_par = torch.narrow(
+                    c_grad_estimate, 1, 0, c_grad_estimate.shape[-1] - m
+                )
+                G_par = torch.narrow(G, 0, 0, G.shape[-1] - m)
+                z_par = torch.narrow(z, 0, 0, z.shape[-1] - m)
+
+                self.state_history["values"]["G"][total_iters] = (
+                    torch.norm(G_par).detach().cpu().numpy()
+                )
+                self.state_history["values"]["f"][total_iters] = (
+                    loss_eval.detach().cpu().numpy()
+                )
+                self.state_history["values"]["fg"][total_iters] = (
+                    torch.norm(f_grad_par).detach().cpu().numpy()
+                )
+                self.state_history["values"]["c"][total_iters] = (
+                    c_val_2.detach().cpu().numpy()
+                )
+                self.state_history["values"]["cg"][total_iters] = (
+                    torch.norm(c_grad_par, dim=1).detach().cpu().numpy()
+                )
 
             if verbose:
                 with np.printoptions(precision=6, suppress=True, floatmode="fixed"):

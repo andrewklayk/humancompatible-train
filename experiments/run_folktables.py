@@ -96,108 +96,133 @@ def run(cfg: DictConfig) -> None:
 
         net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
 
+        for EXP_IDX in range(N_RUNS):
+        ## define constraints ##
+        ## used also when evaluating results ##
+
+        loss_fn = nn.BCEWithLogitsLoss()
+        constraint_fn_module = importlib.import_module("src.constraints")
+        constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
+        c = construct_constraints(
+            bound=cfg.constraint.bound,
+            double_side=cfg.constraint.double_side,
+            batch_size=cfg.constraint.c_batch_size,
+            device=device,
+            constraint_groups=[group_ind_train],
+            dataset=train_ds,
+            seed=EXP_IDX,
+            constraint_fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs),
+            max_0 = False
+        )
+
+        torch.manual_seed(EXP_IDX)
+        model_path = model_name + f"_trial{EXP_IDX}.pt"
+
+        net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
+
+        history = {
+            "params": {"w": {}, "slack": {}, "dual_ms": {}},
+            "values": {"f": {}, "c": {}, "G": {}},
+            "time": {},
+        }
+
+        ## train ##
+
         if cfg.alg.import_name.startswith("fairret"):
-            fairret_loss = importlib.import_module("fairret.loss")
-            fairret_statistic = importlib.import_module("fairret.statistic")
-            statistic = getattr(fairret_statistic, cfg.alg.params.statistic)()
-            loss_fairret = getattr(fairret_loss, cfg.alg.params.loss)(statistic)
+            m = len(group_ind_train)
+
+            _fairret_loss_module = importlib.import_module("fairret.loss")
+            _fairret_statistic_module = importlib.import_module("fairret.statistic")
+            fstat = getattr(_fairret_statistic_module, cfg.alg.params.statistic)()
+            floss = getattr(_fairret_loss_module, cfg.alg.params.loss)(fstat, p=1)
 
             run_start = timeit.default_timer()
-            current_time = timeit.default_timer()
-            data_w = Subset(train_ds, w_idx_train)
-            data_b = Subset(train_ds, nw_idx_train)
 
-            history = {"loss": [], "constr": [], "w": [], "time": [], "n_samples": []}
-            loss_fn = torch.nn.BCEWithLogitsLoss()
-            optimizer = torch.optim.SGD(net.parameters(), lr=5e-2)
-            epochs = cfg.alg.params.epochs
-            batch_size = cfg.alg.params.batch_size
-            mult = cfg.alg.params.pmult
-            for epoch in range(epochs):
-                gen = torch.Generator(device=device)
-                gen.manual_seed(EXP_IDX + epoch)
-                loader_w = torch.utils.data.DataLoader(
-                    data_w, batch_size // 2, shuffle=True, generator=gen, drop_last=True
-                )
-                loader_b = torch.utils.data.DataLoader(
-                    data_b, batch_size // 2, shuffle=True, generator=gen, drop_last=True
-                )
-                for i, ((inputs_w, labels_w), (inputs_b, labels_b)) in enumerate(
-                    zip(loader_w, loader_b)
-                ):
-                    current_time = timeit.default_timer()
-                    elapsed = current_time - run_start
-                    if elapsed > cfg.run_maxtime:
-                        break
-                    history["time"].append(elapsed)
-                    history["n_samples"].append(batch_size)
-
-                    net.zero_grad()
-
-                    inputs = torch.concat([inputs_w, inputs_b])
-                    labels = torch.concat([labels_w, labels_b])
-                    group_ind_onehot = torch.tensor(
-                        [
-                            [0] * (batch_size // 2) + [1] * (batch_size // 2),
-                            [1] * (batch_size // 2) + [0] * (batch_size // 2),
-                        ]
-                    ).T
-                    outputs = net(inputs)
-                    loss_bce = loss_fn(outputs.squeeze(), labels)
-
-                    try:
-                        loss_fr = loss_fairret(outputs.squeeze(), group_ind_onehot)
-                    except:
-                        loss_fr = loss_fairret(
-                            outputs, group_ind_onehot, labels.unsqueeze(1)
-                        )
-                    loss = loss_bce + mult * loss_fr
-
-                    loss.backward()
-                    optimizer.step()
-
-                    with np.printoptions(precision=6, suppress=True):
-                        print(
-                            f"{epoch:2} | {i:5} | {loss_bce.detach().cpu().numpy():.4}|{loss_fr.detach().cpu().numpy():.4}",
-                            end="\r",
-                        )
-
-                    history["w"].append(deepcopy(net.state_dict()))
-
-        elif cfg.alg.import_name.lower().startswith("sgd"):
-            run_start = timeit.default_timer()
-            current_time = timeit.default_timer()
             loss_fn = torch.nn.BCEWithLogitsLoss()
             optimizer = torch.optim.SGD(net.parameters(), lr=cfg.alg.params.lr)
-            train_ds = TensorDataset(
-                X_train_tensor.to(device), y_train_tensor.to(device)
-            )
-            batch_size = cfg.alg.params.batch_size
-            train_l = torch.utils.data.DataLoader(
-                train_ds, batch_size=batch_size, shuffle=True
-            )
-            history = {"loss": [], "constr": [], "w": [], "time": [], "n_samples": []}
-            for epoch in range(cfg.alg.params.epochs):
-                for i, (inputs, labels) in enumerate(train_l):
-                    elapsed = timeit.default_timer() - run_start
-                    if elapsed > cfg.run_maxtime:
-                        break
-                    history["time"].append(elapsed)
-                    history["n_samples"].append(batch_size)
+            c_batch_size = cfg.alg.params.batch_size
+            obj_batch_size = cfg.alg.params.obj_batch_size
+            mult = cfg.alg.params.pmult
 
-                    net.zero_grad()
-                    outputs = net(inputs)
-                    loss = loss_fn(outputs.squeeze(), labels)
-                    loss.backward()
-                    optimizer.step()
+            total_iters = 0
+            gen = torch.Generator(device=device)
+            gen.manual_seed(EXP_IDX)
+            obj_loader = iter(
+                torch.utils.data.DataLoader(
+                    train_ds,
+                    obj_batch_size,
+                    shuffle=True,
+                    generator=gen,
+                    drop_last=True,
+                )
+            )
 
-                    with np.printoptions(precision=6, suppress=True):
-                        print(
-                            f"{epoch:2} | {i:5} | {loss.detach().cpu().numpy()}",
-                            end="\r",
+            constr_dataloaders = []
+            for group_indices in group_ind_train:
+                sampler = SubsetRandomSampler(group_indices, gen)
+                constr_dataloaders.append(
+                    iter(
+                        DataLoader(
+                            train_ds, c_batch_size, sampler=sampler, drop_last=True
                         )
+                    )
+                )
 
-                    history["w"].append(deepcopy(net.state_dict()))
+            epoch = 0
+            iteration = 0
+            total_iters = 0
+
+            group_ind_onehot = torch.zeros(m, (c_batch_size * m))
+            for j in range(1, m):
+                group_ind_onehot[j][c_batch_size * (j - 1) : c_batch_size * j] = (
+                    torch.ones(c_batch_size)
+                )
+            group_ind_onehot = group_ind_onehot.T
+
+            while True:
+                elapsed = timeit.default_timer() - run_start
+                iteration += 1
+                total_iters += 1
+                if (
+                    cfg.run_maxiter is not None and total_iters >= cfg.run_maxiter
+                ) or elapsed > cfg.run_maxtime:
+                    break
+                if total_iters % 1000 == 0:
+                    history["params"]["w"][total_iters] = deepcopy(net.state_dict())
+                history["time"][total_iters] = elapsed
+
+                net.zero_grad()
+
+                inputs, labels = sample_or_restart_iterloader(obj_loader)
+                outputs = net(inputs)
+                loss_obj = loss_fn(outputs.squeeze(), labels)
+
+                c_inputs, c_labels = [], []
+                for j in range(m):
+                    group_inputs, group_labels = sample_or_restart_iterloader(
+                        constr_dataloaders[j]
+                    )
+                    c_inputs.append(group_inputs)
+                    c_labels.append(group_labels)
+
+                c_inputs = torch.concat(c_inputs)
+                c_labels = torch.concat(c_labels)
+
+                outputs_c = net(c_inputs)
+                loss_c = floss(
+                    outputs_c.unsqueeze(1), group_ind_onehot, c_labels.unsqueeze(1)
+                )
+
+                loss = loss_obj + mult * loss_c
+
+                loss.backward()
+                optimizer.step()
+
+                with np.printoptions(precision=6, suppress=True):
+                    print(
+                        f"{epoch:2} | {iteration:5} | {loss_obj.detach().cpu().numpy():.4} | {loss_c.detach().cpu().numpy():.4}",
+                        end="\r",
+                    )
         else:
             constraint_fn_module = importlib.import_module("src.constraints")
             constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)

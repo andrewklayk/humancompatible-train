@@ -11,13 +11,10 @@ def _dataloader_from_subset(dataset, indices, *args, **kwargs):
     return loader_s
 
 
-def _make_dataloaders(dataset, group_indices, batch_size, device, seed):
-    g = torch.Generator(device=device)
-    if seed is not None:
-        g.manual_seed(seed)
+def _make_dataloaders(dataset, group_indices, batch_size, device, gen=None):
     dataloaders = []
     for idx in group_indices:
-        sampler = SubsetRandomSampler(idx, g)
+        sampler = SubsetRandomSampler(idx, gen)
         dataloaders.append(iter(DataLoader(dataset, batch_size, sampler=sampler)))
     return dataloaders
 
@@ -41,12 +38,13 @@ class FairnessConstraint:
         self.fn = fn
         self._seed = seed
         self._rng = np.random.default_rng(seed)
+        self._torch_rng = torch.manual_seed(seed) if seed is not None else torch.Generator(device=device)
         self._device = device
         if batch_size is not None:
             self._batch_size = batch_size
             if use_dataloaders:
                 self.group_dataloaders = _make_dataloaders(
-                    dataset, group_indices, batch_size, device, seed
+                    dataset, group_indices, batch_size, device, gen=self._torch_rng
                 )
 
     def group_sizes(self):
@@ -56,18 +54,18 @@ class FairnessConstraint:
         return self.fn(net, sample, **kwargs)
 
     def sample_loader(self):
-        try:
-            sample = [next(l) for l in self.group_dataloaders]
-        except StopIteration:
-            self.group_dataloaders = _make_dataloaders(
-                self.dataset,
-                self._group_indices,
-                self._batch_size,
-                self._device,
-                self._seed,
-            )
-            sample = [next(l) for l in self.group_dataloaders]
-        return sample
+        samples = []
+        for i, l in enumerate(self.group_dataloaders):
+            try:
+                sample = next(l)
+            except StopIteration:
+                sampler = SubsetRandomSampler(self._group_indices[i], self._torch_rng)
+                l = iter(DataLoader(self.dataset, self._batch_size, sampler=sampler))
+                sample = next(l)
+                self.group_dataloaders[i] = l
+                
+            samples.append(sample)
+        return samples
 
     def sample_dataset(
         self, N, rng: np.random.Generator = None, indices=None, return_indices=False

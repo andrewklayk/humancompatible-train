@@ -1,11 +1,9 @@
 import os
 
+import folktables
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-
-# sys.path.append("..")
-
 from folktables import (
     ACSDataSource,
     ACSEmployment,
@@ -13,6 +11,19 @@ from folktables import (
     ACSPublicCoverage,
     generate_categories,
 )
+
+# sys.path.append("..")
+
+
+ACSIncomeSex = folktables.BasicProblem(
+    features=ACSIncome.features,
+    target="PINCP",
+    target_transform=lambda x: x > 50000,
+    group="SEX",
+    preprocess=folktables.adult_filter,
+    postprocess=lambda x: np.nan_to_num(x, -1),
+)
+
 
 RAC1P_WHITE = 1
 
@@ -52,9 +63,10 @@ def prepare_folktables(
     year=2018,
     random_state=None,
     onehot=True,
-    make_unbalanced=False,
     download=False,
     path=None,
+    sens_col="RAC1P",
+    stratify=False,
 ):
     acs_data, definition_df = download_folktables(
         state, horizon, survey, year, download, path
@@ -75,13 +87,20 @@ def prepare_folktables(
             features, label, group = ACSIncome.df_to_pandas(
                 acs_data, categories=categories, dummies=True
             )
-            sens_features = [col for col in features.columns if col.startswith("RAC1P")]
+            sens_features = [
+                col for col in features.columns if col.startswith(sens_col)
+            ]
             features = features.drop(columns=sens_features).to_numpy(dtype="float")
             label = label.to_numpy(dtype="float")
-        else:
-            features, label, group = ACSIncome.df_to_numpy(acs_data)
-            # drop the RAC1P column
-            features = features[:, :-1]
+        if sens_col == "RAC1P":
+            features, label, group = ACSIncome.df_to_pandas(acs_data)
+        elif sens_col == "SEX":
+            features, label, group = ACSIncomeSex.df_to_pandas(acs_data)
+
+    features = features.drop(sens_col, axis=1)
+    features = features.to_numpy()
+    label = label.to_numpy().flatten()
+    group = group.to_numpy()
 
     # drop sensitive
     group_binary = (group == RAC1P_WHITE).astype(float)
@@ -92,19 +111,9 @@ def prepare_folktables(
         label,
         group_binary,
         test_size=0.2,
-        stratify=group_binary,
+        stratify=group_binary if stratify else None,
         random_state=random_state,
     )
-
-    if make_unbalanced:
-        # g_train_new = g_train[:len(g_train)/2]
-        train_w_idx = np.argwhere(g_train == 1).flatten()
-        train_nw_idx = np.argwhere(g_train != 1).flatten()
-        train_nw_idx = train_nw_idx[: len(train_nw_idx) // 10]
-        idx = np.concatenate([train_w_idx, train_nw_idx])
-        X_train = X_train[idx]
-        y_train = y_train[idx]
-        g_train = g_train[idx]
 
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
