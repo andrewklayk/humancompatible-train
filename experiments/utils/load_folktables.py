@@ -133,3 +133,103 @@ def prepare_folktables(
         y_test,
         [test_w_idx, test_nw_idx],
     )
+
+
+def prepare_folktables_multattr(
+    dataset: str = "income",
+    state="AL",
+    horizon="1-Year",
+    survey="person",
+    year=2018,
+    random_state=None,
+    onehot=True,
+    download=False,
+    path=None,
+    sens_cols=["RAC1P", "SEX"],
+    binarize=[False, False],
+    binarize_values=None,
+    stratify=False,
+):
+    acs_data, definition_df = download_folktables(
+        state, horizon, survey, year, download, path
+    )
+
+    if dataset == "employment":
+        features, label, group = ACSEmployment.df_to_numpy(acs_data)
+    elif dataset == "coverage":
+        features, label, group = ACSPublicCoverage.df_to_numpy(acs_data)
+    elif dataset == "income":
+        features, label, _ = ACSIncome.df_to_pandas(acs_data)
+
+    for i, c in enumerate(sens_cols):
+        if binarize[i]:
+            features[c] = features[c].apply(lambda x: int(x == binarize[i]))
+
+    # group membership (by combination of values of every sensitive attribute)
+    sensitive_groups = features[sens_cols].apply(
+        lambda x: "_".join([str(int(v)) for i, v in enumerate(x[sens_cols])]), axis=1
+    )
+
+    # breakpoint()
+    # group_codes = {
+    #     {c[] for c in sens_cols}
+    # }
+
+    # groups defined by sensitive attributes separately
+    separate_sensitive_groups = [features[col].to_numpy() for col in sens_cols]
+
+    features_desens = features.drop(sens_cols, axis=1).to_numpy()
+    label = label.to_numpy().flatten()
+    sensitive_groups = sensitive_groups.to_numpy()
+
+    X_train, X_test, y_train, y_test, g_train, g_test = train_test_split(
+        features_desens,
+        label,
+        sensitive_groups,
+        test_size=0.2,
+        stratify=sensitive_groups if stratify else None,
+        random_state=random_state,
+    )
+
+    sep_sens_train = []
+    sep_sens_test = []
+    for gr in separate_sensitive_groups:
+        s_train, s_test = train_test_split(
+            gr,
+            test_size=0.2,
+            stratify=sensitive_groups if stratify else None,
+            random_state=random_state,
+        )
+        sep_sens_train.append(
+            [np.argwhere(s_train == sens_val).flatten() for sens_val in np.unique(gr)]
+        )
+        sep_sens_test.append(
+            [np.argwhere(s_test == sens_val).flatten() for sens_val in np.unique(gr)]
+        )
+
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    group_indices_train = [
+        np.argwhere(g_train == sens_val).flatten()
+        for sens_val in np.unique(sensitive_groups)
+    ]
+    group_indices_test = [
+        np.argwhere(g_test == sens_val).flatten()
+        for sens_val in np.unique(sensitive_groups)
+    ]
+
+    # separate_group_indices = [separate_sensitive_groups
+
+    return (
+        X_train_scaled,
+        y_train,
+        group_indices_train,
+        sep_sens_train,
+        X_test_scaled,
+        y_test,
+        group_indices_test,
+        sep_sens_test,
+        # group_names
+    )

@@ -21,6 +21,7 @@ class SGD(Algorithm):
         seed=None,
         device="cpu",
         verbose=True,
+        save_state_interval=1000,
     ):
         self.state_history = {}
         self.state_history["params"] = {"w": {}}
@@ -57,7 +58,7 @@ class SGD(Algorithm):
             if epoch >= epochs or total_iters >= max_iter or elapsed > max_runtime:
                 break
 
-            if total_iters % 1000 == 0:
+            if total_iters % save_state_interval == 0:
                 self.state_history["params"]["w"][total_iters] = deepcopy(
                     self.net.state_dict()
                 )

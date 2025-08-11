@@ -34,9 +34,6 @@ class SSLALM(Algorithm):
         tau_mult=1.,
         eta_mult=1.,
         batch_size=16,
-        vr_mult_obj=1.,
-        vr_mult_cval=1.,
-        vr_mult_cgrad=1.,
         epochs=None,
         start_lambda=None,
         max_runtime=None,
@@ -121,7 +118,7 @@ class SSLALM(Algorithm):
                 break
 
             self.state_history["time"][total_iters] = elapsed
-            if total_iters % 100 == 0:
+            if total_iters % save_state_interval == 0:
                 self.state_history["params"]["w"][total_iters] = deepcopy(
                     self.net.state_dict()
                 )

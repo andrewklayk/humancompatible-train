@@ -35,6 +35,7 @@ class SSG(Algorithm):
         verbose=True,
         max_runtime=None,
         max_iter=None,
+        save_state_interval=100
     ):
         self.state_history = {}
         self.state_history["params"] = {"w": {}}
@@ -69,7 +70,7 @@ class SSG(Algorithm):
                 break
 
             self.state_history["time"][total_iters] = elapsed
-            if total_iters % 100 == 0:
+            if total_iters % save_state_interval == 0:
                 self.state_history["params"]["w"][total_iters] = deepcopy(
                     self.net.state_dict()
                 )

@@ -201,7 +201,7 @@ def plot_trajectories(
 
 def plot_time(
     data,
-    lb,
+    cb,
     loss_col,
     c_col,
     two_sided=False,
@@ -283,10 +283,10 @@ def plot_time(
     ax2.hlines(y=0, xmin=0, xmax=max(means.index), ls="--", colors="black", alpha=0.5)
 
     if add_lb:
-        q_lower[c_col] += lb
-        q_higher[c_col] += lb
-        q_mid[c_col] += lb
-        means[c_col] += lb
+        q_lower[c_col] += cb
+        q_higher[c_col] += cb
+        q_mid[c_col] += cb
+        means[c_col] += cb
 
     ax2.fill_between(x=means.index, y1=q_lower[c_col], y2=q_higher[c_col], alpha=0.5)
     ax2.plot(q_lower[c_col], ls="-", label=f"Q{int(q1 * 100)}", c="black", lw=0.5)
@@ -297,7 +297,7 @@ def plot_time(
     if two_sided:
         ax2.set_ylim(bottom=c_ylim[0], top=c_ylim[1])
         ax2.hlines(
-            y=[-lb, lb],
+            y=[-cb, cb],
             xmin=0,
             xmax=max(means.index),
             ls="--",
@@ -308,7 +308,7 @@ def plot_time(
     else:
         ax2.set_ylim(bottom=0, top=c_ylim[1])
         ax2.hlines(
-            y=lb,
+            y=cb,
             xmin=0,
             xmax=max(means.index),
             ls="--",

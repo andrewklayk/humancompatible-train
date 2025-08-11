@@ -5,12 +5,6 @@ import torch
 from torch.utils.data import DataLoader, SubsetRandomSampler
 
 
-def _dataloader_from_subset(dataset, indices, *args, **kwargs):
-    data_s = torch.utils.data.Subset(dataset, indices)
-    loader_s = torch.utils.data.DataLoader(data_s, *args, **kwargs)
-    return loader_s
-
-
 def _make_dataloaders(dataset, group_indices, batch_size, device, gen=None):
     dataloaders = []
     for idx in group_indices:

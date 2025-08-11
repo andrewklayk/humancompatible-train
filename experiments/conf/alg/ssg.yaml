@@ -10,3 +10,4 @@ params:
   f_stepsize: 0.2
   c_stepsize_rule: const
   c_stepsize: 0.02
+  save_state_interval: 20

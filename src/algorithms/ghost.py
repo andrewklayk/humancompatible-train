@@ -82,6 +82,7 @@ class StochasticGhost(Algorithm):
         verbose=True,
         max_runtime=None,
         max_iter=None,
+        save_state_interval=1
     ):
         self.state_history = {}
         self.state_history["params"] = {"w": {}}
@@ -234,7 +235,7 @@ class StochasticGhost(Algorithm):
                     )
                     start = end
 
-            if iteration % 1 == 0:
+            if iteration % save_state_interval == 0:
                 self.state_history["params"]["w"][iteration] = deepcopy(
                     self.net.state_dict()
                 )

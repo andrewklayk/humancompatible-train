@@ -1,32 +1,41 @@
 from copy import deepcopy
 import importlib
+from itertools import combinations
 import os
 import timeit
+import warnings
 import hydra
 import numpy as np
 import pandas as pd
 import torch
 from omegaconf import DictConfig, OmegaConf
 from torch import nn, tensor
-from torch.utils.data import TensorDataset, Subset
-from utils.load_folktables import prepare_folktables
+from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
+from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
-
+from src.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
+from itertools import combinations
 from src.constraints import FairnessConstraint
+
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="experiment")
 def run(cfg: DictConfig) -> None:
+    warnings.filterwarnings("ignore", category=FutureWarning)
+
     print(OmegaConf.to_yaml(cfg))
     N_RUNS = cfg.n_runs
     FT_STATE = cfg.data.state
     FT_TASK = cfg.data.task
     DOWNLOAD_DATA = cfg.data.download
     DATA_PATH = cfg.data.path
-
-    # CONSTRAINT = cfg.constraint
-    CONSTRAINT = "eq_loss"
-    LOSS_BOUND = cfg.constraint.bound
+    
+    if "constraint" in cfg.keys():
+        CONSTRAINT = cfg.constraint.import_name
+        LOSS_BOUND = cfg.constraint.bound
+    else:
+        CONSTRAINT = "unconstr"
+        LOSS_BOUND = 0
 
     if cfg.device == "cpu":
         device = "cpu"
@@ -45,30 +54,40 @@ def run(cfg: DictConfig) -> None:
 
     DTYPE = torch.float32
 
+    ## load data ##
+
     torch.set_default_dtype(DTYPE)
     DATASET_NAME = FT_TASK + "_" + FT_STATE
 
     (
         X_train,
         y_train,
-        [w_idx_train, nw_idx_train],
+        group_ind_train,
+        sep_group_ind_train,
         X_test,
         y_test,
-        [w_idx_test, nw_idx_test],
-    ) = prepare_folktables(
+        group_ind_test,
+        sep_group_ind_test,
+    ) = prepare_folktables_multattr(
         FT_TASK,
         state=FT_STATE.upper(),
         random_state=42,
-        make_unbalanced=False,
         onehot=False,
         download=DOWNLOAD_DATA,
         path=DATA_PATH,
+        sens_cols=cfg.data.sens_attr,
+        binarize=cfg.data.binarize,
+        stratify=False,
     )
+
     X_train_tensor = tensor(X_train, dtype=DTYPE)
     y_train_tensor = tensor(y_train, dtype=DTYPE)
     train_ds = TensorDataset(X_train_tensor, y_train_tensor)
+
     print(f"Train data loaded: {(FT_TASK, FT_STATE)}")
     print(f"Data shape: {X_train_tensor.shape}")
+
+    ## prepare to save results ##
 
     if "save_name" in cfg["alg"].keys():
         alg_save_name = cfg.alg.save_name
@@ -87,25 +106,23 @@ def run(cfg: DictConfig) -> None:
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-    ftrial, ctrial, wtrial, ttrial, samples_trial = [], [], [], [], []
+    ## run experiments ##
+
+    histories = []
 
     # experiment loop
     for EXP_IDX in range(N_RUNS):
-        torch.manual_seed(EXP_IDX)
-        model_path = model_name + f"_trial{EXP_IDX}.pt"
 
         net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
 
-        for EXP_IDX in range(N_RUNS):
         ## define constraints ##
-        ## used also when evaluating results ##
 
         loss_fn = nn.BCEWithLogitsLoss()
         constraint_fn_module = importlib.import_module("src.constraints")
         constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
         c = construct_constraints(
             bound=cfg.constraint.bound,
-            double_side=cfg.constraint.double_side,
+            add_negative=cfg.constraint.add_negative,
             batch_size=cfg.constraint.c_batch_size,
             device=device,
             constraint_groups=[group_ind_train],
@@ -140,7 +157,7 @@ def run(cfg: DictConfig) -> None:
 
             loss_fn = torch.nn.BCEWithLogitsLoss()
             optimizer = torch.optim.SGD(net.parameters(), lr=cfg.alg.params.lr)
-            c_batch_size = cfg.alg.params.batch_size
+            c_batch_size = cfg.alg.params.c_batch_size
             obj_batch_size = cfg.alg.params.obj_batch_size
             mult = cfg.alg.params.pmult
 
@@ -187,7 +204,7 @@ def run(cfg: DictConfig) -> None:
                     cfg.run_maxiter is not None and total_iters >= cfg.run_maxiter
                 ) or elapsed > cfg.run_maxtime:
                     break
-                if total_iters % 1000 == 0:
+                if total_iters % cfg.alg.params.save_state_interval == 0:
                     history["params"]["w"][total_iters] = deepcopy(net.state_dict())
                 history["time"][total_iters] = elapsed
 
@@ -208,7 +225,7 @@ def run(cfg: DictConfig) -> None:
                 c_inputs = torch.concat(c_inputs)
                 c_labels = torch.concat(c_labels)
 
-                outputs_c = net(c_inputs)
+                outputs_c = net(c_inputs).squeeze()
                 loss_c = floss(
                     outputs_c.unsqueeze(1), group_ind_onehot, c_labels.unsqueeze(1)
                 )
@@ -224,172 +241,293 @@ def run(cfg: DictConfig) -> None:
                         end="\r",
                     )
         else:
-            constraint_fn_module = importlib.import_module("src.constraints")
-            constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
-
-            loss_fn = nn.BCEWithLogitsLoss()
-            cf1 = lambda net, d: constraint_fn(loss_fn, net, d) - cfg.constraint.bound
-            cf2 = lambda net, d: -constraint_fn(loss_fn, net, d) - cfg.constraint.bound
-            c1 = FairnessConstraint(
-                train_ds,
-                [w_idx_train, nw_idx_train],
-                fn=cf1,
-                batch_size=cfg.constraint.c_batch_size,
-                device=device,
-                seed=EXP_IDX,
-            )
-            c2 = FairnessConstraint(
-                train_ds,
-                [w_idx_train, nw_idx_train],
-                fn=cf2,
-                batch_size=cfg.constraint.c_batch_size,
-                device=device,
-                seed=EXP_IDX,
-            )
-
             optimizer_name = cfg.alg.import_name
             module = importlib.import_module("src.algorithms")
             Optimizer = getattr(module, optimizer_name)
 
-            optimizer = Optimizer(net, train_ds, loss_fn, [c1, c2])
+            optimizer = Optimizer(net, train_ds, loss_fn, c)
             history = optimizer.optimize(
                 **cfg.alg.params,
                 max_iter=cfg.run_maxiter,
                 max_runtime=cfg.run_maxtime,
                 device=device,
                 seed=EXP_IDX,
+                verbose=True,
             )
 
         ## SAVE RESULTS ##
-        ftrial.append(pd.Series(history["loss"]))
-        ctrial.append(pd.DataFrame(history["constr"]))
-        wtrial.append(history["w"])
-        ttrial.append(history["time"])
-        samples_trial.append(pd.Series(history["n_samples"]))
+        params = pd.DataFrame(history["params"])
+        values = pd.DataFrame(history["values"])
+        t = pd.Series(history["time"], name="time")
+        histories.append(values.join(params, how="outer").join(t, how="outer"))
 
         ## SAVE MODEL ##
+        print(f"Model saved to: {model_path}")
         torch.save(net.state_dict(), model_path)
         print("")
 
     # Save DataFrames to CSV files
+    if cfg.alg.import_name.lower() == "sgd":
+        c_name = "unconstrained"
+    else:
+        c_name = cfg.constraint.import_name
     utils_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "utils", "exp_results")
+        os.path.join(os.path.dirname(__file__), "utils", "exp_results", c_name)
     )
     if not os.path.exists(utils_path):
         os.makedirs(utils_path)
-
-    ftrial = pd.concat(ftrial, keys=range(len(ftrial)))
-    ctrial = pd.concat(ctrial, keys=range(len(ctrial)))
-    samples_trial = pd.concat(samples_trial, keys=range(len(samples_trial)))
-
-    fname = f"{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}"
-
-    print(f"Saving to: {fname}")
-    ftrial.to_csv(os.path.join(utils_path, fname + "_ftrial.csv"))
-    ctrial.to_csv(os.path.join(utils_path, fname + "_ctrial.csv"))
-    samples_trial.to_csv(os.path.join(utils_path, fname + "_samples.csv"))
+    fname = f"{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}.csv"
+    save_path = os.path.join(utils_path, fname)
+    print(f"Saving to: {save_path}")
+    histories = pd.concat(histories, keys=range(N_RUNS), names=["trial", "iteration"])
+    histories.to_pickle(save_path)
     print("Saved!")
 
-    #############################################################
-    ### CALCULATE TEST SET STATS ON EVERY ALGORITHM ITERATION ###
-    #############################################################
+    ####################################################
+    ### CALCULATE STATS ON EVERY ALGORITHM ITERATION ###
+    ####################################################
+
+    loss_fn = nn.BCEWithLogitsLoss()
+    constraint_fn_module = importlib.import_module("src.constraints")
+    constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
+    c = construct_constraints(
+        bound=cfg.constraint.bound,
+        add_negative=cfg.constraint.add_negative,
+        batch_size=cfg.constraint.c_batch_size,
+        device=device,
+        constraint_groups=[group_ind_train],
+        dataset=train_ds,
+        seed=EXP_IDX,
+        constraint_fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs),
+        max_0 = False
+    )
 
     print("----")
     print("")
-    wlen = max([len(tr) for tr in wtrial])
+
+    exp_iter_indices = [
+        histories.loc[exp_idx, :]
+        .index.get_level_values("iteration")[histories.loc[exp_idx]["w"].notna()]
+        .to_list()
+        for exp_idx in histories.index.get_level_values("trial").unique()
+    ]
+    exp_maxiter = np.argmax([ind[-1] for ind in exp_iter_indices])
+    longest_exp_indices = exp_iter_indices[exp_maxiter]
+    longest_exp_indices.extend(
+        [ei[-1] for ei in exp_iter_indices if ei[-1] not in longest_exp_indices]
+    )
+    longest_exp_indices = list(set(longest_exp_indices))
+    longest_exp_indices.sort()
+
     index = pd.MultiIndex.from_product(
-        [["train", "test"], np.arange(wlen), np.arange(N_RUNS)],
-        names=("is_train", "iteration", "trial"),
+        [longest_exp_indices, range(N_RUNS)],
+        names=("iteration", "trial"),
     )
-    full_stats = pd.DataFrame(
-        index=index, columns=["Loss", "C1", "C2", "SampleSize", "time"]
-    )
-    full_stats.sort_index(inplace=True)
+    full_eval_train = pd.DataFrame(
+        index=index, columns=["G", "f", "fg", "c", "cg"]
+    ).sort_index()
+    full_eval_test = pd.DataFrame(
+        index=index, columns=["G", "f", "fg", "c", "cg"]
+    ).sort_index()
 
     loss_fn = nn.BCEWithLogitsLoss()
-
-    device = "cuda" if torch.cuda.is_available() else device
-
     X_test_tensor = tensor(X_test, dtype=DTYPE).to(device)
     y_test_tensor = tensor(y_test, dtype=DTYPE).to(device)
-
-    X_test_w = X_test_tensor[w_idx_test]
-    y_test_w = y_test_tensor[w_idx_test]
-    X_test_nw = X_test_tensor[nw_idx_test]
-    y_test_nw = y_test_tensor[nw_idx_test]
-
-    X_train_w = X_train_tensor[w_idx_train]
-    y_train_w = y_train_tensor[w_idx_train]
-    X_train_nw = X_train_tensor[nw_idx_train]
-    y_train_nw = y_train_tensor[nw_idx_train]
+    X_train_tensor = X_train_tensor.to(device=device)
+    y_train_tensor = y_train_tensor.to(device=device)
 
     save_train = True
+    save_test = True
+    histories.dropna(subset=["w"], inplace=True)
 
-    with torch.inference_mode():
-        for exp_idx in range(N_RUNS):
-            weights_to_eval = wtrial[exp_idx]
-            for alg_iteration, w in enumerate(weights_to_eval):
-                if CONSTRAINT == "eq_loss":
-                    constraint_fn_module = importlib.import_module("src.constraints")
-                    constraint_fn = getattr(
-                        constraint_fn_module, cfg.constraint.import_name
-                    )
-                    c_f = constraint_fn
-                    c_loss_fn = nn.BCEWithLogitsLoss()
-                print(f"{exp_idx} | {alg_iteration}", end="\r")
-                net.load_state_dict(w)
-                net = net.to(device)
+    for exp_idx in range(N_RUNS):
+        for alg_iteration in histories.loc[exp_idx, :].index:
+            print(f"{exp_idx} | {alg_iteration}", end="\r")
 
-                if save_train:
-                    outs = net(X_train_tensor)
-                    if y_train_tensor.ndim < outs.ndim:
-                        y_train_tensor = y_train_tensor.unsqueeze(1)
-                    loss = loss_fn(outs, y_train_tensor).detach().cpu().numpy()
-
-                    c1 = (
-                        c_f(
-                            c_loss_fn,
-                            net,
-                            [(X_train_w, y_train_w), (X_train_nw, y_train_nw)],
-                        )
-                        .detach()
-                        .cpu()
-                        .numpy()
-                    )
-                    c2 = -c1
-                    # pandas multiindex bug(?) workaround
-                    full_stats.loc["train"].at[alg_iteration, exp_idx] = {
-                        "Loss": loss,
-                        "C1": c1,
-                        "C2": c2,
-                        "SampleSize": samples_trial[exp_idx][alg_iteration],
-                        "time": ttrial[exp_idx][alg_iteration],
-                    }
-
-                outs = net(X_test_tensor)
-                if y_test_tensor.ndim < outs.ndim:
-                    y_test_tensor = y_test_tensor.unsqueeze(1)
-                loss = loss_fn(outs, y_test_tensor).detach().cpu().numpy()
-
-                c1 = (
-                    c_f(c_loss_fn, net, [(X_test_w, y_test_w), (X_test_nw, y_test_nw)])
-                    .detach()
-                    .cpu()
-                    .numpy()
-                )
-                c2 = -c1
-
-                full_stats.loc["test"].at[alg_iteration, exp_idx] = {
-                    "Loss": loss,
-                    "C1": c1,
-                    "C2": c2,
-                    "SampleSize": samples_trial[exp_idx][alg_iteration],
-                    "time": ttrial[exp_idx][alg_iteration],
+            w = histories["w"].loc[exp_idx, alg_iteration]
+            net.load_state_dict(w)
+            net = net.to(device)
+            if cfg.alg.import_name.lower() == "sslalm":
+                x_t = net_params_to_tensor(net, flatten=True, copy=True)
+                lambdas = histories["dual_ms"].loc[exp_idx, alg_iteration]
+                z = histories["z"].loc[exp_idx, alg_iteration]
+                params = {
+                    "x_t": x_t,
+                    "lambdas": lambdas,
+                    "z": z,
+                    "rho": cfg.alg.params.rho,
+                    "mu": cfg.alg.params.mu,
                 }
 
-    fname = f"{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}.csv"
-    print(f"Saving to: {fname}")
-    full_stats.to_csv(os.path.join(utils_path, fname))
+            if save_train:
+                calculate_iteration_values(
+                    alg=cfg.alg.import_name,
+                    full_eval=full_eval_train,
+                    index_to_save=[alg_iteration, exp_idx],
+                    c=c,
+                    loss_fn=loss_fn,
+                    data_f=[X_train_tensor, y_train_tensor],
+                    data_c=[
+                        (
+                            (X_train_tensor[g_idx_1], y_train_tensor[g_idx_1]),
+                            (X_train_tensor[g_idx_2], y_train_tensor[g_idx_2]),
+                        )
+                        for g_idx_1, g_idx_2 in combinations(group_ind_train, 2)
+                    ],
+                    net=net,
+                    device=device,
+                    add_negative=cfg.constraint.add_negative,
+                    **params,
+                )
+
+            if save_test:
+                calculate_iteration_values(
+                    alg=cfg.alg.import_name,
+                    full_eval=full_eval_test,
+                    index_to_save=[alg_iteration, exp_idx],
+                    c=c,
+                    loss_fn=loss_fn,
+                    data_f=[X_test_tensor, y_test_tensor],
+                    data_c=[
+                        (
+                            (X_test_tensor[g_idx_1], y_test_tensor[g_idx_1]),
+                            (X_test_tensor[g_idx_2], y_test_tensor[g_idx_2]),
+                        )
+                        for g_idx_1, g_idx_2 in combinations(group_ind_test, 2)
+                    ],
+                    net=net,
+                    device=device,
+                    add_negative=cfg.constraint.add_negative,
+                    **params,
+                )
+
+            net.zero_grad()
+
+    fname = f"AFTER_{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}"
+    fext = ".csv"
+    if save_train:
+        fname_train = fname + "_train" + fext
+        save_path = os.path.join(utils_path, fname_train)
+        print(f"Saving to: {save_path}")
+        full_eval_train.to_pickle(save_path)
+
+    if save_test:
+        fname_test = fname + "_test" + fext
+        save_path = os.path.join(utils_path, fname_test)
+        print(f"Saving to: {save_path}")
+        full_eval_test.to_pickle(save_path)
+
+
+# helper function to construct pairwise constraints for every combination of provided groups
+def construct_constraints(
+    constraint_fn,
+    bound,
+    dataset,
+    constraint_groups,
+    batch_size,
+    add_negative,
+    device,
+    seed,
+    max_0 = False
+):
+    c = []
+
+    for group_indices in constraint_groups:
+        for group_idx in combinations(group_indices, 2):
+            c1 = FairnessConstraint(
+                dataset,
+                group_idx,
+                fn=lambda net, d: torch.max(constraint_fn(net, d) - bound, torch.zeros(1)) if max_0 else constraint_fn(net, d) - bound,
+                batch_size=batch_size // 2,
+                device=device,
+                seed=seed,
+            )
+            c.append(c1)
+
+            if add_negative:
+                c2 = FairnessConstraint(
+                    dataset,
+                    group_idx,
+                    fn=lambda net, d: torch.max(-constraint_fn(net, d) - bound, torch.zeros(1)) if max_0 else -constraint_fn(net, d) - bound,
+                    batch_size=batch_size // 2,
+                    device=device,
+                    seed=seed,
+                )
+                c.append(c2)
+
+    return c
+
+# helper function to calculate relevant values on full dataset (e.g. constraint gradient, AL function, etc)
+# used to calculate those values at different points during algorithms run
+def calculate_iteration_values(
+    alg,
+    full_eval,
+    index_to_save,
+    c,
+    loss_fn,
+    data_f,
+    data_c,
+    net,
+    device,
+    add_negative,
+    **params,
+):
+    c_val_vec, c_grads_mat = [], []
+
+    for i, c_i in enumerate(c):
+        cv = c_i.eval(net, data_c[i // 2 if add_negative else i])
+        c_val_vec.append(cv)
+        cv.backward()
+        cg = net_grads_to_tensor(net, flatten=True, device=device)
+        net.zero_grad()
+        c_grads_mat.append(cg)
+    c_val_vec = torch.tensor(c_val_vec)
+    c_grads_mat = torch.stack(c_grads_mat)
+    full_eval.loc[*index_to_save]["c"] = [c_val_vec.detach().cpu().numpy()]
+    full_eval.loc[*index_to_save]["cg"] = [c_grads_mat.detach().cpu().numpy()]
+
+    X_tensor, y_tensor = data_f
+    outs = net(X_tensor)
+    if y_tensor.ndim < outs.ndim:
+        y_tensor = y_tensor.unsqueeze(1)
+    loss = loss_fn(outs, y_tensor)
+    loss.backward()
+    fg = net_grads_to_tensor(net, flatten=True, device=device)
+    net.zero_grad()
+
+    full_eval.loc[*index_to_save]["f"] = loss.detach().cpu().numpy()
+    full_eval.loc[*index_to_save]["fg"] = [fg.detach().cpu().numpy()]
+
+    if alg.lower() == "sgd":
+        return
+
+    elif alg.lower() == "sslalm":
+        x_t, z, rho, mu, lambdas = (
+            params["x_t"],
+            params["z"],
+            params["rho"],
+            params["mu"],
+            params["lambdas"],
+        )
+        G = (
+            fg
+            + c_grads_mat.T @ lambdas
+            + rho * (c_grads_mat.T @ c_val_vec)
+            + mu * (x_t - z)
+        )
+
+        full_eval.loc[*index_to_save]["G"] = [G.detach().cpu().numpy()]
+
+
+def sample_or_restart_iterloader(loader):
+    try:
+        item = next(loader)
+        return item
+    except StopIteration:
+        loader._reset(loader)
+        # loader.gen
+        item = next(loader)
+        return item
 
 
 if __name__ == "__main__":
