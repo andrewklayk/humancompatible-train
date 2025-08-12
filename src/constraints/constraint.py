@@ -5,11 +5,11 @@ import torch
 from torch.utils.data import DataLoader, SubsetRandomSampler
 
 
-def _make_dataloaders(dataset, group_indices, batch_size, device, gen=None):
+def _make_dataloaders(dataset, group_indices, batch_size, device, drop_last, gen=None):
     dataloaders = []
     for idx in group_indices:
         sampler = SubsetRandomSampler(idx, gen)
-        dataloaders.append(iter(DataLoader(dataset, batch_size, sampler=sampler)))
+        dataloaders.append(iter(DataLoader(dataset, batch_size, sampler=sampler, drop_last=True)))
     return dataloaders
 
 
@@ -23,6 +23,7 @@ class FairnessConstraint:
         use_dataloaders=True,
         device="cpu",
         seed=None,
+        loader_drop_last=False,
     ):
         self.dataset = dataset
         self.group_sets = [
@@ -34,11 +35,12 @@ class FairnessConstraint:
         self._rng = np.random.default_rng(seed)
         self._torch_rng = torch.manual_seed(seed) if seed is not None else torch.Generator(device=device)
         self._device = device
+        self._drop_last = loader_drop_last
         if batch_size is not None:
             self._batch_size = batch_size
             if use_dataloaders:
                 self.group_dataloaders = _make_dataloaders(
-                    dataset, group_indices, batch_size, device, gen=self._torch_rng
+                    dataset, group_indices, batch_size, device, gen=self._torch_rng, drop_last=loader_drop_last
                 )
 
     def group_sizes(self):
@@ -54,7 +56,7 @@ class FairnessConstraint:
                 sample = next(l)
             except StopIteration:
                 sampler = SubsetRandomSampler(self._group_indices[i], self._torch_rng)
-                l = iter(DataLoader(self.dataset, self._batch_size, sampler=sampler))
+                l = iter(DataLoader(self.dataset, self._batch_size, sampler=sampler, drop_last=self._drop_last))
                 sample = next(l)
                 self.group_dataloaders[i] = l
                 

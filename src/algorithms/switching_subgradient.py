@@ -28,7 +28,7 @@ class SSG(Algorithm):
         c_stepsize_rule,
         c_stepsize,
         batch_size,
-        epochs,
+        epochs=None,
         save_iter=None,
         device="cpu",
         seed=None,

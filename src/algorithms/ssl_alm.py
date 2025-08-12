@@ -160,8 +160,11 @@ class SSLALM(Algorithm):
             with torch.no_grad():
                 _lambda = _lambda + eta * c_val_estimate
             # dual safeguard (lines 4,5)
-            if torch.norm(_lambda) >= lambda_bound:
-                _lambda = torch.zeros_like(_lambda, requires_grad=True)
+            for i, l in enumerate(_lambda):
+                if l >= lambda_bound: #or l < 0:
+                    _lambda[i] = 0
+            # if torch.norm(_lambda) >= lambda_bound:
+            #     _lambda = torch.zeros_like(_lambda, requires_grad=True)
 
             x_t = torch.concat(
                 [

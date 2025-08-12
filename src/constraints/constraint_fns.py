@@ -29,23 +29,23 @@ def acc_equality(_, net, c_data):
 
 
 def fairret_stat_equality(net, c_data, loss):
-    a_inputs, a_labels = c_data[0]
+    g1_inputs, g1_labels = c_data[0]
     g2_inputs, g2_labels = c_data[1]
 
-    a_outs = net(a_inputs)
-    g2_outs = net(g2_inputs)
+    g1_outs = net(g1_inputs).squeeze()
+    g2_outs = net(g2_inputs).squeeze()
     # if not (1 in a_labels or 1 in g2_labels):
     #     return torch.tensor(0)
 
-    group_codes = [0] * len(a_labels) + [1] * len(g2_labels)
+    group_codes = [0] * len(g1_labels) + [1] * len(g2_labels)
     group_codes = torch.tensor(
         [[0.0, 1.0] if x == 1 else [1.0, 0.0] for x in group_codes]
     )
 
     return loss(
-        torch.concat([a_outs, g2_outs]).unsqueeze(1),
+        torch.concat([g1_outs, g2_outs]).unsqueeze(1),
         group_codes,
-        torch.concat([a_labels, g2_labels]).unsqueeze(1),
+        torch.concat([g1_labels, g2_labels]).unsqueeze(1),
     )
 
 
