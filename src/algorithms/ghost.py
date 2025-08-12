@@ -3,7 +3,6 @@ import timeit
 from copy import deepcopy
 
 import numpy as np
-import pandas as pd
 import scipy as sp
 import torch
 from fairret.statistic import *
@@ -83,7 +82,13 @@ class StochasticGhost(Algorithm):
         verbose=True,
         max_runtime=None,
         max_iter=None,
+        save_state_interval=1
     ):
+        self.state_history = {}
+        self.state_history["params"] = {"w": {}}
+        self.state_history["values"] = {"f": {}, "d": {}, "c": {}, "n_samples": {}}
+        self.state_history["time"] = {}
+
         max_sample_size = np.max([c.group_sizes() for c in self.constraints])
         n = sum(p.numel() for p in self.net.parameters())
 
@@ -96,12 +101,12 @@ class StochasticGhost(Algorithm):
             if max_iter is not None and iteration >= max_iter:
                 break
             current_time = timeit.default_timer()
-            self.history["time"].append(current_time - run_start)
+            self.state_history["time"][iteration] = current_time - run_start
 
             if max_runtime > 0 and current_time - run_start >= max_runtime:
                 print(current_time - run_start)
-                self.history["constr"] = pd.DataFrame(self.history["constr"])
-                return self.history
+                # self.history["constr"] = pd.DataFrame(self.history["constr"])
+                return self.state_history
 
             if stepsize_rule == "inv_iter":
                 gamma = gamma0 / (iteration + 1) ** zeta
@@ -115,7 +120,10 @@ class StochasticGhost(Algorithm):
             while (2 ** (Nsamp + 1)) > max_sample_size:
                 Nsamp = rng.geometric(p=alpha) - 1
 
-            self.history["n_samples"].append(3 * (1 + 2 ** (Nsamp + 1)))
+            self.state_history["values"]["n_samples"][iteration] = 3 * (
+                1 + 2 ** (Nsamp + 1)
+            )
+
             dsols = np.zeros((4, n))
 
             ################
@@ -180,7 +188,12 @@ class StochasticGhost(Algorithm):
                 dcdw = np.array(dcdw)
 
                 kappa = self.compute_kappa(
-                    constraint_eval, dcdw, rho, lamb, mc=2, n=len(dfdw)
+                    constraint_eval,
+                    dcdw,
+                    rho,
+                    lamb,
+                    mc=len(self.constraints),
+                    n=len(dfdw),
                 )
 
                 # solve subproblem
@@ -194,7 +207,7 @@ class StochasticGhost(Algorithm):
                     beta,
                     tau,
                     hesstype="diag",
-                    mc=2,
+                    mc=len(self.constraints),
                     n=len(dfdw),
                     qp_solver="osqp",
                 )
@@ -212,7 +225,7 @@ class StochasticGhost(Algorithm):
                 w = net_params_to_tensor(self.net)
                 if any([torch.any(torch.isnan(lw)) for lw in w]):
                     print("NaNs!")
-                    return self.history
+                    return self.state_history
                 for i in range(len(w)):
                     end = start + w[i].numel()
                     w[i].add_(
@@ -222,9 +235,15 @@ class StochasticGhost(Algorithm):
                     )
                     start = end
 
-            self.history["w"].append(deepcopy(self.net.state_dict()))
+            if iteration % save_state_interval == 0:
+                self.state_history["params"]["w"][iteration] = deepcopy(
+                    self.net.state_dict()
+                )
+
+            self.state_history["values"]["d"][iteration] = dsol
+            # self.history["w"].append(deepcopy(self.net.state_dict()))
 
             feval = self.loss_fn(outs, obj_batch[1])
 
-        self.history["constr"] = pd.DataFrame(self.history["constr"])
-        return self.history
+        # self.history["constr"] = pd.DataFrame(self.history["constr"])
+        return self.state_history

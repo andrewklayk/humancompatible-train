@@ -35,17 +35,18 @@ def check_same_sample(sample1, sample2):
     )
 
 
-def net_grads_to_tensor(net, clip=False, flatten=True) -> torch.Tensor:
+def net_grads_to_tensor(net, clip=False, flatten=True, device=None) -> torch.Tensor:
     param_grads = []
     if clip:
         torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
     for param in net.parameters():
         if param.grad is not None:
             # Clone to avoid modifying the original tensor
+            device = param.grad.data.device if device is None else device
             if flatten:
-                param_grads.append(param.grad.data.clone().view(-1))
+                param_grads.append(param.grad.data.view(-1))
             else:
-                param_grads.append(param.grad.data.clone())
+                param_grads.append(param.grad.data.to(device))
     if flatten:
         param_grads = torch.cat(param_grads)
     return param_grads
