@@ -76,7 +76,7 @@ class SSLALM(Algorithm):
         if seed is not None:
             gen = gen.manual_seed(seed)
         loss_loader = torch.utils.data.DataLoader(
-            self.dataset, batch_size, shuffle=True, generator=gen
+            self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
         )
         loss_iter = iter(loss_loader)
 
@@ -87,7 +87,7 @@ class SSLALM(Algorithm):
         ### initial f and f_grad estimate ###
         f_grad_estimate = 0
         pre_loader = torch.utils.data.DataLoader(
-            self.dataset, batch_size, shuffle=True, generator=gen
+            self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
         )
         pre_iter = iter(pre_loader)
         (f_inputs, f_labels) = next(pre_iter)
@@ -141,7 +141,7 @@ class SSLALM(Algorithm):
                 iteration = 0
                 gen = gen
                 loss_loader = torch.utils.data.DataLoader(
-                    self.dataset, batch_size, shuffle=True, generator=gen
+                    self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
                 )
                 loss_iter = iter(loss_loader)
                 (f_inputs, f_labels) = next(loss_iter)

@@ -5,9 +5,9 @@ params:
   batch_size: 16
   epochs: null
   save_iter: null
-  ctol: 0.0001
+  ctol: 0.1
   f_stepsize_rule: const
-  f_stepsize: 0.2
+  f_stepsize: 0.1
   c_stepsize_rule: const
-  c_stepsize: 0.02
+  c_stepsize: 0.1
   save_state_interval: 20

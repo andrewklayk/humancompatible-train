@@ -1,5 +1,5 @@
 import_name: tpr_equality
 
-c_batch_size: 48
+c_batch_size: 256
 bound: 0.05
-double_side: False
+add_negative: False
