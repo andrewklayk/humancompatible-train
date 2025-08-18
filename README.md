@@ -74,7 +74,7 @@ The results will be saved to `experiments/utils/saved_models` and `experiments/u
 
 This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `experiments/conf` for configuration files. 
 * To change the parameters of the experiment, such as the number of runs for each algorithm, run time, the dataset used (*note: for now supports only Folktables*) - use `experiment.yaml`. 
-* To change the dataset settings - such as file location - or do dataset-specific adjustments, use `data/{dataset_name}.yaml`
+* To change the dataset settings - such as file location - or do dataset-specific adjustments - such as the configuration of the protected attributes - use `data/{dataset_name}.yaml`
 * To change algorithm hyperparameters, use `alg/{algorithm_name}.yaml`.
 * To change constraint hyperparameters, use `constraint/{constraint_name}.yaml`
 
@@ -85,6 +85,12 @@ This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `exper
 The plots and tables like the ones in the paper can be produced using the two notebooks. `experiments/algo_plots.ipynb` houses the convergence plots, and `experiments/model_plots.ipynb` - all the others.
 
 ## Extending the benchmark
+
+### Code examples
+
+**To better understand the API**, you are invited to explore the two notebooks provided: `algorithm_demo.ipynb` and `constraint_demo.ipynb`.
+
+### Adding new code
 
 **To add a new algorithm**, you can subclass the ```Algorithm``` class. Before you can run it, you will need to follow these steps:
 1. In the `experiments/conf/alg` folder, add a `.yaml` file with `import_name: {ClassName}` (so the code knows which algorithm to import) and the desired keyword parameter values under `params`:
@@ -97,14 +103,14 @@ params:
   param_name_2: value
 ```
 
-2. In `src/algorithms/__init__.py`, add `from .{filename} import {ClassName}` (so the code is able to import it).
+2. In `humancompatible/train/algorithms/__init__.py`, add `from .{filename} import {ClassName}` (so the code is able to import it).
 
 Now you can run the algorithm by executing `python run_folktables.py data=folktables alg={yaml_file_name}`, or by changing the experiment config files.
 
 **To add a different constraint formulation**, you can use the `FairnessConstraint` class by passing your callable function to the constructor as `fn`. If you use `run_folktables.py`, you can add a new constraint function by following the steps:
 
 1. Add a `.yaml` file with `import_name: {FunctionName}`, along with the desired batch size and bound (*to be reworked for more generality*), to the `experiments/conf/constraint` folder
-2. Import it in `src/constraints/__init__.py` as in step 2 above.
+2. Import it in `humancompatible/train/constraints/__init__.py` as in step 2 above.
 
 Now, to run the code with your constraint, use the `constraint` field in the main config.
 
