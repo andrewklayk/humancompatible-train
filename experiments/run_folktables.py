@@ -13,9 +13,9 @@ from torch import nn, tensor
 from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
 from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
-from src.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
+from humancompatible.train.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
 from itertools import combinations
-from src.constraints import FairnessConstraint
+from humancompatible.train.constraints import FairnessConstraint
 
 
 
@@ -118,7 +118,7 @@ def run(cfg: DictConfig) -> None:
         ## define constraints ##
 
         loss_fn = nn.BCEWithLogitsLoss()
-        constraint_fn_module = importlib.import_module("src.constraints")
+        constraint_fn_module = importlib.import_module("humancompatible.train.constraints")
         constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
         c = construct_constraints(
             bound=cfg.constraint.bound,
@@ -242,7 +242,7 @@ def run(cfg: DictConfig) -> None:
                     )
         else:
             optimizer_name = cfg.alg.import_name
-            module = importlib.import_module("src.algorithms")
+            module = importlib.import_module("humancompatible.train.algorithms")
             Optimizer = getattr(module, optimizer_name)
 
             optimizer = Optimizer(net, train_ds, loss_fn, c)
@@ -288,7 +288,7 @@ def run(cfg: DictConfig) -> None:
     ####################################################
 
     loss_fn = nn.BCEWithLogitsLoss()
-    constraint_fn_module = importlib.import_module("src.constraints")
+    constraint_fn_module = importlib.import_module("humancompatible.train.constraints")
     constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
     c = construct_constraints(
         bound=cfg.constraint.bound,
