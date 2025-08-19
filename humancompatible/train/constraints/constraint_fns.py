@@ -9,21 +9,21 @@ from fairret.loss import NormLoss
 
 def tpr_equality(_, net, c_data):
     statistic = TruePositiveRate()
-    loss = NormLoss(statistic, p=2)
+    loss = NormLoss(statistic, p=1)
 
     return fairret_stat_equality(net, c_data, loss)
 
 
 def ppv_equality(_, net, c_data):
     statistic = FalseNegativeFalsePositiveFraction()
-    loss = NormLoss(statistic, p=2)
+    loss = NormLoss(statistic, p=1)
 
     return fairret_stat_equality(net, c_data, loss)
 
 
 def acc_equality(_, net, c_data):
     statistic = Accuracy()
-    loss = NormLoss(statistic, p=2)
+    loss = NormLoss(statistic, p=1)
 
     return fairret_stat_equality(net, c_data, loss)
 

@@ -4,5 +4,5 @@ import_name: SGD
 params:
   lr: 0.005
   batch_size: 8
-  epochs: 10
-  save_state_interval: 100
+  epochs: null
+  save_state_interval: 1000
