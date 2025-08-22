@@ -1,0 +1,5 @@
+import_name: abs_diff_fpr
+
+c_batch_size: 128
+bound: 0.02
+add_negative: False
