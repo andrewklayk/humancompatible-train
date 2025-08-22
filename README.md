@@ -84,41 +84,27 @@ This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `exper
 ### Producing plots
 The plots and tables like the ones in the paper can be produced using the two notebooks. `experiments/algo_plots.ipynb` houses the convergence plots, and `experiments/model_plots.ipynb` - all the others.
 
-## Extending the benchmark
+## Extending the toolkit
 
 ### Code examples
 
-**To better understand the API**, you are invited to explore the two notebooks provided: `algorithm_demo.ipynb` and `constraint_demo.ipynb`.
+You are invited to check out the new easy to use **PyTorch-like** API presented in `examples/torch_api_demo.ipynb`.
+
+In the new API, the algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
+
+The idea is to make different algorithms nearly interchangable in the code.
+
+The legacy API used for the benchmark is presented in `examples/algorithm_demo.ipynb` and `examples/constraint_demo.ipynb`.
 
 ### Adding new code
 
-**To add a new algorithm**, you can subclass the ```Algorithm``` class. Before you can run it, you will need to follow these steps:
-1. In the `experiments/conf/alg` folder, add a `.yaml` file with `import_name: {ClassName}` (so the code knows which algorithm to import) and the desired keyword parameter values under `params`:
-
-```
-import_name: ClassName
-
-params:
-  param_name_1: value
-  param_name_2: value
-```
-
-2. In `humancompatible/train/algorithms/__init__.py`, add `from .{filename} import {ClassName}` (so the code is able to import it).
-
-Now you can run the algorithm by executing `python run_folktables.py data=folktables alg={yaml_file_name}`, or by changing the experiment config files.
-
-**To add a different constraint formulation**, you can use the `FairnessConstraint` class by passing your callable function to the constructor as `fn`. If you use `run_folktables.py`, you can add a new constraint function by following the steps:
-
-1. Add a `.yaml` file with `import_name: {FunctionName}`, along with the desired batch size and bound (*to be reworked for more generality*), to the `experiments/conf/constraint` folder
-2. Import it in `humancompatible/train/constraints/__init__.py` as in step 2 above.
-
-Now, to run the code with your constraint, use the `constraint` field in the main config.
+**To add a new algorithm**, you can subclass the PyTorch ```Optimizer``` class and proceed following the API guideline presented above.
 
 ## License and terms of use
 
-Humancompatible/train is provided under the Apache 2.0 Licence.
+humancompatible/train is provided under the Apache 2.0 Licence.
 
-The package relies on the Folktables package, provided under MIT Licence.
+The benchmark part of the package relies on the Folktables package, provided under MIT Licence.
 It provides code to download data from the American Community Survey
 (ACS) Public Use Microdata Sample (PUMS) files managed by the US Census Bureau.
 The data itself is governed by the terms of use provided by the Census Bureau.
@@ -140,9 +126,8 @@ For more information, see https://www.census.gov/data/developers/about/terms-of-
 
 ## Future work
 
-- Add support for fairness constraints with >=2 subgroups (limitation of the code, not of the algorithms)
-- Add support to datasets besides Folktables
-- Move towards a more PyTorch-like API for optimizers
+- Add more algorithms with PyTorch-like API
+- Add more examples from different fields where constrained training of DNNs is employed
 
 ## References
 
