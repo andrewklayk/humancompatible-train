@@ -27,7 +27,7 @@ def fair_stats(p_1, y_1, p_2, y_2):
     fomr0, fomr1 = FalseOmissionRate()(p, sens, labels)
     # npv0, npv1 = 1 - fomr0, 1 - fomr1
 
-    predictions = (p_1 >= 0.5).to(float)
+    predictions = (p_1 >= 0.5).astype(float).flatten()
     tpr = (predictions @ y_1) / sum(y_1)
     tnr = ((-1*predictions + 1) @ (-1*y_1 + 1)) / sum(-1*y_1+1)
     fpr = 1-tnr
@@ -44,7 +44,7 @@ def fair_stats(p_1, y_1, p_2, y_2):
 
 
 @torch.inference_mode()
-def make_groupwise_stats_table(X, y, loaded_models):
+def make_groupwise_stats_table(X, y, loaded_models, full_preds=None):
     results_list = []
     criterion = torch.nn.BCEWithLogitsLoss()
 

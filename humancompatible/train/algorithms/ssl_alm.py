@@ -95,14 +95,14 @@ class SSLALM(Algorithm):
         self.net.zero_grad()
 
         ### initial c_val and c_grad estimate ###
-        c_sample = [ci.sample_dataset(batch_size) for ci in c]
+        c_sample = [ci.sample_loader() for ci in c]
         _c_val_estimate = self._c_value_estimate(slack_vars, c, c_sample)
         c_val_estimate = torch.concat(_c_val_estimate)
         c_grad_estimate = self._constraint_grad_estimate(slack_vars, _c_val_estimate)
 
         ### c_val estimate ###
         if use_unbiased_penalty_grad:
-            c_sample = [ci.sample_dataset(batch_size) for ci in c]
+            c_sample = [ci.sample_loader() for ci in c]
             c_val_estimate_2 = torch.concat(self._c_value_estimate(slack_vars, c, c_sample))
         else:
             c_val_estimate_2 = c_val_estimate
@@ -290,6 +290,7 @@ class SSLALM(Algorithm):
 
     def _constraint_grad_estimate(self, slack_vars, c):
         c_grad = []
+        # breakpoint()
         for ci in c:
             ci_grad = torch.autograd.grad(ci, self.net.parameters())
             if slack_vars is None:

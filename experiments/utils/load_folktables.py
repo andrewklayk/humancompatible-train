@@ -11,6 +11,7 @@ from folktables import (
     ACSPublicCoverage,
     generate_categories,
 )
+import torch
 
 # sys.path.append("..")
 
@@ -23,6 +24,57 @@ ACSIncomeSex = folktables.BasicProblem(
     preprocess=folktables.adult_filter,
     postprocess=lambda x: np.nan_to_num(x, -1),
 )
+
+from torch.utils.data import Sampler
+
+class BalancedBatchSampler(Sampler):
+    def __init__(self, subset_indices, batch_size, drop_last=False):
+        """
+        Args:
+            subset_indices (list of list): List of indices for each subset.
+            batch_size (int): Number of samples per batch.
+            drop_last (bool): If True, drop the last incomplete batch.
+        """
+        self.subset_indices = subset_indices
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.n_subsets = len(subset_indices)
+        self.subset_sizes = [len(indices) for indices in subset_indices]
+        self.n_samples_per_subset = batch_size // self.n_subsets
+
+        # Check if batch_size is divisible by the number of subsets
+        assert batch_size % self.n_subsets == 0, (
+            f"Batch size ({batch_size}) must be divisible by the number of subsets ({self.n_subsets})."
+        )
+
+    def __iter__(self):
+        # Shuffle indices within each subset
+        shuffled_subset_indices = [torch.randperm(len(indices)).tolist() for indices in self.subset_indices]
+
+        # Calculate the maximum number of batches per subset
+        max_batches = min(len(indices) // self.n_samples_per_subset for indices in self.subset_indices)
+        if not self.drop_last and any(len(indices) % self.n_samples_per_subset != 0 for indices in self.subset_indices):
+            max_batches += 1  # Include partial batches if drop_last is False
+
+        # Yield balanced batches
+        for batch_idx in range(max_batches):
+            batch = []
+            for subset_idx in range(self.n_subsets):
+                start = batch_idx * self.n_samples_per_subset
+                end = start + self.n_samples_per_subset
+                subset_batch_indices = shuffled_subset_indices[subset_idx][start:end]
+                batch.extend([self.subset_indices[subset_idx][i] for i in subset_batch_indices])
+
+            # Yield the global indices for the batch
+            yield batch
+
+    def __len__(self):
+        if self.drop_last:
+            return min(len(indices) // self.n_samples_per_subset for indices in self.subset_indices)
+        else:
+            return max((len(indices) + self.n_samples_per_subset - 1) // self.n_samples_per_subset
+                       for indices in self.subset_indices)
+
 
 
 RAC1P_WHITE = 1
@@ -170,7 +222,13 @@ def prepare_folktables_multattr(
         lambda x: "_".join([str(int(v)) for i, v in enumerate(x[sens_cols])]), axis=1
     )
 
-    # breakpoint()
+    sensitive_groups_onehot = torch.zeros(size=(len(features), len(sensitive_groups.unique())))
+    group_codes = []
+
+    for gn, x in enumerate(sensitive_groups.unique()):
+        group_codes.append(gn)
+        sensitive_groups_onehot[sensitive_groups == x, gn] = 1.
+
     # group_codes = {
     #     {c[] for c in sens_cols}
     # }
@@ -182,10 +240,11 @@ def prepare_folktables_multattr(
     label = label.to_numpy().flatten()
     sensitive_groups = sensitive_groups.to_numpy()
 
-    X_train, X_test, y_train, y_test, g_train, g_test = train_test_split(
+    X_train, X_test, y_train, y_test, group_train, group_test, group_onehot_train, group_onehot_test = train_test_split(
         features_desens,
         label,
         sensitive_groups,
+        sensitive_groups_onehot,
         test_size=0.2,
         stratify=sensitive_groups if stratify else None,
         random_state=random_state,
@@ -212,24 +271,27 @@ def prepare_folktables_multattr(
     X_test_scaled = scaler.transform(X_test)
 
     group_indices_train = [
-        np.argwhere(g_train == sens_val).flatten()
+        np.argwhere(group_train == sens_val).flatten()
         for sens_val in np.unique(sensitive_groups)
     ]
     group_indices_test = [
-        np.argwhere(g_test == sens_val).flatten()
+        np.argwhere(group_test == sens_val).flatten()
         for sens_val in np.unique(sensitive_groups)
     ]
 
+    group_order = np.unique(sensitive_groups)
     # separate_group_indices = [separate_sensitive_groups
 
     return (
         X_train_scaled,
         y_train,
         group_indices_train,
+        group_onehot_train,
         sep_sens_train,
         X_test_scaled,
         y_test,
         group_indices_test,
         sep_sens_test,
-        # group_names
+        group_onehot_test,
+        group_order
     )

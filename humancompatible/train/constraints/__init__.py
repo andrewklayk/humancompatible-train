@@ -6,6 +6,9 @@ from .constraint_fns import (
     tpr_equality,
     abs_loss_equality,
     loss_equality,
+    abs_diff_tpr,
+    abs_diff_fpr,
+    abs_max_dev_from_overall_tpr
 )
 
 __all__ = ["FairnessConstraint, loss_equality"]

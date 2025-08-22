@@ -1,6 +1,7 @@
 from typing import Callable, Iterable
 
 import numpy as np
+import fairret
 import torch
 from torch.utils.data import DataLoader, SubsetRandomSampler
 
@@ -48,8 +49,17 @@ class FairnessConstraint:
 
     def eval(self, net, sample, **kwargs):
         return self.fn(net, sample, **kwargs)
+        
+    # def eval_fairret(self, net, sample, group_id, **kwargs):
+    #     if self._fairret_results is None:
+    #         statistic = fairret.statistic.TruePositiveRate()
+    #         loss = fairret.loss.NormLoss(statistic)
+            
+        
+    #     return self._fairret_results[group_id]
 
     def sample_loader(self):
+        self._fairret_results = None
         samples = []
         for i, l in enumerate(self.group_dataloaders):
             try:
