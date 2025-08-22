@@ -1,6 +1,6 @@
 # name of the algorithm class to import form src.algorithms
-import_name: SSLALM
-save_name: SSLALM
+import_name: TorchSSLALM
+save_name: TorchSSLALM
 
 params:
   batch_size: 16

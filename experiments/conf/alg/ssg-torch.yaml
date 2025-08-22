@@ -1,5 +1,6 @@
 # name of the algorithm class to import form src.algorithms
-import_name: SSG
+import_name: TorchSSG
+save_name: TorchSSG
 
 params:
   batch_size: 32
