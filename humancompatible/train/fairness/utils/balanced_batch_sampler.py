@@ -43,7 +43,7 @@ class BalancedBatchSampler(Sampler):
         max_batches = min(len(indices) // self.n_samples_per_subset for indices in self.subset_indices)
         if not self.drop_last and any(len(indices) % self.n_samples_per_subset != 0 for indices in self.subset_indices):
             max_batches += 1  # Include partial batches if drop_last is False
-
+        # TODO: randomly permute the batch as well
         # Yield balanced batches
         for batch_idx in range(max_batches):
             batch = []
