@@ -2,14 +2,15 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Setup](https://github.com/humancompatible/train/actions/workflows/setup.yml/badge.svg)](https://github.com/humancompatible/train/actions/workflows/setup.yml)
 
-This repository provides a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task.
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API, as well as a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task in the `experiments` folder.
 
 ## Table of Contents
 1. [Basic installation instructions](#basic-installation-instructions)
-2. [Reproducing the Benchmark](#reproducing-the-benchmark)
-3. [Extending the benchmark](#extending-the-benchmark) <!-- 6. [Citing humancompatible/train](#Citing-humancompatible/train) -->
-4. [License and terms of use](#license-and-terms-of-use)
-5. [References](#references)
+2. [Using the toolkit](#using-the-toolkit)
+3. [Reproducing the Benchmark](#reproducing-the-benchmark)
+4. [Extending the toolkit](#extending-the-toolkit) <!-- 6. [Citing humancompatible/train](#Citing-humancompatible/train) -->
+5. [License and terms of use](#license-and-terms-of-use)
+6. [References](#references)
 
 Humancompatible/train is still under active development! If you find bugs or have feature
 requests, please file a
@@ -30,13 +31,19 @@ source fairbenchenv/bin/activate
 python -m venv fairbenchenv
 fairbenchenv\Scripts\activate.bat
 ```
-2. Install from source (*as an editable package*).
+2. Install from source.
 ```
 git clone https://github.com/humancompatible/train.git
 cd train
 pip install -r requirements.txt
+pip install .
+```
+
+If you wish to edit the code of the algorithms, install as an editable package:
+```
 pip install -e .
 ```
+
 __Warning__: it is recommended to use Stochastic Ghost with the mkl-accelerated version of the scipy package with Stochastic Ghost; to install it, run
 
 ```pip install --force-reinstall -i https://software.repos.intel.com/python/pypi scipy```
@@ -47,6 +54,20 @@ after installing requirements.txt; otherwise, the algorithm will run slower. How
 <!-- ``` -->
 <!-- pip install folktables -->
 <!-- ``` -->
+
+## Using the toolkit
+
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API.
+
+### Code examples
+
+You are invited to check out the new API presented in `examples/torch_api_demo.ipynb`.
+
+The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
+
+The idea is to make different algorithms nearly interchangable in the code.
+
+The legacy API used for the benchmark is presented in `examples/algorithm_demo.ipynb` and `examples/constraint_demo.ipynb`.
 
 ## Reproducing the Benchmark
 
@@ -85,16 +106,6 @@ This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `exper
 The plots and tables like the ones in the paper can be produced using the two notebooks. `experiments/algo_plots.ipynb` houses the convergence plots, and `experiments/model_plots.ipynb` - all the others.
 
 ## Extending the toolkit
-
-### Code examples
-
-You are invited to check out the new easy to use **PyTorch-like** API presented in `examples/torch_api_demo.ipynb`.
-
-In the new API, the algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
-
-The idea is to make different algorithms nearly interchangable in the code.
-
-The legacy API used for the benchmark is presented in `examples/algorithm_demo.ipynb` and `examples/constraint_demo.ipynb`.
 
 ### Adding new code
 
