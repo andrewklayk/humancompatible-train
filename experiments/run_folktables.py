@@ -15,7 +15,7 @@ from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
 from humancompatible.train.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
 from itertools import combinations
-from humancompatible.train.constraints import FairnessConstraint
+from humancompatible.train.fairness.constraints import FairnessConstraint
 
 
 
@@ -122,7 +122,7 @@ def run(cfg: DictConfig) -> None:
         ## define constraints ##
 
         loss_fn = nn.BCEWithLogitsLoss()
-        constraint_fn_module = importlib.import_module("humancompatible.train.constraints")
+        constraint_fn_module = importlib.import_module("humancompatible.train.fairness.constraints")
         constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
         
         if cfg.constraint.import_name == 'abs_max_dev_from_overall_tpr':
@@ -237,7 +237,7 @@ def run(cfg: DictConfig) -> None:
             iteration = 0
             total_iters = 0
 
-            group_ind_onehot = torch.zeros(m, (c_batch_size * m))
+            group_ind_onehot = torch.empty(m, (c_batch_size * m))
             for j in range(1, m):
                 group_ind_onehot[j][c_batch_size * (j - 1) : c_batch_size * j] = (
                     torch.ones(c_batch_size)
@@ -297,7 +297,11 @@ def run(cfg: DictConfig) -> None:
             from fairret.statistic import TruePositiveRate, FalseNegativeFalsePositiveFraction
 
             # breakpoint()
-            train_ds_sens = TensorDataset(X_train_tensor, group_onehot_train, y_train_tensor)
+            train_ds_sens = TensorDataset(
+                X_train_tensor,
+                group_onehot_train,
+                y_train_tensor
+                )
 
             
             slack_vars = torch.zeros(m, requires_grad=True)
@@ -338,21 +342,37 @@ def run(cfg: DictConfig) -> None:
 
                 gen = torch.Generator(device=device)
                 gen.manual_seed(EXP_IDX + epoch)
-                from utils.load_folktables import BalancedBatchSampler
+                from humancompatible.train.fairness.utils import BalancedBatchSampler
                 
-                sampler = BalancedBatchSampler(group_ind_train, c_batch_size, drop_last=True)
-                dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
+                
+                sampler = BalancedBatchSampler(
+                    # subgroup_indices=group_ind_train,
+                    subgroup_onehot=group_onehot_train,
+                    batch_size=c_batch_size,
+                    drop_last=True
+                )
+                dataloader = DataLoader(
+                    train_ds_sens,
+                    batch_sampler=sampler
+                )
                 c_loader = iter(dataloader)
-
+                breakpoint()
+                b = next(c_loader)
                 for batch_input, batch_label in obj_loader:
 
                     # evaluate constraints and constraint grads
                     c_vals = []
                     c_vals_raw = []
                     try:
+                        breakpoint()
                         c_inputs, c_sens, c_labels = next(c_loader)
                     except:
-                        sampler = BalancedBatchSampler(group_ind_train, c_batch_size, drop_last=True)
+                        sampler = BalancedBatchSampler(
+                            # subgroup_indices=group_ind_train,
+                            subgroup_onehot=group_ind_onehot,
+                            batch_size=c_batch_size,
+                            drop_last=True
+                        )
                         dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
                         c_loader = iter(dataloader)
                         c_inputs, c_sens, c_labels = next(c_loader)
@@ -400,7 +420,7 @@ def run(cfg: DictConfig) -> None:
 
                             c_vals_raw = c_val_raw_vec.detach()
 
-
+                    breakpoint()
                     optimizer.step(c_vals)
                     optimizer.zero_grad()
                     if total_iters % cfg.alg.params.save_state_interval == 0:
@@ -575,7 +595,7 @@ def run(cfg: DictConfig) -> None:
     ####################################################
 
     loss_fn = nn.BCEWithLogitsLoss()
-    constraint_fn_module = importlib.import_module("humancompatible.train.constraints")
+    constraint_fn_module = importlib.import_module("humancompatible.train.fairness.constraints")
     constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
     # if cfg.constraint.import_name != 'abs_max_dev_from_overall_tpr':
     #     c = construct_constraints(

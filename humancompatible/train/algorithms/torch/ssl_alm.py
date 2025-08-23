@@ -109,13 +109,7 @@ class SSLALM(Optimizer):
             state = self.state[p]
 
             params.append(p)
-            # if we know grad of constraints already, fill gradient of loss
-            # and vice versa
-            # if len(c_grads) == 0:
-            #     c_grads.append(p.grad)
-            # elif len(grads) == 0:
-            #     grads.append(p.grad)
-
+            
             # load z (smoothing term)
             # Lazy state initialization
             if len(state) == 0:
@@ -126,9 +120,6 @@ class SSLALM(Optimizer):
 
             smoothing.append(state.get("smoothing"))
 
-            # if _c_grad:
-            #     grads.append(state.get(['c_grad']))
-            # else:
             grads.append(p.grad)
             c_grads.append(state.get("c_grad"))
 
@@ -148,14 +139,13 @@ class SSLALM(Optimizer):
 
         # c_vals is cleaned in step()
         self.c_vals.append(c_val.detach())
-        # c_idx = len(self.c_vals) - 1
 
         # update dual multipliers
         dual_update_tensor = torch.zeros_like(self._dual_vars)
         dual_update_tensor[i] = self.dual_lr * c_val
         self._dual_vars.add_(dual_update_tensor)
         for i in range(len(self._dual_vars)):
-            if self._dual_vars[i] >= self.dual_bound or self._dual_vars[i] < 0:
+            if self._dual_vars[i] >= self.dual_bound:
                 self._dual_vars[i].zero_()
 
         # save constraint grad
@@ -183,8 +173,12 @@ class SSLALM(Optimizer):
         if c_val is None:
             c_val = self.c_vals
         if isinstance(c_val, Iterable) and not isinstance(c_val, torch.Tensor):
-            c_val = torch.stack(c_val)
-            c_val = c_val.squeeze(list(range(1, c_val.ndim)))
+            if len(c_val) == 1 and isinstance(c_val[0], torch.Tensor):
+                c_val = c_val[0]
+            else:
+                c_val = torch.stack(c_val)
+                if c_val.ndim > 1:
+                    c_val = c_val.squeeze(-1)
                 
         G = []
 
@@ -218,16 +212,13 @@ class SSLALM(Optimizer):
                 # aug_term_grad = _c_grads @ c_val
                 smoothing[i].add_(param - smoothing[i], alpha=self.beta)
 
-                try:
-                    G_i = (
-                        grads[i]
-                        + l_term_grad
-                        + self.rho * aug_term_grad
-                        + self.mu * (param - smoothing[i])
-                    )
-                    G.append(G_i)
-                except:
-                    breakpoint()
+                G_i = (
+                    grads[i]
+                    + l_term_grad
+                    + self.rho * aug_term_grad
+                    + self.mu * (param - smoothing[i])
+                )
+                G.append(G_i)
 
                 param.add_(G_i, alpha=-lr)
 

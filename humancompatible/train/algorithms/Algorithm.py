@@ -3,7 +3,7 @@ from typing import Callable, Iterable
 from torch.nn import Module
 from torch.utils.data import Dataset
 
-from humancompatible.train.constraints import FairnessConstraint
+from humancompatible.train.fairness.constraints import FairnessConstraint
 
 
 class Algorithm:

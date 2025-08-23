@@ -56,8 +56,6 @@ def dummy(_, net, c_data):
     return r
 
 
-
-
 def loss_equality(loss, net, c_data):
     g1_inputs, g1_labels = c_data[0]
     g2_inputs, g2_labels = c_data[1]
