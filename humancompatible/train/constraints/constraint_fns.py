@@ -1,5 +1,4 @@
 import torch
-from torcheval.metrics.functional import binary_recall
 from fairret.statistic import (
     TruePositiveRate,
     FalseNegativeFalsePositiveFraction,

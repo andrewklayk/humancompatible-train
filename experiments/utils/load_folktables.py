@@ -106,87 +106,6 @@ def download_folktables(
 
     return acs_data, definition_df
 
-
-def prepare_folktables(
-    dataset: str = "income",
-    state="AL",
-    horizon="1-Year",
-    survey="person",
-    year=2018,
-    random_state=None,
-    onehot=True,
-    download=False,
-    path=None,
-    sens_col="RAC1P",
-    stratify=False,
-):
-    acs_data, definition_df = download_folktables(
-        state, horizon, survey, year, download, path
-    )
-
-    # group here refers to race (RAC1P)
-    if dataset == "employment":
-        features, label, group = ACSEmployment.df_to_numpy(acs_data)
-        # drop the RAC1P column
-        features = features[:, :-1]
-    elif dataset == "coverage":
-        features, label, group = ACSPublicCoverage.df_to_numpy(acs_data)
-    elif dataset == "income":
-        if onehot:
-            categories = generate_categories(
-                features=ACSIncome.features, definition_df=definition_df
-            )
-            features, label, group = ACSIncome.df_to_pandas(
-                acs_data, categories=categories, dummies=True
-            )
-            sens_features = [
-                col for col in features.columns if col.startswith(sens_col)
-            ]
-            features = features.drop(columns=sens_features).to_numpy(dtype="float")
-            label = label.to_numpy(dtype="float")
-        if sens_col == "RAC1P":
-            features, label, group = ACSIncome.df_to_pandas(acs_data)
-        elif sens_col == "SEX":
-            features, label, group = ACSIncomeSex.df_to_pandas(acs_data)
-
-    features = features.drop(sens_col, axis=1)
-    features = features.to_numpy()
-    label = label.to_numpy().flatten()
-    group = group.to_numpy()
-
-    # drop sensitive
-    group_binary = (group == RAC1P_WHITE).astype(float)
-
-    # stratify by binary race (white vs rest)
-    X_train, X_test, y_train, y_test, g_train, g_test = train_test_split(
-        features,
-        label,
-        group_binary,
-        test_size=0.2,
-        stratify=group_binary if stratify else None,
-        random_state=random_state,
-    )
-
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-
-    train_w_idx = np.argwhere(g_train == 1).flatten()
-    train_nw_idx = np.argwhere(g_train != 1).flatten()
-
-    test_w_idx = np.argwhere(g_test == 1).flatten()
-    test_nw_idx = np.argwhere(g_test != 1).flatten()
-
-    return (
-        X_train_scaled,
-        y_train,
-        [train_w_idx, train_nw_idx],
-        X_test_scaled,
-        y_test,
-        [test_w_idx, test_nw_idx],
-    )
-
-
 def prepare_folktables_multattr(
     dataset: str = "income",
     state="AL",
@@ -219,7 +138,7 @@ def prepare_folktables_multattr(
 
     # group membership (by combination of values of every sensitive attribute)
     sensitive_groups = features[sens_cols].apply(
-        lambda x: "_".join([str(int(v)) for i, v in enumerate(x[sens_cols])]), axis=1
+        lambda x: "_".join([str(int(v)) for v in x[sens_cols]]), axis=1
     )
 
     sensitive_groups_onehot = torch.zeros(size=(len(features), len(sensitive_groups.unique())))
@@ -228,10 +147,6 @@ def prepare_folktables_multattr(
     for gn, x in enumerate(sensitive_groups.unique()):
         group_codes.append(gn)
         sensitive_groups_onehot[sensitive_groups == x, gn] = 1.
-
-    # group_codes = {
-    #     {c[] for c in sens_cols}
-    # }
 
     # groups defined by sensitive attributes separately
     separate_sensitive_groups = [features[col].to_numpy() for col in sens_cols]

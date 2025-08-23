@@ -10,4 +10,4 @@ params:
   zeta: 0.001
   tau: 1
   stepsize_rule: dimin
-  save_state_interval: 20
+  save_state_interval: 10
