@@ -137,7 +137,7 @@ class SSG(Optimizer):
 
         # here assume c_val is a scalar
 
-        update_con = c_val < 0
+        update_con = c_val > 0
         
         for group in self.param_groups:
             params: list[Tensor] = []
