@@ -22,6 +22,7 @@ class SSG(Algorithm):
 
     def optimize(
         self,
+        ctol_rule,
         ctol,
         f_stepsize_rule,
         f_stepsize,
@@ -87,7 +88,8 @@ class SSG(Algorithm):
                 f_sample = next(loss_iter)
 
             self.net.zero_grad()
-            _ctol = ctol / np.sqrt(total_iters)
+            if ctol_rule == 'dimin':
+                _ctol = ctol / np.sqrt(total_iters)
 
             if save_iter is not None and total_iters >= save_iter:
                 eta_f_list.append(f_eta_t)

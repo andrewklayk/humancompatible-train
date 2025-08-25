@@ -29,7 +29,6 @@ class BalancedBatchSampler(Sampler):
         self.n_subsets = len(subgroup_indices)
         self.subset_sizes = [len(indices) for indices in subgroup_indices]
         self.n_samples_per_subset = batch_size // self.n_subsets
-
         # Check if batch_size is divisible by the number of subsets
         assert batch_size % self.n_subsets == 0, (
             f"Batch size ({batch_size}) must be divisible by the number of subsets ({self.n_subsets})."

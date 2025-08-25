@@ -40,7 +40,7 @@ def plot_qmeans(data, plot_col, group_by_col, q1=0.25, q2=0.75, ax=None, **kwarg
 
 
 def plot_sep(
-    data, plot_col, idx_col, q1=0.25, q2=0.75, idx_is_index=False, ax=None, **kwargs
+    data, plot_col, x_col, idx_col, q1=0.25, q2=0.75, idx_is_index=False, ax=None, **kwargs
 ):
     # q3 = 0.5
     # means = data.groupby(group_by_col)[plot_col].mean()#.reset_index(drop=True)
@@ -61,9 +61,10 @@ def plot_sep(
         if idx_is_index
         else [data[data[idx_col] == i] for i in data[idx_col].unique()]
     )
-
+    
+    # colors = kwargs.pop('colors')
     for to_plot in plot_lines:
-        ax.plot(to_plot[plot_col].to_numpy(), **kwargs)
+        ax.plot(to_plot[x_col].to_numpy(), to_plot[plot_col].to_numpy(), **kwargs)
 
     xt = ax.get_xticks()
     xt_ind = xt[1:-1] - 1
@@ -198,6 +199,36 @@ def plot_trajectories(
     f.set_figwidth(w)
     return f
 
+def groupby_time(
+    data,
+    round_step,
+    fill="bfill",
+    fill_limit=None,  
+):
+    data["time_r"] = getRoundedThresholdv1(data["time"], round_step)
+
+    time_step_idx = pd.Index(np.arange(0, max(data["time_r"]), step=round_step))
+
+    trials = []
+
+    for EXP_NUM in data["trial"].unique():
+        trial_stats = data[data["trial"] == EXP_NUM]
+        # trial_stats.index = trial_stats["time_r"]
+        # trial_stats = trial_stats.reindex(time_step_idx, copy=True)
+        # trial_stats["time_r"] = trial_stats.index
+        if fill == "bfill":
+            trial_stats.bfill(inplace=True, limit=fill_limit)
+        elif fill == "ffill":
+            trial_stats.ffill(inplace=True, limit=fill_limit)
+        else:
+            trial_stats.interpolate(fill, inplace=True, limit_direction="forward")
+        trials.append(trial_stats)
+
+    trials = pd.concat(trials, ignore_index=True)
+    trials_gr = trials.groupby("time_r")
+    
+    return trials_gr
+    
 
 def plot_time(
     data,

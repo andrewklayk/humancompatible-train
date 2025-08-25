@@ -8,7 +8,8 @@ from .constraint_fns import (
     loss_equality,
     abs_diff_tpr,
     abs_diff_fpr,
-    abs_max_dev_from_overall_tpr
+    abs_max_dev_from_overall_tpr,
+    abs_diff_pr
 )
 
 __all__ = ["FairnessConstraint, loss_equality"]

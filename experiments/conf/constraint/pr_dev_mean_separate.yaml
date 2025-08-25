@@ -1,4 +1,4 @@
-import_name: abs_max_dev_from_overall_tpr
+import_name: abs_diff_pr
 
 c_batch_size: 128
 bound: 0.03

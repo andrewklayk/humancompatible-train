@@ -11,6 +11,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch import nn, tensor
 from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
+from humancompatible.train.fairness.constraints.constraint_fns import fairret_stat_equality
 from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
 from humancompatible.train.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
@@ -133,7 +134,7 @@ def run(cfg: DictConfig) -> None:
                 batch_size=cfg.constraint.c_batch_size,
                 seed=EXP_IDX
             )]
-        elif cfg.constraint.import_name == 'abs_diff_tpr':
+        elif cfg.constraint.import_name in ['abs_diff_tpr', 'abs_diff_pr']:
             c = [
                 FairnessConstraint(
                     train_ds,
@@ -144,7 +145,7 @@ def run(cfg: DictConfig) -> None:
                 )
                 for group_ind in group_ind_train
             ]
-        elif cfg.constraint.import_name == 'abs_diff_fpr':
+        elif cfg.constraint.import_name in ['abs_diff_fpr', 'abs_diff_pr']:
             c = [
                 FairnessConstraint(
                     train_ds,
@@ -289,12 +290,13 @@ def run(cfg: DictConfig) -> None:
                         end="\r",
                     )
         elif cfg.alg.import_name.startswith("TorchSSLALM"):
-            epochs = 8
+            epochs = 1000
             avg_epoch_c_log = []
             avg_epoch_loss_log = []
             m = len(group_ind_train)
             
-            from fairret.statistic import TruePositiveRate, FalseNegativeFalsePositiveFraction
+            from fairret.statistic import TruePositiveRate, PositiveRate
+            from fairret.loss import NormLoss
 
             # breakpoint()
             train_ds_sens = TensorDataset(
@@ -306,44 +308,36 @@ def run(cfg: DictConfig) -> None:
             
             slack_vars = torch.zeros(m, requires_grad=True)
             obj_batch_size = 16
-            c_batch_size = 24*m
+            c_batch_size = cfg.constraint.c_batch_size
 
             from humancompatible.train.algorithms.torch import SSLALM
             optimizer = SSLALM(
                 net.parameters(),
                 lr=0.01,
-                dual_lr=0.05,
+                dual_lr=0.1,
                 rho=1.0,
                 mu=2.0,
                 beta=0.5,
                 m=m,
             )
-            c_bound = torch.tensor([0.02]*m)
+            c_bound = torch.tensor([cfg.constraint.bound]*m)
             optimizer.add_param_group(param_group={"params": slack_vars, "name": "slack"})
             # constr = FalseNegativeFalsePositiveFraction()
-            constr = TruePositiveRate()
+            constr = PositiveRate()
+            # fair_loss = NormLoss(constr)
 
-            
+            time = timeit.default_timer()
             total_iters = 0
+            
             for epoch in range(epochs):
+                elapsed = timeit.default_timer()
+                if elapsed - time > cfg.run_maxtime:
+                    break
                 loss_log = []
                 c_log = []
                 gen = torch.Generator(device=device)
                 gen.manual_seed(EXP_IDX + epoch)
-                obj_loader = iter(
-                    torch.utils.data.DataLoader(
-                        train_ds,
-                        obj_batch_size,
-                        shuffle=True,
-                        generator=gen,
-                        drop_last=True,
-                    )
-                )
-
-                gen = torch.Generator(device=device)
-                gen.manual_seed(EXP_IDX + epoch)
                 from humancompatible.train.fairness.utils import BalancedBatchSampler
-                
                 
                 sampler = BalancedBatchSampler(
                     # subgroup_indices=group_ind_train,
@@ -355,30 +349,40 @@ def run(cfg: DictConfig) -> None:
                     train_ds_sens,
                     batch_sampler=sampler
                 )
-                c_loader = iter(dataloader)
-                breakpoint()
-                b = next(c_loader)
-                for batch_input, batch_label in obj_loader:
+                # c_loader = iter(dataloader)
+                for batch_input, batch_sens, batch_label in dataloader:
+                    elapsed = timeit.default_timer()
+                    if elapsed - time > cfg.run_maxtime:
+                        break
+                    history["time"][total_iters] = elapsed - time
 
                     # evaluate constraints and constraint grads
                     c_vals = []
                     c_vals_raw = []
-                    try:
-                        breakpoint()
-                        c_inputs, c_sens, c_labels = next(c_loader)
-                    except:
-                        sampler = BalancedBatchSampler(
-                            # subgroup_indices=group_ind_train,
-                            subgroup_onehot=group_ind_onehot,
-                            batch_size=c_batch_size,
-                            drop_last=True
-                        )
-                        dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
-                        c_loader = iter(dataloader)
-                        c_inputs, c_sens, c_labels = next(c_loader)
+                    
+                    c_inputs = batch_input[::2]
+                    c_labels = batch_label[::2]
+                    c_sens = batch_sens[::2]
+                    # try:
+                    #     c_inputs, c_sens, c_labels = next(c_loader)
+                    # except:
+                    #     sampler = BalancedBatchSampler(
+                    #         # subgroup_indices=group_ind_train,
+                    #         subgroup_onehot=group_onehot_train,
+                    #         batch_size=c_batch_size,
+                    #         drop_last=True
+                    #     )
+                    #     dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
+                    #     c_loader = iter(dataloader)
+                    #     c_inputs, c_sens, c_labels = next(c_loader)
                     c_outputs = torch.nn.functional.sigmoid(net(c_inputs))
-                    c_overall = constr(c_outputs, None, c_labels.unsqueeze(1))
-                    c_val_raw_vec = constr(c_outputs, c_sens, c_labels.unsqueeze(1))
+                    c_outputs_pos_idx = (c_outputs >= 0).squeeze()
+                    c_overall = constr(c_outputs[c_outputs_pos_idx], None
+                                    #    , c_labels[c_outputs_pos_idx].unsqueeze(1)
+                                       )
+                    c_val_raw_vec = constr(c_outputs[c_outputs_pos_idx], c_sens[c_outputs_pos_idx]
+                                        #    , c_labels[c_outputs_pos_idx].unsqueeze(1)
+                                           )
                     c_val_raw_vec = torch.abs(c_val_raw_vec - c_overall)
 
                     for i in range(m):
@@ -402,29 +406,35 @@ def run(cfg: DictConfig) -> None:
                         with torch.no_grad():
                             c_vals = []
                             c_vals_raw = []
-                            try:
-                                c_inputs, c_sens, c_labels = next(c_loader)
-                            except:
-                                sampler = BalancedBatchSampler(group_ind_train, c_batch_size, drop_last=True)
-                                dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
-                                c_loader = iter(dataloader)
-                                c_inputs, c_sens, c_labels = next(c_loader)
-
+                            # try:
+                            #     c_inputs, c_sens, c_labels = next(c_loader)
+                            # except:
+                            #     sampler = BalancedBatchSampler(group_ind_train, c_batch_size, drop_last=True)
+                            #     dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
+                            #     c_loader = iter(dataloader)
+                            #     c_inputs, c_sens, c_labels = next(c_loader)
+                            c_inputs = batch_input[1::2]
+                            c_labels = batch_label[1::2]
+                            c_sens = batch_sens[1::2]
                             c_outputs = torch.nn.functional.sigmoid(net(c_inputs))
-                            # constr = TruePositiveRate()
-                            c_overall = constr(c_outputs, None, c_labels.unsqueeze(1))
-                            c_val_raw_vec = constr(c_outputs, c_sens, c_labels.unsqueeze(1))
+                            c_outputs_pos_idx = (c_outputs >= 0).squeeze()
+                            c_overall = constr(c_outputs[c_outputs_pos_idx], None
+                                            #    ,c_labels[c_outputs_pos_idx].unsqueeze(1)
+                                            )
+                            c_val_raw_vec = constr(c_outputs[c_outputs_pos_idx], c_sens[c_outputs_pos_idx]
+                                                #    , c_labels[c_outputs_pos_idx].unsqueeze(1)
+                                                   )
                             c_val_raw_vec = torch.abs(c_val_raw_vec - c_overall)
                             c_val = c_val_raw_vec + slack_vars - c_bound
                             c_vals.append(c_val.detach())
 
                             c_vals_raw = c_val_raw_vec.detach()
 
-                    breakpoint()
                     optimizer.step(c_vals)
                     optimizer.zero_grad()
                     if total_iters % cfg.alg.params.save_state_interval == 0:
                         history["params"]["w"][total_iters] = deepcopy(net.state_dict())
+                        history["time"][total_iters] = elapsed - time
                     
                     total_iters += 1
 
@@ -439,36 +449,41 @@ def run(cfg: DictConfig) -> None:
                 # print(optimizer._dual_vars)
                 avg_epoch_loss_log.append(np.mean(loss_log))
                 avg_epoch_c_log.append(np.mean(c_log, axis=0))
-                print(
-                    f"Epoch: {epoch}, loss: {avg_epoch_loss_log[-1]}, constraints: {avg_epoch_c_log[-1]}, dual: {optimizer._dual_vars}"
-                )
+                with np.printoptions(precision=4):
+                    print(
+                        f"Epoch: {epoch}, loss: {avg_epoch_loss_log[-1]}, constraints: {avg_epoch_c_log[-1]}, dual: {optimizer._dual_vars.detach().numpy()}"
+                    )
         elif cfg.alg.import_name.startswith("TorchSSG"):
-            epochs = 10
+            epochs = 100000
             avg_epoch_c_log = []
             avg_epoch_loss_log = []
             m = 1
             
-            from fairret.statistic import TruePositiveRate
+            from fairret.statistic import PositiveRate
 
             # breakpoint()
             train_ds_sens = TensorDataset(X_train_tensor, group_onehot_train, y_train_tensor)
 
             obj_batch_size = 16
-            c_batch_size = 64*5
+            c_batch_size = cfg.constraint.c_batch_size
 
             from humancompatible.train.algorithms.torch import SSG
             optimizer = SSG(
                 net.parameters(),
-                lr=0.01,
-                dual_lr=0.01,
+                lr=0.05,
+                dual_lr=0.05,
                 m=m,
             )
-            c_bound = torch.tensor([0.02]*5)
-            c_tol = torch.tensor([1.0]*5)
+            c_bound = torch.tensor([cfg.constraint.bound]*5)
+            c_tol = torch.tensor([cfg.constraint.bound*2]*5)
 
-            
+            time = timeit.default_timer()
             total_iters = 0
+            
             for epoch in range(epochs):
+                elapsed = timeit.default_timer()
+                if elapsed - time > cfg.run_maxtime:
+                    break
                 loss_log = []
                 c_log = []
                 gen = torch.Generator(device=device)
@@ -484,35 +499,40 @@ def run(cfg: DictConfig) -> None:
 
                 gen = torch.Generator(device=device)
                 gen.manual_seed(EXP_IDX + epoch)
-                from utils.load_folktables import BalancedBatchSampler
+                from humancompatible.train.fairness.utils import BalancedBatchSampler
                 
-                sampler = BalancedBatchSampler(group_ind_train, c_batch_size, drop_last=True)
+                sampler = BalancedBatchSampler(
+                    subgroup_indices=group_ind_train,
+                    batch_size=c_batch_size,
+                    drop_last=True)
                 dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
-                c_loader = iter(dataloader)
-
-                for batch_input, batch_label in obj_loader:
+                max_idx_log = []
+                for batch_input, batch_sens, batch_label in dataloader:
+                    elapsed = timeit.default_timer()
+                    if elapsed - time > cfg.run_maxtime:
+                        break
+                    history["time"][total_iters] = elapsed - time
 
                     # evaluate constraints and largest constraint grad
                     c_vals = []
                     c_vals_raw = []
-                    try:
-                        c_inputs, c_sens, c_labels = next(c_loader)
-                    except:
-                        sampler = BalancedBatchSampler(group_ind_train, c_batch_size, drop_last=True)
-                        dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
-                        c_loader = iter(dataloader)
-                        c_inputs, c_sens, c_labels = next(c_loader)
+                    
+                    c_inputs = batch_input
+                    c_sens = batch_sens
+                    c_labels = batch_label
                     c_outputs = torch.nn.functional.sigmoid(net(c_inputs))
 
-                    constr = TruePositiveRate()
-                    c_overall = constr(c_outputs, None, c_labels.unsqueeze(1))
-                    c_val_raw_vec = constr(c_outputs, c_sens, c_labels.unsqueeze(1))
+                    constr = PositiveRate()
+                    c_overall = constr(c_outputs, None)
+                    c_val_raw_vec = constr(c_outputs, c_sens)
+                    # breakpoint()
                     c_val_raw_vec = torch.abs(c_val_raw_vec - c_overall)
 
                     c_val = c_val_raw_vec - c_bound
                     c_max_viol_idx = torch.argmax(c_val - c_tol)
                     c_max_viol = c_val[c_max_viol_idx]
                     c_max_viol.backward()
+                    max_idx_log.append(c_max_viol_idx)
 
                     optimizer.dual_step(i=0)
                     
@@ -528,17 +548,16 @@ def run(cfg: DictConfig) -> None:
                     optimizer.step(c_vals)
                     optimizer.zero_grad()
 
+                    total_iters += 1
                     c_tol /= np.sqrt(total_iters)
 
                     if total_iters % cfg.alg.params.save_state_interval == 0:
                         history["params"]["w"][total_iters] = deepcopy(net.state_dict())
                     
-                    total_iters += 1
                     
                     loss_log.append(loss.item())
                     c_log.append([
-                        c_vals.detach()
-                        # c for c in c_vals
+                        c_val.detach()
                     ])
 
                 # print(optimizer._dual_vars)
@@ -546,7 +565,59 @@ def run(cfg: DictConfig) -> None:
                 avg_epoch_c_log.append(np.mean(c_log, axis=0))
                 print(
                     f"Epoch: {epoch}, loss: {avg_epoch_loss_log[-1]}, constraints: {avg_epoch_c_log[-1]}"
-                )
+                )  
+        elif cfg.alg.import_name.startswith("SGD"):
+            
+            optimizer = torch.optim.Adam(params=net.parameters())
+
+            time = timeit.default_timer()
+            total_iters = 0
+            train_ds_sens = TensorDataset(X_train_tensor, group_onehot_train, y_train_tensor)
+            epochs = 1000000
+            avg_epoch_loss_log = []
+            
+            for epoch in range(epochs):
+                elapsed = timeit.default_timer()
+                if elapsed - time > cfg.run_maxtime:
+                    break
+                loss_log = []
+                gen = torch.Generator(device=device)
+                gen.manual_seed(EXP_IDX + epoch)
+
+                gen = torch.Generator(device=device)
+                gen.manual_seed(EXP_IDX + epoch)
+                from humancompatible.train.fairness.utils import BalancedBatchSampler
+                
+                sampler = BalancedBatchSampler(
+                    subgroup_indices=group_ind_train,
+                    batch_size=cfg.constraint.c_batch_size,
+                    drop_last=True)
+                dataloader = DataLoader(train_ds_sens, batch_sampler=sampler)
+
+                for batch_input, batch_sens, batch_label in dataloader:
+                    elapsed = timeit.default_timer()
+                    if elapsed - time > cfg.run_maxtime:
+                        break
+                    history["time"][total_iters] = elapsed - time
+                    logits = net(batch_input)
+                    loss = loss_fn(logits.squeeze(), batch_label)
+                    loss.backward()
+
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+                    if total_iters % cfg.alg.params.save_state_interval == 0:
+                        history["params"]["w"][total_iters] = deepcopy(net.state_dict())
+                    
+                    total_iters += 1
+                    
+                    loss_log.append(loss.item())
+                    
+                avg_epoch_loss_log.append(np.mean(loss_log))
+                
+                print(
+                    f"Epoch: {epoch}, loss: {avg_epoch_loss_log[-1]}"
+                )  
         else:
             optimizer_name = cfg.alg.import_name
             module = importlib.import_module("humancompatible.train.algorithms")
@@ -680,7 +751,7 @@ def run(cfg: DictConfig) -> None:
                     data_c = [[
                         (X_train_tensor[g_idx], y_train_tensor[g_idx]) for g_idx in group_ind_train
                     ]]
-                elif cfg.constraint.import_name == 'abs_diff_tpr':
+                elif cfg.constraint.import_name in ['abs_diff_pr', 'abs_diff_tpr']:
                     data_c = [
                         (
                             (X_train_tensor[g_idx], y_train_tensor[g_idx]),
@@ -716,7 +787,7 @@ def run(cfg: DictConfig) -> None:
                     data_c = [[
                         (X_test_tensor[g_idx], y_test_tensor[g_idx]) for g_idx in group_ind_test
                     ]]
-                elif cfg.constraint.import_name == 'abs_diff_tpr':
+                elif cfg.constraint.import_name in ['abs_diff_tpr', 'abs_diff_pr']:
                     data_c = [
                         (
                             (X_test_tensor[g_idx], y_test_tensor[g_idx]),
@@ -843,25 +914,25 @@ def calculate_iteration_values(
     full_eval.loc[*index_to_save]["f"] = loss.detach().cpu().numpy()
     full_eval.loc[*index_to_save]["fg"] = [fg.detach().cpu().numpy()]
 
-    if alg.lower() == "sgd":
-        return
+    # if alg.lower() == "sgd":
+    #     return
 
-    elif alg.lower() == "sslalm":
-        x_t, z, rho, mu, lambdas = (
-            params["x_t"],
-            params["z"],
-            params["rho"],
-            params["mu"],
-            params["lambdas"],
-        )
-        G = (
-            fg
-            + c_grads_mat.T @ lambdas
-            + rho * (c_grads_mat.T @ c_val_vec)
-            + mu * (x_t - z)
-        )
+    # elif alg.lower() == "sslalm":
+    #     x_t, z, rho, mu, lambdas = (
+    #         params["x_t"],
+    #         params["z"],
+    #         params["rho"],
+    #         params["mu"],
+    #         params["lambdas"],
+    #     )
+    #     G = (
+    #         fg
+    #         + c_grads_mat.T @ lambdas
+    #         + rho * (c_grads_mat.T @ c_val_vec)
+    #         + mu * (x_t - z)
+    #     )
 
-        full_eval.loc[*index_to_save]["G"] = [G.detach().cpu().numpy()]
+    #     full_eval.loc[*index_to_save]["G"] = [G.detach().cpu().numpy()]
 
 
 def sample_or_restart_iterloader(loader):

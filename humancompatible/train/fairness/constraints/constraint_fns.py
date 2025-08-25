@@ -3,6 +3,7 @@ from fairret.statistic import (
     TruePositiveRate,
     FalseNegativeFalsePositiveFraction,
     FalsePositiveRate,
+    PositiveRate,
     Accuracy,
 )
 from fairret.loss import NormLoss
@@ -81,6 +82,9 @@ def abs_diff_tpr(_, net, c_data):#, stat):
     g2_inputs, g2_labels = c_data[1]
     g1_outs = torch.nn.functional.sigmoid(net(g1_inputs))
     g2_outs = torch.nn.functional.sigmoid(net(g2_inputs))
+    
+    g1_pos_pred_mask = (g1_outs >= 0).squeeze()
+    g2_pos_pred_mask = (g2_outs >= 0).squeeze()
 
     if g1_labels.ndim == 0:
         g1_labels = g1_labels.reshape(1)
@@ -89,8 +93,29 @@ def abs_diff_tpr(_, net, c_data):#, stat):
         g1_labels = g1_labels.unsqueeze(1)
         g2_labels = g2_labels.unsqueeze(1)
 
-    g1_loss = tpr(g1_outs, None, g1_labels)
-    g2_loss = tpr(g2_outs, None, g2_labels)
+    g1_loss = tpr(g1_outs[g1_pos_pred_mask], None, g1_labels[g1_pos_pred_mask])
+    g2_loss = tpr(g2_outs[g2_pos_pred_mask], None, g2_labels[g2_pos_pred_mask])
+
+    val = abs(g1_loss - g2_loss)
+
+    return val
+
+def abs_diff_pr(_, net, c_data):#, stat):
+    pr = PositiveRate()
+    g1_inputs, g1_labels = c_data[0]
+    g2_inputs, g2_labels = c_data[1]
+    g1_outs = torch.nn.functional.sigmoid(net(g1_inputs))
+    g2_outs = torch.nn.functional.sigmoid(net(g2_inputs))
+
+    if g1_labels.ndim == 0:
+        g1_labels = g1_labels.reshape(1)
+        g2_labels = g2_labels.reshape(1)
+    if g1_labels.ndim < g1_outs.ndim:
+        g1_labels = g1_labels.unsqueeze(1)
+        g2_labels = g2_labels.unsqueeze(1)
+
+    g1_loss = pr(g1_outs, None)
+    g2_loss = pr(g2_outs, None)
 
     val = abs(g1_loss - g2_loss)
 
@@ -123,7 +148,8 @@ def abs_max_dev_from_overall_tpr(_, net, c_data):
     for input, label in c_data:
         out = net(input)
         pred_sigm = torch.nn.functional.sigmoid(out)
-        tpr = st(pred_sigm, None, label.unsqueeze(1))
+        pos_pred_mask = (pred_sigm >= 0).squeeze()
+        tpr = st(pred_sigm[pos_pred_mask], None, label[pos_pred_mask].unsqueeze(1))
         stats.append(tpr)
 
     stats = torch.cat(stats)
@@ -131,7 +157,8 @@ def abs_max_dev_from_overall_tpr(_, net, c_data):
     all_lab = torch.cat([x[1] for x in c_data])
     all_out = net(all_inp)
     all_pred_sigm = torch.nn.functional.sigmoid(all_out)
-    all_tpr = st(all_pred_sigm, None, all_lab.unsqueeze(1))
+    pos_pred_mask = (all_pred_sigm >= 0).squeeze()
+    all_tpr = st(all_pred_sigm[pos_pred_mask], None, all_lab[pos_pred_mask].unsqueeze(1))
 
     val = torch.max(
         torch.abs(stats - all_tpr)

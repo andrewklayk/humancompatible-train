@@ -13,4 +13,4 @@ params:
   eta: 0.05
   beta: 0.5
   use_unbiased_penalty_grad: True
-  save_state_interval: 50
+  save_state_interval: 10
