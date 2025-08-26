@@ -5,20 +5,6 @@ from torch import Tensor
 
 from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
 
-# def project_fn(x, m):
-#     for i in range(1, m + 1):
-#         if x[-i] < 0:
-#             x[-i] = 0
-#     return x
-
-
-def _dual_step_func(dual_var, lr, cval):
-    return dual_var + lr * cval
-
-
-# def step_fn(params, grads,)
-
-
 class SSLALM(Optimizer):
     def __init__(
         self,
@@ -201,15 +187,9 @@ class SSLALM(Optimizer):
                 for j, c_grad in enumerate(c_grads[i]):
                     if c_grad is None:
                         continue
-                    # if len(self._dual_vars) == j:
-                    #     break
                     l_term_grad += c_grad * self._dual_vars[j]
                     aug_term_grad += c_grad * c_val[j]
-
-                # _c_grads = torch.stack(c_grads[i], dim=-1)
-
-                # l_term_grad = _c_grads @ self._dual_vars
-                # aug_term_grad = _c_grads @ c_val
+                    
                 smoothing[i].add_(param - smoothing[i], alpha=self.beta)
 
                 G_i = (
@@ -224,11 +204,6 @@ class SSLALM(Optimizer):
 
                 ## PROJECT (keep in mind we do layer by layer)
                 ## add slack variables to params in constructor?
-
-                # if self.project_fn is not None:
-                #     self.project_fn(param)
-
-                # update smoothing term)
 
                 c_grads[i].clear()
         

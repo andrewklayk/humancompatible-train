@@ -37,8 +37,6 @@ class SSG(Optimizer):
         dual_lr: Union[
             float, Tensor
         ] = 5e-2,  # keep as tensor for different learning rates for different constraints in the future? idk
-        # constraint learning rate decrease rule
-        # dual_lr_rule = 'const',
         *,
         differentiable: bool = False,
     ):
