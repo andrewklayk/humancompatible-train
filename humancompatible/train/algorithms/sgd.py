@@ -62,7 +62,7 @@ class SGD(Algorithm):
                 self.state_history["params"]["w"][total_iters] = deepcopy(
                     self.net.state_dict()
                 )
-            self.state_history["time"][total_iters] = elapsed
+                self.state_history["time"][total_iters] = elapsed
 
             try:
                 (f_inputs, f_labels) = next(loss_iter)
@@ -89,9 +89,10 @@ class SGD(Algorithm):
             # f_grad_estimate =
 
             with torch.no_grad():
-                self.state_history["values"]["f"][total_iters] = (
-                    loss.detach().cpu().numpy()
-                )
+                if total_iters % save_state_interval == 0:
+                    self.state_history["values"]["f"][total_iters] = (
+                        loss.detach().cpu().numpy()
+                    )
                 # self.state_history['values']['fg'][total_iters] = torch.norm(f_grad_estimate).detach().cpu().numpy()
 
             if verbose:

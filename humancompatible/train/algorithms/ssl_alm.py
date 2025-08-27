@@ -218,31 +218,32 @@ class SSLALM(Algorithm):
             c_val_estimate_2 = c_val_2
             c_grad_estimate = c_grad_1
 
-            with torch.no_grad():
-                f_grad_par = torch.narrow(
-                    f_grad_estimate, 0, 0, f_grad_estimate.shape[-1] - m
-                )
-                c_grad_par = torch.narrow(
-                    c_grad_estimate, 1, 0, c_grad_estimate.shape[-1] - m
-                )
-                G_par = torch.narrow(G, 0, 0, G.shape[-1] - m)
-                z_par = torch.narrow(z, 0, 0, z.shape[-1] - m)
-
-                self.state_history["values"]["G"][total_iters] = (
-                    torch.norm(G_par).detach().cpu().numpy()
-                )
-                self.state_history["values"]["f"][total_iters] = (
-                    loss_eval.detach().cpu().numpy()
-                )
-                self.state_history["values"]["fg"][total_iters] = (
-                    torch.norm(f_grad_par).detach().cpu().numpy()
-                )
-                self.state_history["values"]["c"][total_iters] = (
-                    c_val_2.detach().cpu().numpy()
-                )
-                self.state_history["values"]["cg"][total_iters] = (
-                    torch.norm(c_grad_par, dim=1).detach().cpu().numpy()
-                )
+            if total_iters % save_state_interval == 0:
+                with torch.no_grad():
+                    f_grad_par = torch.narrow(
+                        f_grad_estimate, 0, 0, f_grad_estimate.shape[-1] - m
+                    )
+                    c_grad_par = torch.narrow(
+                        c_grad_estimate, 1, 0, c_grad_estimate.shape[-1] - m
+                    )
+                    G_par = torch.narrow(G, 0, 0, G.shape[-1] - m)
+                    z_par = torch.narrow(z, 0, 0, z.shape[-1] - m)
+                    
+                    self.state_history["values"]["G"][total_iters] = (
+                        torch.norm(G_par).detach().cpu().numpy()
+                    )
+                    self.state_history["values"]["f"][total_iters] = (
+                        loss_eval.detach().cpu().numpy()
+                    )
+                    self.state_history["values"]["fg"][total_iters] = (
+                        torch.norm(f_grad_par).detach().cpu().numpy()
+                    )
+                    self.state_history["values"]["c"][total_iters] = (
+                        c_val_2.detach().cpu().numpy()
+                    )
+                    self.state_history["values"]["cg"][total_iters] = (
+                        torch.norm(c_grad_par, dim=1).detach().cpu().numpy()
+                    )
 
             if torch.all(c_val_1 <= 0):
                 n_iters_c_satisfied += 1

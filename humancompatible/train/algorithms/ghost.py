@@ -95,13 +95,14 @@ class StochasticGhost(Algorithm):
         rng = np.random.default_rng(seed=seed)
         run_start = timeit.default_timer()
 
-        iteration = 0
+        total_iters = 0
         while True:
-            iteration += 1
-            if max_iter is not None and iteration >= max_iter:
+            total_iters += 1
+            if max_iter is not None and total_iters >= max_iter:
                 break
             current_time = timeit.default_timer()
-            self.state_history["time"][iteration] = current_time - run_start
+            if total_iters % save_state_interval == 0:
+                self.state_history["time"][total_iters] = current_time - run_start
 
             if max_runtime > 0 and current_time - run_start >= max_runtime:
                 print(current_time - run_start)
@@ -109,9 +110,9 @@ class StochasticGhost(Algorithm):
                 return self.state_history
 
             if stepsize_rule == "inv_iter":
-                gamma = gamma0 / (iteration + 1) ** zeta
+                gamma = gamma0 / (total_iters + 1) ** zeta
             elif stepsize_rule == "dimin":
-                if iteration == 1:
+                if total_iters == 1:
                     gamma = gamma0
                 else:
                     gamma *= 1 - zeta * gamma
@@ -119,10 +120,10 @@ class StochasticGhost(Algorithm):
             Nsamp = rng.geometric(p=alpha) - 1
             while (2 ** (Nsamp + 1)) > max_sample_size:
                 Nsamp = rng.geometric(p=alpha) - 1
-
-            self.state_history["values"]["n_samples"][iteration] = 3 * (
-                1 + 2 ** (Nsamp + 1)
-            )
+        
+            n_samples_used = 3 * (
+                    1 + 2 ** (Nsamp + 1)
+                )
 
             dsols = np.zeros((4, n))
 
@@ -220,7 +221,7 @@ class StochasticGhost(Algorithm):
             ) / (alpha * ((1 - alpha) ** (Nsamp)))
 
             start = 0
-            print(f"{iteration}", end="\r")
+            print(f"{total_iters}", end="\r")
             with torch.no_grad():
                 w = net_params_to_tensor(self.net)
                 if any([torch.any(torch.isnan(lw)) for lw in w]):
@@ -235,12 +236,13 @@ class StochasticGhost(Algorithm):
                     )
                     start = end
 
-            if iteration % save_state_interval == 0:
-                self.state_history["params"]["w"][iteration] = deepcopy(
+            if total_iters % save_state_interval == 0:
+                self.state_history["params"]["w"][total_iters] = deepcopy(
                     self.net.state_dict()
                 )
+                self.state_history["values"]["n_samples"][total_iters] = n_samples_used
 
-            self.state_history["values"]["d"][iteration] = dsol
+                self.state_history["values"]["d"][total_iters] = dsol
             # self.history["w"].append(deepcopy(self.net.state_dict()))
 
             feval = self.loss_fn(outs, obj_batch[1])

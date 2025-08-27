@@ -151,14 +151,15 @@ class SSG(Algorithm):
                     w[i].set_(x_t1[start:end].reshape(w[i].shape))
                     start = end
 
-            if c_max is not None:
-                self.state_history["values"]["c"][total_iters] = (
-                    c_t
-                )
-            if loss_eval is not None:
-                self.state_history["values"]["f"][total_iters] = (
-                    loss_eval.cpu().detach().numpy()
-                )
+            if total_iters % save_state_interval == 0:
+                if c_max is not None:
+                    self.state_history["values"]["c"][total_iters] = (
+                        c_t
+                    )
+                if loss_eval is not None:
+                    self.state_history["values"]["f"][total_iters] = (
+                        loss_eval.cpu().detach().numpy()
+                    )
 
             if verbose and loss_eval is not None and c_t is not None:
                 with np.printoptions(

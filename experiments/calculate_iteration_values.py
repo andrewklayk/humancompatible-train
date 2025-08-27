@@ -30,13 +30,6 @@ def run(cfg: DictConfig) -> None:
     FT_TASK = cfg.data.task
     DOWNLOAD_DATA = cfg.data.download
     DATA_PATH = cfg.data.path
-    
-    if "constraint" in cfg.keys():
-        CONSTRAINT = cfg.constraint.import_name
-        LOSS_BOUND = cfg.constraint.bound
-    else:
-        CONSTRAINT = "unconstr"
-        LOSS_BOUND = 0
 
     if cfg.device == "cpu":
         device = "cpu"
@@ -112,114 +105,9 @@ def run(cfg: DictConfig) -> None:
         os.makedirs(directory)
 
     ## run experiments ##
-    histories = []
-    for EXP_IDX in range(N_RUNS):
 
-        net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
+    histories = pd.read_csv(cfg.checkpoint_df_path)
 
-        ## define constraints ##
-        loss_fn = nn.BCEWithLogitsLoss()
-        constraint_fn_module = importlib.import_module("humancompatible.train.fairness.constraints")
-        constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
-        
-        if cfg.constraint.type == 'one_vs_mean':
-            c = [
-                FairnessConstraint(
-                    train_ds,
-                    [group_ind, np.concat(group_ind_train)],
-                    fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                    batch_size=cfg.constraint.c_batch_size,
-                    seed=EXP_IDX
-                )
-                for group_ind in group_ind_train
-            ]
-            if cfg.constraint.add_negative:
-                c.extend(
-                    [
-                        FairnessConstraint(
-                            train_ds,
-                            [group_ind, np.concat(group_ind_train)],
-                            fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                            batch_size=cfg.constraint.c_batch_size,
-                            seed=EXP_IDX
-                        )
-                        for group_ind in group_ind_train
-                    ]
-                )
-        elif cfg.constraint.type == 'one_vs_each':
-            c = [
-                FairnessConstraint(
-                    train_ds,
-                    group_idx,
-                    fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                    batch_size=cfg.constraint.c_batch_size,
-                    device=device,
-                    seed=EXP_IDX,
-                )
-                for group_idx in combinations(group_ind_train, 2)
-            ]
-            if cfg.constraint.add_negative:
-                c.extend(
-                    [
-                        FairnessConstraint(
-                            train_ds,
-                            group_idx,
-                            fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                            batch_size=cfg.constraint.c_batch_size,
-                            device=device,
-                            seed=EXP_IDX,
-                        )
-                        for group_idx in combinations(group_ind_train, 2)
-                    ]
-                )
-
-        torch.manual_seed(EXP_IDX)
-        model_path = model_name + f"_trial{EXP_IDX}.pt"
-
-        net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
-
-        optimizer_name = cfg.alg.import_name
-        module = importlib.import_module("humancompatible.train.algorithms")
-        Optimizer = getattr(module, optimizer_name)
-
-        optimizer = Optimizer(net, train_ds, loss_fn, c)
-        history = optimizer.optimize(
-            **cfg.alg.params,
-            max_iter=cfg.run_maxiter,
-            max_runtime=cfg.run_maxtime,
-            device=device,
-            seed=EXP_IDX,
-            verbose=True,
-        )
-
-        ## SAVE RESULTS ##
-        params = pd.DataFrame(history["params"])
-        values = pd.DataFrame(history["values"])
-        t = pd.Series(history["time"], name="time")
-        histories.append(values.join(params, how="outer").join(t, how="outer"))
-            
-
-        ## SAVE MODEL ##
-        print(f"Model saved to: {model_path}")
-        torch.save(net.state_dict(), model_path)
-        print("")
-
-    # Save DataFrames to CSV files
-    c_name = cfg.constraint.import_name
-    utils_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "utils", "exp_results", c_name)
-    )
-    if not os.path.exists(utils_path):
-        os.makedirs(utils_path)
-        
-    if cfg.save_checkpoint_df:
-        fname = f"{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}.csv"
-        save_path = os.path.join(utils_path, fname)
-        print(f"Saving to: {save_path}")
-        histories = pd.concat(histories, keys=range(N_RUNS), names=["trial", "iteration"])
-        histories.to_pickle(save_path)
-        print("Saved!")
-        
     ####################################################
     ### CALCULATE STATS ON EVERY ALGORITHM ITERATION ###
     ####################################################
@@ -414,16 +302,6 @@ def calculate_iteration_values(
     full_eval.loc[*index_to_save]["f"] = loss.detach().cpu().numpy()
     full_eval.loc[*index_to_save]["fg"] = [fg.detach().cpu().numpy()]
 
-
-def sample_or_restart_iterloader(loader):
-    try:
-        item = next(loader)
-        return item
-    except StopIteration:
-        loader._reset(loader)
-        # loader.gen
-        item = next(loader)
-        return item
 
 
 if __name__ == "__main__":

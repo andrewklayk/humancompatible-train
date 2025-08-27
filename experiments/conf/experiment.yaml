@@ -14,3 +14,4 @@ n_runs: 10
 run_maxtime: 30
 run_maxiter: null
 device: cpu
+save_checkpoint_df: True
