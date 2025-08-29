@@ -1,0 +1,6 @@
+import_name: loss_equality
+
+c_batch_size: 16
+bound: 0.005
+add_negative: True
+type: "one_vs_mean"

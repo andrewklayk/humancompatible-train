@@ -185,7 +185,7 @@ class StochasticGhost(Algorithm):
                     constraint_eval.append(c_val.detach())
                     dcdw.append(c_grad)
 
-                constraint_eval = np.array(constraint_eval)
+                constraint_eval = np.array(constraint_eval).flatten()
                 dcdw = np.array(dcdw)
 
                 kappa = self.compute_kappa(

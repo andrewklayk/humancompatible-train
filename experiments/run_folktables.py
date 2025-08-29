@@ -1,4 +1,3 @@
-from copy import deepcopy
 import importlib
 from itertools import combinations
 import os
@@ -8,13 +7,12 @@ import hydra
 import numpy as np
 import pandas as pd
 import torch
+from torch.utils.data import TensorDataset
 from omegaconf import DictConfig, OmegaConf
 from torch import nn, tensor
-from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
-from humancompatible.train.fairness.constraints.constraint_fns import fairret_stat_equality
 from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
-from humancompatible.train.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
+from humancompatible.train.algorithms.utils import net_grads_to_tensor
 from itertools import combinations
 from humancompatible.train.fairness.constraints import FairnessConstraint
 
@@ -64,13 +62,13 @@ def run(cfg: DictConfig) -> None:
         X_train,
         y_train,
         group_ind_train,
-        group_onehot_train,
-        sep_group_ind_train,
+        _,
+        _,
         X_test,
         y_test,
         group_ind_test,
-        sep_group_ind_test,
-        group_onehot_test,
+        _,
+        _,
         _
     ) = prepare_folktables_multattr(
         FT_TASK,
@@ -273,24 +271,8 @@ def run(cfg: DictConfig) -> None:
             w = histories["w"].loc[exp_idx, alg_iteration]
             net.load_state_dict(w)
             net = net.to(device)
-            if cfg.alg.import_name.lower() == "sslalm":
-                x_t = net_params_to_tensor(net, flatten=True, copy=True)
-                lambdas = histories["dual_ms"].loc[exp_idx, alg_iteration]
-                z = histories["z"].loc[exp_idx, alg_iteration]
-                params = {
-                    "x_t": x_t,
-                    "lambdas": lambdas,
-                    "z": z,
-                    "rho": cfg.alg.params.rho,
-                    "mu": cfg.alg.params.mu,
-                }
-
             if save_train:
-                if cfg.constraint.import_name == 'abs_max_dev_from_overall_tpr':
-                    data_c = [[
-                        (X_train_tensor[g_idx], y_train_tensor[g_idx]) for g_idx in group_ind_train
-                    ]]
-                elif cfg.constraint.import_name in ['abs_diff_pr', 'abs_diff_tpr']:
+                if cfg.constraint.type=="one_vs_mean":
                     data_c = [
                         (
                             (X_train_tensor[g_idx], y_train_tensor[g_idx]),
@@ -298,7 +280,7 @@ def run(cfg: DictConfig) -> None:
                         )
                         for g_idx in group_ind_train
                     ]
-                else:
+                elif cfg.constraint.type=="one_vs_each":
                     data_c = [
                         (
                             (X_train_tensor[g_idx_1], y_train_tensor[g_idx_1]),
@@ -322,11 +304,7 @@ def run(cfg: DictConfig) -> None:
 
 
             if save_test:
-                if cfg.constraint.import_name == 'abs_max_dev_from_overall_tpr':
-                    data_c = [[
-                        (X_test_tensor[g_idx], y_test_tensor[g_idx]) for g_idx in group_ind_test
-                    ]]
-                elif cfg.constraint.import_name in ['abs_diff_tpr', 'abs_diff_pr']:
+                if cfg.constraint.type=="one_vs_mean":
                     data_c = [
                         (
                             (X_test_tensor[g_idx], y_test_tensor[g_idx]),
@@ -334,7 +312,7 @@ def run(cfg: DictConfig) -> None:
                         )
                         for g_idx in group_ind_test
                     ]
-                else:
+                elif cfg.constraint.type=="one_vs_each":
                     data_c = [
                         (
                             (X_test_tensor[g_idx_1], y_test_tensor[g_idx_1]),

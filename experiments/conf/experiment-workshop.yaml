@@ -1,0 +1,16 @@
+defaults:
+  - _self_
+  # REMOVE
+  - alg: sslalm-torch
+  - constraint: pr_dev_mean_separate
+  - data: folktables_MAR
+
+alg: ???
+constraint: ???
+data: ???
+model:
+
+n_runs: 5
+run_maxtime: 60
+run_maxiter: null
+device: cpu

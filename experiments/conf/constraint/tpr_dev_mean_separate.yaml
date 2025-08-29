@@ -1,5 +1,0 @@
-import_name: abs_diff_tpr
-
-c_batch_size: 128
-bound: 0.03
-add_negative: False

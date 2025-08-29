@@ -1,5 +1,0 @@
-import_name: abs_loss_equality
-
-c_batch_size: 128
-bound: 0.05
-add_negative: False
