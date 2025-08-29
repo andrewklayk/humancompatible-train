@@ -156,16 +156,19 @@ class SSLALM(Optimizer):
             c_val (Tensor): an Iterable of estimates of values of **ALL** constraints; used for primal parameter update.
                 Ideally, must be evaluated on an independent sample from the one used in :func:`dual_step`
         """
+        
         if c_val is None:
             c_val = self.c_vals
         if isinstance(c_val, Iterable) and not isinstance(c_val, torch.Tensor):
-            if len(c_val) == 1 and isinstance(c_val[0], torch.Tensor):
-                c_val = c_val[0]
-            else:
-                c_val = torch.stack(c_val)
-                if c_val.ndim > 1:
-                    c_val = c_val.squeeze(-1)
+            # if len(c_val) == 1 and isinstance(c_val[0], torch.Tensor):
+            #     c_val = c_val[0]
+            # else:
+            c_val = torch.stack(c_val)
+            if c_val.ndim > 1:
+                c_val = c_val.squeeze(-1)
                 
+        if c_val.numel() != self.m:
+            raise ValueError(f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}")
         G = []
 
         for group in self.param_groups:
