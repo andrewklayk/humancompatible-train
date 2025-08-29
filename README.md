@@ -61,13 +61,13 @@ The toolkit implements algorithms for constrained training of neural networks ba
 
 ### Code examples
 
-You are invited to check out the new API presented in `examples/torch_api_demo.ipynb`.
+You are invited to check out the new API presented in notebooks in the `examples` folder.
 
 The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
 
 The idea is to make different algorithms nearly interchangable in the code.
 
-The legacy API used for the benchmark is presented in `examples/algorithm_demo.ipynb` and `examples/constraint_demo.ipynb`.
+The legacy API used for the benchmark is presented in `examples/_old_/algorithm_demo.ipynb` and `examples/_old_/constraint_demo.ipynb`.
 
 ## Reproducing the Benchmark
 
@@ -139,6 +139,7 @@ For more information, see https://www.census.gov/data/developers/about/terms-of-
 
 - Add more algorithms with PyTorch-like API
 - Add more examples from different fields where constrained training of DNNs is employed
+- Migrate the benchmark to the new API
 
 ## References
 
