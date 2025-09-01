@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Sampler
 
 class BalancedBatchSampler(Sampler):
-    def __init__(self, subgroup_onehot=None, subgroup_indices=None, batch_size=1, drop_last=False):
+    def __init__(self, subgroup_onehot=None, subgroup_indices=None, batch_size=1, drop_last=True):
         """
         A Sampler that yields an equal number of samples from each group specified with either one-hot encoding or indices.
         
@@ -25,6 +25,8 @@ class BalancedBatchSampler(Sampler):
             
         self.subset_indices = subgroup_indices
         self.batch_size = batch_size
+        if drop_last is False:
+            raise NotImplementedError('drop_last=True not supported yet!')
         self.drop_last = drop_last
         self.n_subsets = len(subgroup_indices)
         self.subset_sizes = [len(indices) for indices in subgroup_indices]
@@ -50,7 +52,7 @@ class BalancedBatchSampler(Sampler):
                 start = batch_idx * self.n_samples_per_subset
                 end = start + self.n_samples_per_subset
                 subset_batch_indices = shuffled_subset_indices[subset_idx][start:end]
-                batch.extend([self.subset_indices[subset_idx][i].item() for i in subset_batch_indices])
+                batch.extend([self.subset_indices[subset_idx][i] for i in subset_batch_indices])
 
             # Yield the global indices for the batch
             yield batch

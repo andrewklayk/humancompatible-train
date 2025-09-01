@@ -20,7 +20,7 @@ from humancompatible.train.fairness.constraints import FairnessConstraint
 
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="experiment")
+# @hydra.main(version_base=None, config_path="conf", config_name="experiment")
 def run(cfg: DictConfig) -> None:
     warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -85,6 +85,8 @@ def run(cfg: DictConfig) -> None:
     print(f"Train data loaded: {(FT_TASK, FT_STATE)}")
     print(f"Data shape: {X_train_tensor.shape}")
 
+    PATH = 
+
     ## prepare to save results ##
 
     if "save_name" in cfg["alg"].keys():
@@ -96,10 +98,10 @@ def run(cfg: DictConfig) -> None:
         os.path.join(os.path.dirname(__file__), "utils", "saved_models")
     )
     directory = os.path.join(
-        saved_models_path, DATASET_NAME, CONSTRAINT, f"{LOSS_BOUND:.0E}"
+        saved_models_path, DATASET_NAME, CONSTRAINT, f"{BOUND:.0E}"
     )
 
-    model_name = os.path.join(directory, f"{alg_save_name}_{LOSS_BOUND}")
+    model_name = os.path.join(directory, f"{alg_save_name}_{BOUND}")
 
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -246,7 +248,7 @@ def run(cfg: DictConfig) -> None:
 
             net.zero_grad()
 
-    fname = f"AFTER_{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}"
+    fname = f"AFTER_{alg_save_name}_{DATASET_NAME}_{BOUND}"
     fext = ".csv"
     if save_train:
         fname_train = fname + "_train" + fext

@@ -99,9 +99,7 @@ class SSLALM(Optimizer):
             # load z (smoothing term)
             # Lazy state initialization
             if len(state) == 0:
-                state["smoothing"] = torch.zeros_like(
-                    p, memory_format=torch.preserve_format
-                )
+                state["smoothing"] = p.detach().clone()
                 state["c_grad"] = []
 
             smoothing.append(state.get("smoothing"))
@@ -192,8 +190,6 @@ class SSLALM(Optimizer):
                         continue
                     l_term_grad += c_grad * self._dual_vars[j]
                     aug_term_grad += c_grad * c_val[j]
-                    
-                smoothing[i].add_(param - smoothing[i], alpha=self.beta)
 
                 G_i = (
                     grads[i]
@@ -202,6 +198,8 @@ class SSLALM(Optimizer):
                     + self.mu * (param - smoothing[i])
                 )
                 G.append(G_i)
+
+                smoothing[i].add_(param - smoothing[i], alpha=self.beta)
 
                 param.add_(G_i, alpha=-lr)
 
