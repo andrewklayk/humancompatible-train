@@ -5,7 +5,6 @@ from copy import deepcopy
 import numpy as np
 import scipy as sp
 import torch
-from fairret.statistic import *
 from qpsolvers import solve_qp
 from scipy.optimize import linprog
 

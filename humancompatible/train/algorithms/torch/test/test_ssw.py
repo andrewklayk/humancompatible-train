@@ -1,6 +1,5 @@
 import unittest
 import torch
-from torch import Tensor
 from humancompatible.train.algorithms.torch import SSG
 
 class TestSSG(unittest.TestCase):
