@@ -1,3 +1,27 @@
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "humancompatible-train"
+version = "0.1.0"
+dependencies = [
+    "torch",
+    "numpy",
+]
+requires-python = ">= 3.11"
+authors = [
+    {name = "Andrii Kliachkin", email = "kliachkin.andrii@gmail.com"},
+    {name = "Gilles Bareilles"},
+    {name = "Jana Lepsova"},
+    {name = "Jakub Marecek"},
+]
+maintainers = [
+    {name = "Andrii Kliachkin", email = "kliachkin.andrii@gmail.com"}
+]
+description = "PyTorch-based package for constrained training of neural networks"
+readme = "README.md"
+
+
+[project.optional-dependencies]
+ghost = ["qpsolvers", "scipy"]
