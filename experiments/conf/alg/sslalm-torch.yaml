@@ -1,6 +1,6 @@
 # name of the algorithm class to import form src.algorithms
-import_name: SSLALM
-save_name: SSLALM
+import_name: TorchSSLALM
+save_name: TorchSSLALM
 
 params:
   batch_size: 16
@@ -13,4 +13,4 @@ params:
   eta: 0.05
   beta: 0.5
   use_unbiased_penalty_grad: True
-  save_state_interval: 10
+  save_state_interval: 500

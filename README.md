@@ -1,21 +1,79 @@
-# Benchmarking Stochastic Approximation Algorithms for Fairness-Constrained Training of Deep Neural Networks
+# humancompatible-train: a package for constrained machine learning
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Setup](https://github.com/humancompatible/train/actions/workflows/setup.yml/badge.svg)](https://github.com/humancompatible/train/actions/workflows/setup.yml)
 
-This repository provides a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task.
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API.
+<!-- , as well as a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task in the `experiments` folder. -->
 
 ## Table of Contents
 1. [Basic installation instructions](#basic-installation-instructions)
-2. [Reproducing the Benchmark](#reproducing-the-benchmark)
-3. [Extending the benchmark](#extending-the-benchmark) <!-- 6. [Citing humancompatible/train](#Citing-humancompatible/train) -->
-4. [License and terms of use](#license-and-terms-of-use)
-5. [References](#references)
+2. [Using the toolkit](#using-the-toolkit)
+3. [Extending the toolkit](#extending-the-toolkit) 
+4. [Reproducing the Benchmark](#reproducing-the-benchmark)
+5. [License and terms of use](#license-and-terms-of-use)
+6. [References](#references)
 
-Humancompatible/train is still under active development! If you find bugs or have feature
+humancompatible-train is still under active development! If you find bugs or have feature
 requests, please file a
 [Github issue](https://github.com/humancompatible/train/issues). 
 
-## Basic installation instructions
+## Installation
+
+Use
+
+```
+pip install humancompatible-train
+```
+
+The only dependencies of this package are `numpy` and `torch`.
+
+## Using the toolkit
+
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch.
+
+The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
+
+In general, your code using `humancompatible-train` would look something like this:
+
+```
+for inputs, labels in dataloader:
+  # inference
+  outputs = model(inputs)
+  # calculate constraints and grads
+  for constraint in constraints:
+      c_eval = constraint(outputs, labels)
+      c_eval.backwards(retain_grad=True)
+      # depending on optimizer, update dual parameters / save constraint gradient / both
+      optimizer.dual_step(c_eval)
+      optimizer.zero_grad()
+  # calculate objective
+  loss = criterion(outputs,labels)
+  loss.backwards()
+  optimizer.step()
+  optimizer.zero_grad()
+```
+
+Our idea is to
+1. Deviate minimally from the usual PyTorch workflow
+2. Make different stochastic-constrained stochastic optimization algorithms nearly interchangable in the code.
+
+### Code examples
+
+You are invited to check out our new API presented in notebooks in the `examples` folder.
+
+*The legacy API used for the benchmark is presented in `examples/_old_/algorithm_demo.ipynb` and `examples/_old_/constraint_demo.ipynb`.*
+
+## Extending the toolkit
+
+### Adding new code
+
+**To add a new algorithm**, you can subclass the PyTorch ```Optimizer``` class and proceed following the API guideline presented above.
+
+## Reproducing the Benchmark
+
+The code used in [our benchmark paper](https://arxiv.org/abs/2507.04033) is not migrated to the new API yet (WIP).
+
+### Basic installation instructions
 The code requires Python version ```3.11```.
 
 1. Create a virtual environment
@@ -30,13 +88,19 @@ source fairbenchenv/bin/activate
 python -m venv fairbenchenv
 fairbenchenv\Scripts\activate.bat
 ```
-2. Install from source (*as an editable package*).
+2. Install from source.
 ```
 git clone https://github.com/humancompatible/train.git
 cd train
 pip install -r requirements.txt
+pip install .
+```
+
+If you wish to edit the code of the algorithms, install as an editable package:
+```
 pip install -e .
 ```
+
 __Warning__: it is recommended to use Stochastic Ghost with the mkl-accelerated version of the scipy package with Stochastic Ghost; to install it, run
 
 ```pip install --force-reinstall -i https://software.repos.intel.com/python/pypi scipy```
@@ -47,8 +111,6 @@ after installing requirements.txt; otherwise, the algorithm will run slower. How
 <!-- ``` -->
 <!-- pip install folktables -->
 <!-- ``` -->
-
-## Reproducing the Benchmark
 
 ### Running the algorithms
 
@@ -74,7 +136,7 @@ The results will be saved to `experiments/utils/saved_models` and `experiments/u
 
 This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `experiments/conf` for configuration files. 
 * To change the parameters of the experiment, such as the number of runs for each algorithm, run time, the dataset used (*note: for now supports only Folktables*) - use `experiment.yaml`. 
-* To change the dataset settings - such as file location - or do dataset-specific adjustments, use `data/{dataset_name}.yaml`
+* To change the dataset settings - such as file location - or do dataset-specific adjustments - such as the configuration of the protected attributes - use `data/{dataset_name}.yaml`
 * To change algorithm hyperparameters, use `alg/{algorithm_name}.yaml`.
 * To change constraint hyperparameters, use `constraint/{constraint_name}.yaml`
 
@@ -84,35 +146,12 @@ This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `exper
 ### Producing plots
 The plots and tables like the ones in the paper can be produced using the two notebooks. `experiments/algo_plots.ipynb` houses the convergence plots, and `experiments/model_plots.ipynb` - all the others.
 
-## Extending the benchmark
-
-**To add a new algorithm**, you can subclass the ```Algorithm``` class. Before you can run it, you will need to follow these steps:
-1. In the `experiments/conf/alg` folder, add a `.yaml` file with `import_name: {ClassName}` (so the code knows which algorithm to import) and the desired keyword parameter values under `params`:
-
-```
-import_name: ClassName
-
-params:
-  param_name_1: value
-  param_name_2: value
-```
-
-2. In `src/algorithms/__init__.py`, add `from .{filename} import {ClassName}` (so the code is able to import it).
-
-Now you can run the algorithm by executing `python run_folktables.py data=folktables alg={yaml_file_name}`, or by changing the experiment config files.
-
-**To add a different constraint formulation**, you can use the `FairnessConstraint` class by passing your callable function to the constructor as `fn`. If you use `run_folktables.py`, you can add a new constraint function by following the steps:
-
-1. Add a `.yaml` file with `import_name: {FunctionName}`, along with the desired batch size and bound (*to be reworked for more generality*), to the `experiments/conf/constraint` folder
-2. Import it in `src/constraints/__init__.py` as in step 2 above.
-
-Now, to run the code with your constraint, use the `constraint` field in the main config.
 
 ## License and terms of use
 
-Humancompatible/train is provided under the Apache 2.0 Licence.
+humancompatible-train is provided under the Apache 2.0 Licence.
 
-The package relies on the Folktables package, provided under MIT Licence.
+The benchmark part of the package relies on the Folktables package, provided under MIT Licence.
 It provides code to download data from the American Community Survey
 (ACS) Public Use Microdata Sample (PUMS) files managed by the US Census Bureau.
 The data itself is governed by the terms of use provided by the Census Bureau.
@@ -134,9 +173,9 @@ For more information, see https://www.census.gov/data/developers/about/terms-of-
 
 ## Future work
 
-- Add support for fairness constraints with >=2 subgroups (limitation of the code, not of the algorithms)
-- Add support to datasets besides Folktables
-- Move towards a more PyTorch-like API for optimizers
+- Add more algorithms
+- Add more examples from different fields where constrained training of DNNs is employed
+- Migrate the benchmark to the new API
 
 ## References
 
@@ -165,4 +204,3 @@ Huang, Zhang & Alacaoglu (2025) Stochastic Smoothed Primal-Dual Algorithms for N
 
 <a id="4">[4]</a> 
 Huang & Lin (2023) Oracle Complexity of Single-Loop Switching Subgradient Methods for Non-Smooth Weakly Convex Functional Constrained Optimization, Curran Associates Inc..
-

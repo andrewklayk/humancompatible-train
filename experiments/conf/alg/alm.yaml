@@ -1,13 +1,16 @@
 # name of the algorithm class to import form src.algorithms
 import_name: SSLALM
-save_name: ALM
+save_name: SSLALM
 
 params:
-  batch_size: 8
+  batch_size: 16
   epochs: null
-  lambda_bound: 10
+  lambda_bound: 50
   mu: 0.
   rho: 1.
   tau: 0.01
-  eta: 5e-2
+  tau_mult: 1
+  eta: 0.05
   beta: 1.
+  use_unbiased_penalty_grad: True
+  save_state_interval: 50

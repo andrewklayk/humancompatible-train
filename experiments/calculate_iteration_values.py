@@ -1,3 +1,4 @@
+from copy import deepcopy
 import importlib
 from itertools import combinations
 import os
@@ -7,18 +8,19 @@ import hydra
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import TensorDataset
 from omegaconf import DictConfig, OmegaConf
 from torch import nn, tensor
+from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
+from humancompatible.train.fairness.constraints.constraint_fns import fairret_stat_equality
 from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
-from humancompatible.train.benchmark.algorithms.utils import net_grads_to_tensor
+from humancompatible.train.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
 from itertools import combinations
 from humancompatible.train.fairness.constraints import FairnessConstraint
 
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="experiment")
+# @hydra.main(version_base=None, config_path="conf", config_name="experiment")
 def run(cfg: DictConfig) -> None:
     warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -28,13 +30,6 @@ def run(cfg: DictConfig) -> None:
     FT_TASK = cfg.data.task
     DOWNLOAD_DATA = cfg.data.download
     DATA_PATH = cfg.data.path
-    
-    if "constraint" in cfg.keys():
-        CONSTRAINT = cfg.constraint.import_name
-        LOSS_BOUND = cfg.constraint.bound
-    else:
-        CONSTRAINT = "unconstr"
-        LOSS_BOUND = 0
 
     if cfg.device == "cpu":
         device = "cpu"
@@ -62,13 +57,13 @@ def run(cfg: DictConfig) -> None:
         X_train,
         y_train,
         group_ind_train,
-        _,
-        _,
+        group_onehot_train,
+        sep_group_ind_train,
         X_test,
         y_test,
         group_ind_test,
-        _,
-        _,
+        sep_group_ind_test,
+        group_onehot_test,
         _
     ) = prepare_folktables_multattr(
         FT_TASK,
@@ -90,6 +85,8 @@ def run(cfg: DictConfig) -> None:
     print(f"Train data loaded: {(FT_TASK, FT_STATE)}")
     print(f"Data shape: {X_train_tensor.shape}")
 
+    PATH = 
+
     ## prepare to save results ##
 
     if "save_name" in cfg["alg"].keys():
@@ -101,123 +98,18 @@ def run(cfg: DictConfig) -> None:
         os.path.join(os.path.dirname(__file__), "utils", "saved_models")
     )
     directory = os.path.join(
-        saved_models_path, DATASET_NAME, CONSTRAINT, f"{LOSS_BOUND:.0E}"
+        saved_models_path, DATASET_NAME, CONSTRAINT, f"{BOUND:.0E}"
     )
 
-    model_name = os.path.join(directory, f"{alg_save_name}_{LOSS_BOUND}")
+    model_name = os.path.join(directory, f"{alg_save_name}_{BOUND}")
 
     if not os.path.exists(directory):
         os.makedirs(directory)
 
     ## run experiments ##
-    histories = []
-    for EXP_IDX in range(N_RUNS):
 
-        net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
+    histories = pd.read_csv(cfg.checkpoint_df_path)
 
-        ## define constraints ##
-        loss_fn = nn.BCEWithLogitsLoss()
-        constraint_fn_module = importlib.import_module("humancompatible.train.fairness.constraints")
-        constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
-        
-        if cfg.constraint.type == 'one_vs_mean':
-            c = [
-                FairnessConstraint(
-                    train_ds,
-                    [group_ind, np.concat(group_ind_train)],
-                    fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                    batch_size=cfg.constraint.c_batch_size,
-                    seed=EXP_IDX
-                )
-                for group_ind in group_ind_train
-            ]
-            if cfg.constraint.add_negative:
-                c.extend(
-                    [
-                        FairnessConstraint(
-                            train_ds,
-                            [group_ind, np.concat(group_ind_train)],
-                            fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                            batch_size=cfg.constraint.c_batch_size,
-                            seed=EXP_IDX
-                        )
-                        for group_ind in group_ind_train
-                    ]
-                )
-        elif cfg.constraint.type == 'one_vs_each':
-            c = [
-                FairnessConstraint(
-                    train_ds,
-                    group_idx,
-                    fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                    batch_size=cfg.constraint.c_batch_size,
-                    device=device,
-                    seed=EXP_IDX,
-                )
-                for group_idx in combinations(group_ind_train, 2)
-            ]
-            if cfg.constraint.add_negative:
-                c.extend(
-                    [
-                        FairnessConstraint(
-                            train_ds,
-                            group_idx,
-                            fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
-                            batch_size=cfg.constraint.c_batch_size,
-                            device=device,
-                            seed=EXP_IDX,
-                        )
-                        for group_idx in combinations(group_ind_train, 2)
-                    ]
-                )
-
-        torch.manual_seed(EXP_IDX)
-        model_path = model_name + f"_trial{EXP_IDX}.pt"
-
-        net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
-
-        optimizer_name = cfg.alg.import_name
-        module = importlib.import_module("humancompatible.train.benchmark.algorithms")
-        Optimizer = getattr(module, optimizer_name)
-
-        optimizer = Optimizer(net, train_ds, loss_fn, c)
-        history = optimizer.optimize(
-            **cfg.alg.params,
-            max_iter=cfg.run_maxiter,
-            max_runtime=cfg.run_maxtime,
-            device=device,
-            seed=EXP_IDX,
-            verbose=True,
-        )
-
-        ## SAVE RESULTS ##
-        params = pd.DataFrame(history["params"])
-        values = pd.DataFrame(history["values"])
-        t = pd.Series(history["time"], name="time")
-        histories.append(values.join(params, how="outer").join(t, how="outer"))
-            
-
-        ## SAVE MODEL ##
-        print(f"Model saved to: {model_path}")
-        torch.save(net.state_dict(), model_path)
-        print("")
-
-    # Save DataFrames to CSV files
-    c_name = cfg.constraint.import_name
-    utils_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "utils", "exp_results", c_name)
-    )
-    if not os.path.exists(utils_path):
-        os.makedirs(utils_path)
-        
-    if cfg.save_checkpoint_df:
-        fname = f"{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}.csv"
-        save_path = os.path.join(utils_path, fname)
-        print(f"Saving to: {save_path}")
-        histories = pd.concat(histories, keys=range(N_RUNS), names=["trial", "iteration"])
-        histories.to_pickle(save_path)
-        print("Saved!")
-        
     ####################################################
     ### CALCULATE STATS ON EVERY ALGORITHM ITERATION ###
     ####################################################
@@ -271,8 +163,24 @@ def run(cfg: DictConfig) -> None:
             w = histories["w"].loc[exp_idx, alg_iteration]
             net.load_state_dict(w)
             net = net.to(device)
+            if cfg.alg.import_name.lower() == "sslalm":
+                x_t = net_params_to_tensor(net, flatten=True, copy=True)
+                lambdas = histories["dual_ms"].loc[exp_idx, alg_iteration]
+                z = histories["z"].loc[exp_idx, alg_iteration]
+                params = {
+                    "x_t": x_t,
+                    "lambdas": lambdas,
+                    "z": z,
+                    "rho": cfg.alg.params.rho,
+                    "mu": cfg.alg.params.mu,
+                }
+
             if save_train:
-                if cfg.constraint.type=="one_vs_mean":
+                if cfg.constraint.import_name == 'abs_max_dev_from_overall_tpr':
+                    data_c = [[
+                        (X_train_tensor[g_idx], y_train_tensor[g_idx]) for g_idx in group_ind_train
+                    ]]
+                elif cfg.constraint.import_name in ['abs_diff_pr', 'abs_diff_tpr']:
                     data_c = [
                         (
                             (X_train_tensor[g_idx], y_train_tensor[g_idx]),
@@ -280,7 +188,7 @@ def run(cfg: DictConfig) -> None:
                         )
                         for g_idx in group_ind_train
                     ]
-                elif cfg.constraint.type=="one_vs_each":
+                else:
                     data_c = [
                         (
                             (X_train_tensor[g_idx_1], y_train_tensor[g_idx_1]),
@@ -304,7 +212,11 @@ def run(cfg: DictConfig) -> None:
 
 
             if save_test:
-                if cfg.constraint.type=="one_vs_mean":
+                if cfg.constraint.import_name == 'abs_max_dev_from_overall_tpr':
+                    data_c = [[
+                        (X_test_tensor[g_idx], y_test_tensor[g_idx]) for g_idx in group_ind_test
+                    ]]
+                elif cfg.constraint.import_name in ['abs_diff_tpr', 'abs_diff_pr']:
                     data_c = [
                         (
                             (X_test_tensor[g_idx], y_test_tensor[g_idx]),
@@ -312,7 +224,7 @@ def run(cfg: DictConfig) -> None:
                         )
                         for g_idx in group_ind_test
                     ]
-                elif cfg.constraint.type=="one_vs_each":
+                else:
                     data_c = [
                         (
                             (X_test_tensor[g_idx_1], y_test_tensor[g_idx_1]),
@@ -336,7 +248,7 @@ def run(cfg: DictConfig) -> None:
 
             net.zero_grad()
 
-    fname = f"AFTER_{alg_save_name}_{DATASET_NAME}_{LOSS_BOUND}"
+    fname = f"AFTER_{alg_save_name}_{DATASET_NAME}_{BOUND}"
     fext = ".csv"
     if save_train:
         fname_train = fname + "_train" + fext
@@ -392,16 +304,6 @@ def calculate_iteration_values(
     full_eval.loc[*index_to_save]["f"] = loss.detach().cpu().numpy()
     full_eval.loc[*index_to_save]["fg"] = [fg.detach().cpu().numpy()]
 
-
-def sample_or_restart_iterloader(loader):
-    try:
-        item = next(loader)
-        return item
-    except StopIteration:
-        loader._reset(loader)
-        # loader.gen
-        item = next(loader)
-        return item
 
 
 if __name__ == "__main__":
