@@ -1,311 +1,212 @@
-import timeit
-from copy import deepcopy
-from typing import Callable
+from typing import Iterable, Optional, Union
 
-import numpy as np
 import torch
+from torch import Tensor
 
-from humancompatible.train.algorithms.Algorithm import Algorithm
-from humancompatible.train.algorithms.utils import _set_weights, net_params_to_tensor
+from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
 
-
-class SSLALM(Algorithm):
+class SSLALM(Optimizer):
     def __init__(
-        self, net, data, loss, constraints, custom_project_fn: Callable = None
-    ):
-        super().__init__(net, data, loss, constraints)
-        self.project = custom_project_fn if custom_project_fn else self.project_fn
-
-    @staticmethod
-    def project_fn(x, m):
-        for i in range(1, m + 1):
-            if x[-i] < 0:
-                x[-i] = 0
-        return x
-
-    def optimize(
         self,
-        tau=0.01,
-        eta=0.05,
-        lambda_bound=25.,
-        rho=1.,
-        mu=2.,
-        beta=0.5,
-        tau_mult=1.,
-        eta_mult=1.,
-        batch_size=16,
-        epochs=None,
-        start_lambda=None,
-        max_runtime=None,
-        max_iter=None,
-        seed=None,
-        device="cpu",
-        verbose=True,
-        use_unbiased_penalty_grad=True,
-        save_state_interval=1
+        params,
+        m: int,
+        # tau in paper
+        lr: Union[float, Tensor] = 5e-2,
+        # eta in paper
+        dual_lr: Union[
+            float, Tensor
+        ] = 5e-2,  # keep as tensor for different learning rates for different constraints in the future? idk
+        dual_bound : Union[
+            float, Tensor
+        ] = 100,
+        # penalty term multiplier
+        rho: float = 1.0,
+        # smoothing term multiplier
+        mu: float = 2.0,
+        # smoothing term update multiplier
+        beta: float = 0.5,
+        *,
+        init_dual_vars: Optional[Tensor] = None,
+        # whether some of the dual variables should not be updated
+        fix_dual_vars: Optional[Tensor] = None,
+        differentiable: bool = False,
+        # custom_project_fn: Optional[Callable] = project_fn
     ):
-        self.state_history = {}
-        self.state_history["params"] = {"w": {}, "dual_ms": {}, "z": {}, "slack": {}}
-        # self.history['vars_full'] = {'G': {}, 'f': {}, 'fg': {}, 'c': {}, 'cg': {}}
-        self.state_history["values"] = {"G": {}, "f": {}, "fg": {}, "c": {}, "cg": {}}
-        self.state_history["time"] = {}
+        if isinstance(lr, torch.Tensor) and lr.numel() != 1:
+            raise ValueError("Tensor lr must be 1-element")
+        if isinstance(dual_lr, torch.Tensor) and lr.numel() != 1:
+            raise ValueError("Tensor dual_lr must be 1-element")
+        if lr < 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if dual_lr < 0.0:
+            raise ValueError(f"Invalid dual learning rate: {dual_lr}")
+        if init_dual_vars is not None and len(init_dual_vars) != m:
+            raise ValueError(
+                f"init_dual_vars should be of length m: expected {m}, got {len(init_dual_vars)}"
+            )
+        if fix_dual_vars is not None:
+            raise NotImplementedError()
+        if init_dual_vars is None and fix_dual_vars is not None:
+            raise ValueError(
+                f"if fix_dual_vars is not None, init_dual_vars should not be None."
+            )
 
-        m = len(self.constraints)
-        slack_vars = torch.zeros(m, requires_grad=True)
-        _lambda = (
-            torch.zeros(m, requires_grad=True) if start_lambda is None else start_lambda
+        if differentiable:
+            raise NotImplementedError("TorchSSLALM does not support differentiable")
+
+        defaults = dict(
+            lr=lr,
+            dual_lr=dual_lr,
+            rho=rho,
+            mu=mu,
+            beta=beta,
+            differentiable=differentiable,
+            # custom_project_fn=custom_project_fn
         )
 
-        z = torch.concat(
-            [net_params_to_tensor(self.net, flatten=True, copy=True), slack_vars]
-        )
-        z_par = torch.narrow(z, 0, 0, z.shape[-1] - m)
+        super().__init__(params, defaults)
 
-        c = self.constraints
+        # self.param_groups.append()
 
-        run_start = timeit.default_timer()
-
-        if epochs is None:
-            epochs = np.inf
-        if max_iter is None:
-            max_iter = np.inf
-        if max_runtime is None:
-            max_runtime = np.inf
-
-        gen = torch.Generator(device=device)
-        if seed is not None:
-            gen = gen.manual_seed(seed)
-        loss_loader = torch.utils.data.DataLoader(
-            self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
-        )
-        loss_iter = iter(loss_loader)
-
-        epoch = 0
-        iteration = 0
-        total_iters = 0
-
-        ### initial f and f_grad estimate ###
-        f_grad_estimate = 0
-        pre_loader = torch.utils.data.DataLoader(
-            self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
-        )
-        pre_iter = iter(pre_loader)
-        (f_inputs, f_labels) = next(pre_iter)
-        _, f_grad_estimate = self._objective_estimate(f_inputs, f_labels)
-        self.net.zero_grad()
-
-        ### initial c_val and c_grad estimate ###
-        c_sample = [ci.sample_loader() for ci in c]
-        _c_val_estimate = self._c_value_estimate(slack_vars, c, c_sample)
-        c_val_estimate = torch.concat(_c_val_estimate)
-        c_grad_estimate = self._constraint_grad_estimate(slack_vars, _c_val_estimate)
-
-        ### c_val estimate ###
-        if use_unbiased_penalty_grad:
-            c_sample = [ci.sample_loader() for ci in c]
-            c_val_estimate_2 = torch.concat(self._c_value_estimate(slack_vars, c, c_sample))
+        self.m = m
+        self.dual_lr = dual_lr
+        self.dual_bound = dual_bound
+        self.rho = rho
+        self.beta = beta
+        self.mu = mu
+        self.c_vals: list[Union[float, Tensor]] = []
+        self._c_val_average = [None]
+        # essentially, move everything here to self.state[param_group]
+        # self.state[param_group]['smoothing_avg'] <= z for that param_group;
+        # ...['grad'] <= grad w.r.t. that param_group
+        # ...['G'] <= G w.r.t. that param_group // idk if necessary
+        # ...['c_grad'][c_i] <= grad of ith constraint w.r.t. that group<w
+        if init_dual_vars is not None:
+            self._dual_vars = init_dual_vars
         else:
-            c_val_estimate_2 = c_val_estimate
+            self._dual_vars = torch.zeros(m, requires_grad=False)
 
-        n_iters_c_satisfied = 0
-        percent_iters_c_satisfied = 0
+    def _init_group(self, group, params, grads, c_grads, smoothing):
+        # SHOULDN'T calculate values, only set them from the state of the respective param_group
+        # calculations only happen in step() (or rather in the func version of step)
+        has_sparse_grad = False
 
-        while True:
-            elapsed = timeit.default_timer() - run_start
-            iteration += 1
-            total_iters += 1
-            if epoch >= epochs or total_iters >= max_iter or elapsed > max_runtime:
-                break
+        for p in group["params"]:
+            state = self.state[p]
 
-            self.state_history["time"][total_iters] = elapsed
-            if total_iters % save_state_interval == 0:
-                self.state_history["params"]["w"][total_iters] = deepcopy(
-                    self.net.state_dict()
+            params.append(p)
+            
+            # load z (smoothing term)
+            # Lazy state initialization
+            if len(state) == 0:
+                state["smoothing"] = p.detach().clone()
+                state["c_grad"] = []
+
+            smoothing.append(state.get("smoothing"))
+
+            grads.append(p.grad)
+            c_grads.append(state.get("c_grad"))
+
+        return has_sparse_grad
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+
+    def dual_step(self, i: int, c_val: Tensor):
+        r"""Perform an update of the dual parameters.
+        Also saves constraint gradient for weight update. To be called BEFORE :func:`step` in an iteration!
+
+        Args:
+            i (int): index of the constraint
+            c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
+        """
+
+        # c_vals is cleaned in step()
+        self.c_vals.append(c_val.detach())
+
+        # update dual multipliers
+        dual_update_tensor = torch.zeros_like(self._dual_vars)
+        dual_update_tensor[i] = self.dual_lr * c_val
+        self._dual_vars.add_(dual_update_tensor)
+        for i in range(len(self._dual_vars)):
+            if self._dual_vars[i] >= self.dual_bound or self._dual_vars[i] < 0:
+                self._dual_vars[i].zero_()
+
+        # save constraint grad
+        for group in self.param_groups:
+            params: list[Tensor] = []
+            grads: list[Tensor] = []
+            c_grads: list[Tensor] = []
+            smoothing: list[Tensor] = []
+            _ = self._init_group(group, params, grads, c_grads, smoothing)
+
+            for p in group["params"]:
+                state = self.state[p]
+                # state['c_grad'] is cleaned in step()
+                # so it is always empty on dual_step()
+                state["c_grad"].append(p.grad)
+
+    @_use_grad_for_differentiable
+    def step(self, c_val: Union[Iterable | Tensor] = None):
+        r"""Perform an update of the primal parameters (network weights & slack variables). To be called AFTER :func:`dual_step` in an iteration!
+
+        Args:
+            c_val (Tensor): an Iterable of estimates of values of **ALL** constraints; used for primal parameter update.
+                Ideally, must be evaluated on an independent sample from the one used in :func:`dual_step`
+        """
+        
+        if c_val is None:
+            c_val = self.c_vals
+        if isinstance(c_val, Iterable) and not isinstance(c_val, torch.Tensor):
+            # if len(c_val) == 1 and isinstance(c_val[0], torch.Tensor):
+            #     c_val = c_val[0]
+            # else:
+            c_val = torch.stack(c_val)
+            if c_val.ndim > 1:
+                c_val = c_val.squeeze(-1)
+                
+        if c_val.numel() != self.m:
+            raise ValueError(f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}")
+        G = []
+
+        for group in self.param_groups:
+            params: list[Tensor] = []
+            grads: list[Tensor] = []
+            c_grads: list[Tensor] = []
+            smoothing: list[Tensor] = []
+            lr = group["lr"]
+            _ = self._init_group(group, params, grads, c_grads, smoothing)
+
+            for i, param in enumerate(params):
+                ### calculate Lagrange f-n gradient (G) ###
+
+                # stack list of grads w.r.t. constraints to get
+                # tensor of shape (*param.shape, m)
+                l_term_grad = 0
+                aug_term_grad = 0
+                # if c_grads[i] is not None:
+                for j, c_grad in enumerate(c_grads[i]):
+                    if c_grad is None:
+                        continue
+                    l_term_grad += c_grad * self._dual_vars[j]
+                    aug_term_grad += c_grad * c_val[j]
+
+                G_i = (
+                    grads[i]
+                    + l_term_grad
+                    + self.rho * aug_term_grad
+                    + self.mu * (param - smoothing[i])
                 )
-                self.state_history["params"]["dual_ms"][total_iters] = (
-                    _lambda.detach().cpu().numpy()
-                )
-                self.state_history["params"]["z"][total_iters] = (
-                    z_par.detach().cpu().numpy()
-                )
-                self.state_history["params"]["slack"][total_iters] = (
-                    slack_vars.detach().cpu().numpy()
-                )
+                G.append(G_i)
 
-                percent_iters_c_satisfied = n_iters_c_satisfied / total_iters
+                smoothing[i].add_(param - smoothing[i], alpha=self.beta)
 
-            try:
-                (f_inputs, f_labels) = next(loss_iter)
-            except StopIteration:
-                epoch += 1
-                iteration = 0
-                gen = gen
-                loss_loader = torch.utils.data.DataLoader(
-                    self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
-                )
-                loss_iter = iter(loss_loader)
-                (f_inputs, f_labels) = next(loss_iter)
-                tau *= tau_mult
-                eta *= eta_mult
-                # rho *= rho_mult
+                param.add_(G_i, alpha=-lr)
 
-            ########################
-            ## UPDATE MULTIPLIERS ##
-            ########################
-            self.net.zero_grad()
-            slack_vars.grad = None
+                ## PROJECT (keep in mind we do layer by layer)
+                ## add slack variables to params in constructor?
 
-            # sample for and calculate self.constraints (lines 2, 3)
-            # update multipliers (line 3)
-            with torch.no_grad():
-                _lambda = _lambda + eta * c_val_estimate
-            # dual safeguard (lines 4,5)
-            for i, l in enumerate(_lambda):
-                if l >= lambda_bound: #or l < 0:
-                    _lambda[i] = 0
-            # if torch.norm(_lambda) >= lambda_bound:
-            #     _lambda = torch.zeros_like(_lambda, requires_grad=True)
-
-            x_t = torch.concat(
-                [
-                    net_params_to_tensor(self.net, flatten=True, copy=True),
-                    slack_vars,
-                ]
-            )
-
-            G = (
-                f_grad_estimate
-                + c_grad_estimate.T @ _lambda
-                + rho * (c_grad_estimate.T @ c_val_estimate_2)
-            )
-
-            if mu > 0:
-                smoothing = mu * (x_t - z)
-                G += smoothing
-
-            x_t1 = self.project(x_t - tau * G, m)
-
-            if mu > 0:
-                z += beta * (x_t - z)
-
-            ###################
-            ## UPDATE PARAMS ##
-            ###################
-
-            with torch.no_grad():
-                _set_weights(self.net, x_t1)
-                for i in range(len(slack_vars)):
-                    slack_vars[i] = x_t1[i - len(slack_vars)]
-            # objective gradient
-            loss_eval, f_grad_1 = self._objective_estimate(f_inputs, f_labels)
-            self.net.zero_grad()
-
-            # constraint value abd grad (1)
-            c_sample = [ci.sample_loader() for ci in c]
-            _c_val_1 = self._c_value_estimate(slack_vars, c, c_sample)
-            c_val_1 = torch.concat(_c_val_1)
-            c_grad_1 = self._constraint_grad_estimate(slack_vars, _c_val_1)
-
-            # constraint value (2) (independent)
-            if use_unbiased_penalty_grad:
-                c_sample = [ci.sample_loader() for ci in c]
-                c_val_2 = torch.concat(self._c_value_estimate(slack_vars, c, c_sample))
-            else:
-                c_val_2 = c_val_1
-
-            f_grad_estimate = f_grad_1
-            c_val_estimate = c_val_1
-            c_val_estimate_2 = c_val_2
-            c_grad_estimate = c_grad_1
-
-            if total_iters % save_state_interval == 0:
-                with torch.no_grad():
-                    f_grad_par = torch.narrow(
-                        f_grad_estimate, 0, 0, f_grad_estimate.shape[-1] - m
-                    )
-                    c_grad_par = torch.narrow(
-                        c_grad_estimate, 1, 0, c_grad_estimate.shape[-1] - m
-                    )
-                    G_par = torch.narrow(G, 0, 0, G.shape[-1] - m)
-                    z_par = torch.narrow(z, 0, 0, z.shape[-1] - m)
-                    
-                    self.state_history["values"]["G"][total_iters] = (
-                        torch.norm(G_par).detach().cpu().numpy()
-                    )
-                    self.state_history["values"]["f"][total_iters] = (
-                        loss_eval.detach().cpu().numpy()
-                    )
-                    self.state_history["values"]["fg"][total_iters] = (
-                        torch.norm(f_grad_par).detach().cpu().numpy()
-                    )
-                    self.state_history["values"]["c"][total_iters] = (
-                        c_val_2.detach().cpu().numpy()
-                    )
-                    self.state_history["values"]["cg"][total_iters] = (
-                        torch.norm(c_grad_par, dim=1).detach().cpu().numpy()
-                    )
-
-            if torch.all(c_val_1 <= 0):
-                n_iters_c_satisfied += 1
-
-            if verbose:
-                with np.printoptions(
-                    precision=3,
-                    suppress=True,
-                    floatmode="fixed",
-                    sign=" ",
-                    linewidth=200,
-                ):
-                    print(
-                        f"{epoch:2}|{iteration:5}|{tau:.3f}|"
-                        # f"{loss_eval.detach().cpu().numpy():1.3f}|"
-                        f"{_lambda.detach().cpu().numpy()}|"
-                        f"{c_val_estimate.detach().cpu().numpy() - slack_vars.detach().cpu().numpy()}|",
-                        # f"{slack_vars.detach().cpu().numpy()} | {100*percent_iters_c_satisfied:2.1f}%",
-                        end="\r",
-                    )
-
-        return self.state_history
-
-
-
-    def _c_value_estimate(self, slack_vars, c, c_sample):
-        c_val = [
-            ci.eval(self.net, c_sample[i]).reshape(1) + slack_vars[i]
-            for i, ci in enumerate(c)
-        ]
-
-        return c_val
-
-    def _objective_estimate(self, f_inputs, f_labels):
-        m = len(self.constraints)
-        # breakpoint()
-        outputs = self.net(f_inputs)
-        # if f_labels.dim() < outputs.dim():
-        #     f_labels = f_labels.unsqueeze(1)
-        loss_eval = self.loss_fn(outputs.squeeze(), f_labels)
-        f_grad = torch.autograd.grad(loss_eval, self.net.parameters())
-        f_grad = torch.concat([*[g.flatten() for g in f_grad], torch.zeros(m)])
-
-        return loss_eval, f_grad
-
-    def _constraint_grad_estimate(self, slack_vars, c):
-        c_grad = []
-        # breakpoint()
-        for ci in c:
-            ci_grad = torch.autograd.grad(ci, self.net.parameters())
-            if slack_vars is None:
-                c_grad.append(torch.concat([g.flatten() for g in ci_grad]))
-            else:
-                slack_grad = torch.autograd.grad(ci, slack_vars, materialize_grads=True)
-                # if torch.sum(slack_grad[0]) != 1:
-                #     breakpoint()
-                c_grad.append(
-                    torch.concat([*[g.flatten() for g in ci_grad], *slack_grad])
-                )
-                slack_vars.grad = None
-                # slack_vars.zero_grad_
-
-            self.net.zero_grad()
-        c_grad = torch.stack(c_grad)
-        return c_grad
+                c_grads[i].clear()
+        
+        self.c_vals.clear()
+        return G

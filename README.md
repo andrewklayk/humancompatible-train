@@ -1,22 +1,79 @@
-# Benchmarking Stochastic Approximation Algorithms for Fairness-Constrained Training of Deep Neural Networks
+# humancompatible-train: a package for constrained machine learning
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Setup](https://github.com/humancompatible/train/actions/workflows/setup.yml/badge.svg)](https://github.com/humancompatible/train/actions/workflows/setup.yml)
 
-The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API, as well as a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task in the `experiments` folder.
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API.
+<!-- , as well as a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task in the `experiments` folder. -->
 
 ## Table of Contents
 1. [Basic installation instructions](#basic-installation-instructions)
 2. [Using the toolkit](#using-the-toolkit)
-3. [Reproducing the Benchmark](#reproducing-the-benchmark)
-4. [Extending the toolkit](#extending-the-toolkit) <!-- 6. [Citing humancompatible/train](#Citing-humancompatible/train) -->
+3. [Extending the toolkit](#extending-the-toolkit) 
+4. [Reproducing the Benchmark](#reproducing-the-benchmark)
 5. [License and terms of use](#license-and-terms-of-use)
 6. [References](#references)
 
-Humancompatible/train is still under active development! If you find bugs or have feature
+humancompatible-train is still under active development! If you find bugs or have feature
 requests, please file a
 [Github issue](https://github.com/humancompatible/train/issues). 
 
-## Basic installation instructions
+## Installation
+
+Use
+
+```
+pip install humancompatible-train
+```
+
+The only dependencies of this package are `numpy` and `torch`.
+
+## Using the toolkit
+
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch.
+
+The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
+
+In general, your code using `humancompatible-train` would look something like this:
+
+```
+for inputs, labels in dataloader:
+  # inference
+  outputs = model(inputs)
+  # calculate constraints and grads
+  for constraint in constraints:
+      c_eval = constraint(outputs, labels)
+      c_eval.backwards(retain_grad=True)
+      # depending on optimizer, update dual parameters / save constraint gradient / both
+      optimizer.dual_step(c_eval)
+      optimizer.zero_grad()
+  # calculate objective
+  loss = criterion(outputs,labels)
+  loss.backwards()
+  optimizer.step()
+  optimizer.zero_grad()
+```
+
+Our idea is to
+1. Deviate minimally from the usual PyTorch workflow
+2. Make different stochastic-constrained stochastic optimization algorithms nearly interchangable in the code.
+
+### Code examples
+
+You are invited to check out our new API presented in notebooks in the `examples` folder.
+
+*The legacy API used for the benchmark is presented in `examples/_old_/algorithm_demo.ipynb` and `examples/_old_/constraint_demo.ipynb`.*
+
+## Extending the toolkit
+
+### Adding new code
+
+**To add a new algorithm**, you can subclass the PyTorch ```Optimizer``` class and proceed following the API guideline presented above.
+
+## Reproducing the Benchmark
+
+The code used in [our benchmark paper](https://arxiv.org/abs/2507.04033) is not migrated to the new API yet (WIP).
+
+### Basic installation instructions
 The code requires Python version ```3.11```.
 
 1. Create a virtual environment
@@ -55,22 +112,6 @@ after installing requirements.txt; otherwise, the algorithm will run slower. How
 <!-- pip install folktables -->
 <!-- ``` -->
 
-## Using the toolkit
-
-The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API.
-
-### Code examples
-
-You are invited to check out the new API presented in notebooks in the `examples` folder.
-
-The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
-
-The idea is to make different algorithms nearly interchangable in the code.
-
-The legacy API used for the benchmark is presented in `examples/_old_/algorithm_demo.ipynb` and `examples/_old_/constraint_demo.ipynb`.
-
-## Reproducing the Benchmark
-
 ### Running the algorithms
 
 The benchmark comprises the following algorithms:
@@ -105,15 +146,10 @@ This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `exper
 ### Producing plots
 The plots and tables like the ones in the paper can be produced using the two notebooks. `experiments/algo_plots.ipynb` houses the convergence plots, and `experiments/model_plots.ipynb` - all the others.
 
-## Extending the toolkit
-
-### Adding new code
-
-**To add a new algorithm**, you can subclass the PyTorch ```Optimizer``` class and proceed following the API guideline presented above.
 
 ## License and terms of use
 
-humancompatible/train is provided under the Apache 2.0 Licence.
+humancompatible-train is provided under the Apache 2.0 Licence.
 
 The benchmark part of the package relies on the Folktables package, provided under MIT Licence.
 It provides code to download data from the American Community Survey
@@ -137,7 +173,7 @@ For more information, see https://www.census.gov/data/developers/about/terms-of-
 
 ## Future work
 
-- Add more algorithms with PyTorch-like API
+- Add more algorithms
 - Add more examples from different fields where constrained training of DNNs is employed
 - Migrate the benchmark to the new API
 
@@ -168,4 +204,3 @@ Huang, Zhang & Alacaoglu (2025) Stochastic Smoothed Primal-Dual Algorithms for N
 
 <a id="4">[4]</a> 
 Huang & Lin (2023) Oracle Complexity of Single-Loop Switching Subgradient Methods for Non-Smooth Weakly Convex Functional Constrained Optimization, Curran Associates Inc..
-

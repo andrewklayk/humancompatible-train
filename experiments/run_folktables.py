@@ -12,7 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch import nn, tensor
 from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
-from humancompatible.train.algorithms.utils import net_grads_to_tensor
+from humancompatible.train.benchmark.algorithms.utils import net_grads_to_tensor
 from itertools import combinations
 from humancompatible.train.fairness.constraints import FairnessConstraint
 
@@ -177,7 +177,7 @@ def run(cfg: DictConfig) -> None:
         net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
 
         optimizer_name = cfg.alg.import_name
-        module = importlib.import_module("humancompatible.train.algorithms")
+        module = importlib.import_module("humancompatible.train.benchmark.algorithms")
         Optimizer = getattr(module, optimizer_name)
 
         optimizer = Optimizer(net, train_ds, loss_fn, c)
