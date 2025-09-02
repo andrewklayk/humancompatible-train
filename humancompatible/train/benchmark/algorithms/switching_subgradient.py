@@ -5,8 +5,8 @@ from typing import Callable
 import numpy as np
 import torch
 
-from humancompatible.train.algorithms.Algorithm import Algorithm
-from humancompatible.train.algorithms.utils import net_params_to_tensor
+from .Algorithm import Algorithm
+from humancompatible.train.benchmark.algorithms.utils import _set_weights, net_params_to_tensor
 
 
 class SSG(Algorithm):

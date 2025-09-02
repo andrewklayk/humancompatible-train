@@ -4,7 +4,7 @@ from copy import deepcopy
 import numpy as np
 import torch
 
-from humancompatible.train.algorithms.Algorithm import Algorithm
+from .Algorithm import Algorithm
 
 
 class SGD(Algorithm):

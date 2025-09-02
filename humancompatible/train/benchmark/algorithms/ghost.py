@@ -8,8 +8,8 @@ import torch
 from qpsolvers import solve_qp
 from scipy.optimize import linprog
 
-from humancompatible.train.algorithms.Algorithm import Algorithm
-from humancompatible.train.algorithms.utils import net_params_to_tensor
+from .Algorithm import Algorithm
+from humancompatible.train.benchmark.algorithms.utils import _set_weights, net_params_to_tensor
 
 
 class StochasticGhost(Algorithm):
