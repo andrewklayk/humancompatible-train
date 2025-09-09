@@ -31,7 +31,7 @@ The only dependencies of this package are `numpy` and `torch`.
 
 The toolkit implements algorithms for constrained training of neural networks based on PyTorch.
 
-The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `double_step` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
+The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `dual_step()` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
 
 In general, your code using `humancompatible-train` would look something like this:
 
