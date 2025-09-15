@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
 
-class SSLALM(Optimizer):
+class SSLALM_Adam(Optimizer):
     def __init__(
         self,
         params,
@@ -24,6 +24,9 @@ class SSLALM(Optimizer):
         mu: float = 2.0,
         # smoothing term update multiplier
         beta: float = 0.5,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        eps: float = 1e-8,
         *,
         init_dual_vars: Optional[Tensor] = None,
         # whether some of the dual variables should not be updated
@@ -72,9 +75,14 @@ class SSLALM(Optimizer):
         self.dual_bound = dual_bound
         self.rho = rho
         self.beta = beta
+        self.beta1 = beta1
+        self.beta2 = beta2
         self.mu = mu
         self.c_vals: list[Union[float, Tensor]] = []
         self._c_val_average = [None]
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.eps = eps
         # essentially, move everything here to self.state[param_group]
         # self.state[param_group]['smoothing_avg'] <= z for that param_group;
         # ...['grad'] <= grad w.r.t. that param_group
@@ -85,7 +93,18 @@ class SSLALM(Optimizer):
         else:
             self._dual_vars = torch.zeros(m, requires_grad=False)
 
-    def _init_group(self, group, params, grads, c_grads, smoothing):
+    def _init_group(
+        self,
+        group,
+        params,
+        grads,
+        c_grads,
+        exp_avgs,
+        exp_avg_sqs,
+        max_exp_avg_sqs,
+        state_steps,
+        smoothing
+    ):
         # SHOULDN'T calculate values, only set them from the state of the respective param_group
         # calculations only happen in step() (or rather in the func version of step)
         has_sparse_grad = False
@@ -100,12 +119,42 @@ class SSLALM(Optimizer):
             if len(state) == 0:
                 state["smoothing"] = p.detach().clone()
                 state["c_grad"] = []
+                
+                state["step"] = (
+                    torch.tensor(0.0)
+                )
+                # Exponential moving average of gradient values
+                state["exp_avg"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
+                # Exponential moving average of squared gradient values
+                state["exp_avg_sq"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
+                
+                # if group["amsgrad"]:
+                #     # raise NotImplementedError()
+                #     # Maintains max of all exp. moving avg. of sq. grad. values
+                #     state["max_exp_avg_sq"] = torch.zeros_like(
+                #         p, memory_format=torch.preserve_format
+                #     )
+
+            exp_avgs.append(state["exp_avg"])
+            exp_avg_sqs.append(state["exp_avg_sq"])
+
+            # if group["amsgrad"]:
+            #     max_exp_avg_sqs.append(state["max_exp_avg_sq"])
+            if group["differentiable"] and state["step"].requires_grad:
+                raise RuntimeError(
+                    "`requires_grad` is not supported for `step` in differentiable mode"
+                )
 
             smoothing.append(state.get("smoothing"))
+            
+            state_steps.append(state["step"])
 
             grads.append(p.grad)
             c_grads.append(state.get("c_grad"))
-
         return has_sparse_grad
 
     def __setstate__(self, state):
@@ -137,7 +186,21 @@ class SSLALM(Optimizer):
             grads: list[Tensor] = []
             c_grads: list[Tensor] = []
             smoothing: list[Tensor] = []
-            _ = self._init_group(group, params, grads, c_grads, smoothing)
+            exp_avgs: list[Tensor] = []
+            exp_avg_sqs: list[Tensor] = []
+            max_exp_avg_sqs: list[Tensor] = []
+            state_steps: list[Tensor] = []
+            _ = self._init_group(
+                group,
+                params,
+                grads,
+                c_grads,
+                exp_avgs,
+                exp_avg_sqs,
+                max_exp_avg_sqs,
+                state_steps,
+                smoothing
+            )
 
             for p in group["params"]:
                 state = self.state[p]
@@ -173,8 +236,23 @@ class SSLALM(Optimizer):
             grads: list[Tensor] = []
             c_grads: list[Tensor] = []
             smoothing: list[Tensor] = []
+            exp_avgs: list[Tensor] = []
+            exp_avg_sqs: list[Tensor] = []
+            max_exp_avg_sqs: list[Tensor] = []
+            state_steps: list[Tensor] = []
             lr = group["lr"]
-            _ = self._init_group(group, params, grads, c_grads, smoothing)
+            
+            _ = self._init_group(
+                group,
+                params,
+                grads,
+                c_grads,
+                exp_avgs,
+                exp_avg_sqs,
+                max_exp_avg_sqs,
+                state_steps,
+                smoothing
+            )
 
             for i, param in enumerate(params):
                 ### calculate Lagrange f-n gradient (G) ###
@@ -196,11 +274,42 @@ class SSLALM(Optimizer):
                     + self.rho * aug_term_grad
                     + self.mu * (param - smoothing[i])
                 )
+                
                 G.append(G_i)
+                
+                exp_avg = exp_avgs[i]
+                exp_avg_sq = exp_avg_sqs[i]
+                step_t = state_steps[i]
+                step_t += 1
+                beta1 = self.beta1
+                beta2 = self.beta2
+                eps = self.eps
+                
+                exp_avg.lerp_(G_i, 1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
+                
 
                 smoothing[i].add_(param - smoothing[i], alpha=self.beta)
 
-                param.add_(G_i, alpha=-lr)
+                # param.add_(G_i, alpha=-lr)
+                
+                bias_correction1 = 1 - beta1**step_t
+                bias_correction2 = 1 - beta2**step_t
+
+                step_size = lr / bias_correction1
+
+                bias_correction2_sqrt = bias_correction2**0.5
+
+                # if amsgrad:
+                #     # Maintains the maximum of all 2nd moment running avg. till now
+                #     torch.maximum(max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i])
+
+                #     # Use the max. for normalizing running avg. of gradient
+                #     denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(eps)
+                # else:
+                denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+
+                param.addcdiv_(exp_avg, denom, value=-step_size)
 
                 ## PROJECT (keep in mind we do layer by layer)
                 ## add slack variables to params in constructor?
