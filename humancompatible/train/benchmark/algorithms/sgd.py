@@ -28,7 +28,6 @@ class SGD(Algorithm):
         self.state_history["values"] = {"f": {}, "fg": {}}
         self.state_history["time"] = {}
 
-        run_start = timeit.default_timer()
 
         if epochs is None:
             epochs = np.inf
@@ -51,6 +50,7 @@ class SGD(Algorithm):
 
         optimizer = torch.optim.SGD(self.net.parameters(), lr=lr)
 
+        run_start = timeit.default_timer()
         while True:
             elapsed = timeit.default_timer() - run_start
             iteration += 1

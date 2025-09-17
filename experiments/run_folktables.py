@@ -111,9 +111,8 @@ def run(cfg: DictConfig) -> None:
 
     ## run experiments ##
     histories = []
-    for EXP_IDX in range(N_RUNS):
-
-        net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
+    for EXP_IDX in range(1, N_RUNS+1):
+        print(f'Start run {EXP_IDX}\n')
 
         ## define constraints ##
         loss_fn = nn.BCEWithLogitsLoss()
@@ -172,15 +171,14 @@ def run(cfg: DictConfig) -> None:
                 )
 
         torch.manual_seed(EXP_IDX)
-        model_path = model_name + f"_trial{EXP_IDX}.pt"
-
         net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
+        model_path = model_name + f"_trial{EXP_IDX}.pt"
 
         optimizer_name = cfg.alg.import_name
         module = importlib.import_module("humancompatible.train.benchmark.algorithms")
         Optimizer = getattr(module, optimizer_name)
-
         optimizer = Optimizer(net, train_ds, loss_fn, c)
+
         history = optimizer.optimize(
             **cfg.alg.params,
             max_iter=cfg.run_maxiter,
@@ -196,7 +194,6 @@ def run(cfg: DictConfig) -> None:
         t = pd.Series(history["time"], name="time")
         histories.append(values.join(params, how="outer").join(t, how="outer"))
             
-
         ## SAVE MODEL ##
         print(f"Model saved to: {model_path}")
         torch.save(net.state_dict(), model_path)

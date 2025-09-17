@@ -63,8 +63,6 @@ class SSLALM(Algorithm):
 
         c = self.constraints
 
-        run_start = timeit.default_timer()
-
         if epochs is None:
             epochs = np.inf
         if max_iter is None:
@@ -110,6 +108,7 @@ class SSLALM(Algorithm):
         n_iters_c_satisfied = 0
         percent_iters_c_satisfied = 0
 
+        run_start = timeit.default_timer()
         while True:
             elapsed = timeit.default_timer() - run_start
             iteration += 1
