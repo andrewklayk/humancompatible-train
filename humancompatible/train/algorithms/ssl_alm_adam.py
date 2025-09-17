@@ -27,6 +27,7 @@ class SSLALM_Adam(Optimizer):
         beta1: float = 0.9,
         beta2: float = 0.999,
         eps: float = 1e-8,
+        amsgrad: bool = False,
         *,
         init_dual_vars: Optional[Tensor] = None,
         # whether some of the dual variables should not be updated
@@ -62,6 +63,7 @@ class SSLALM_Adam(Optimizer):
             rho=rho,
             mu=mu,
             beta=beta,
+            amsgrad=amsgrad,
             differentiable=differentiable,
             # custom_project_fn=custom_project_fn
         )
@@ -132,18 +134,18 @@ class SSLALM_Adam(Optimizer):
                     p, memory_format=torch.preserve_format
                 )
                 
-                # if group["amsgrad"]:
-                #     # raise NotImplementedError()
-                #     # Maintains max of all exp. moving avg. of sq. grad. values
-                #     state["max_exp_avg_sq"] = torch.zeros_like(
-                #         p, memory_format=torch.preserve_format
-                #     )
+                if group["amsgrad"]:
+                    # raise NotImplementedError()
+                    # Maintains max of all exp. moving avg. of sq. grad. values
+                    state["max_exp_avg_sq"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format
+                    )
 
             exp_avgs.append(state["exp_avg"])
             exp_avg_sqs.append(state["exp_avg_sq"])
 
-            # if group["amsgrad"]:
-            #     max_exp_avg_sqs.append(state["max_exp_avg_sq"])
+            if group["amsgrad"]:
+                max_exp_avg_sqs.append(state["max_exp_avg_sq"])
             if group["differentiable"] and state["step"].requires_grad:
                 raise RuntimeError(
                     "`requires_grad` is not supported for `step` in differentiable mode"
@@ -159,6 +161,13 @@ class SSLALM_Adam(Optimizer):
 
     def __setstate__(self, state):
         super().__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault("amsgrad", False)
+            group.setdefault("maximize", False)
+            group.setdefault("foreach", None)
+            group.setdefault("capturable", False)
+            group.setdefault("differentiable", False)
+            group.setdefault("decoupled_weight_decay", False)
 
     def dual_step(self, i: int, c_val: Tensor):
         r"""Perform an update of the dual parameters.
@@ -241,6 +250,7 @@ class SSLALM_Adam(Optimizer):
             max_exp_avg_sqs: list[Tensor] = []
             state_steps: list[Tensor] = []
             lr = group["lr"]
+            amsgrad = group["amsgrad"]
             
             _ = self._init_group(
                 group,
@@ -300,14 +310,14 @@ class SSLALM_Adam(Optimizer):
 
                 bias_correction2_sqrt = bias_correction2**0.5
 
-                # if amsgrad:
-                #     # Maintains the maximum of all 2nd moment running avg. till now
-                #     torch.maximum(max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i])
+                if amsgrad:
+                    # Maintains the maximum of all 2nd moment running avg. till now
+                    torch.maximum(max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i])
 
-                #     # Use the max. for normalizing running avg. of gradient
-                #     denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(eps)
-                # else:
-                denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+                    # Use the max. for normalizing running avg. of gradient
+                    denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(eps)
+                else:
+                    denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
 
                 param.addcdiv_(exp_avg, denom, value=-step_size)
 
