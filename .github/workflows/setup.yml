@@ -22,12 +22,18 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install package dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
-        pip install -r requirements.txt
         pip install -e .
+    - name: Run tests
+      run: |
+        python -m unittest
+    - name: Install benchmark dependencies
+      run: |
+        pip install -r requirements_benchmark.txt
+        pip install -e .  
     - name: Run algorithms
       run: |
         python experiments/run_folktables.py alg=sslalm n_runs=2 run_maxtime=2
@@ -49,11 +55,17 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install package dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
-        pip install -r requirements.txt
+        pip install -e .
+    - name: Run tests
+      run: |
+        python -m unittest
+    - name: Install benchmark dependencies
+      run: |
+        pip install -r requirements_benchmark.txt
         pip install -e .
     - name: Run algorithms
       run: |
@@ -76,12 +88,18 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install package dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
-        pip install -U certifi
-        pip install -r requirements.txt
+        pip install -e .
+    - name: Run tests
+      run: |
+        python -m unittest
+    - name: Install benchmark dependencies
+      run: |
+        pip install -u --force-reinstall certifi
+        pip install -r requirements_benchmark.txt
         pip install -e .
     - name: Run algorithms
       run: |
