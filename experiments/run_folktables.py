@@ -14,7 +14,7 @@ from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
 from humancompatible.train.benchmark.algorithms.utils import net_grads_to_tensor
 from itertools import combinations
-from humancompatible.train.fairness.constraints import FairnessConstraint
+from humancompatible.train.benchmark.constraints import FairnessConstraint
 
 
 
@@ -116,7 +116,7 @@ def run(cfg: DictConfig) -> None:
 
         ## define constraints ##
         loss_fn = nn.BCEWithLogitsLoss()
-        constraint_fn_module = importlib.import_module("humancompatible.train.fairness.constraints")
+        constraint_fn_module = importlib.import_module("humancompatible.train.benchmark.constraints")
         constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
         
         if cfg.constraint.type == 'one_vs_mean':
@@ -220,7 +220,7 @@ def run(cfg: DictConfig) -> None:
     ####################################################
 
     loss_fn = nn.BCEWithLogitsLoss()
-    constraint_fn_module = importlib.import_module("humancompatible.train.fairness.constraints")
+    constraint_fn_module = importlib.import_module("humancompatible.train.benchmark.constraints")
     constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
 
     print("----")
