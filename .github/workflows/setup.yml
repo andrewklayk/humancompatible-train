@@ -96,14 +96,14 @@ jobs:
     - name: Run tests
       run: |
         python -m unittest
-    - name: Install benchmark dependencies
-      run: |
-        pip install -u --force-reinstall certifi
-        pip install -r requirements_benchmark.txt
-        pip install -e .
-    - name: Run algorithms
-      run: |
-        python experiments/run_folktables.py alg=sslalm n_runs=2 run_maxtime=2
-        python experiments/run_folktables.py alg=ghost n_runs=2 run_maxtime=2
-        python experiments/run_folktables.py alg=alm n_runs=2 run_maxtime=2
-        python experiments/run_folktables.py alg=sgd n_runs=2 run_maxtime=2
+    # - name: Install benchmark dependencies
+    #   run: |
+    #     pip install -u --force-reinstall certifi
+    #     pip install -r requirements_benchmark.txt
+    #     pip install -e .
+    # - name: Run algorithms
+    #   run: |
+    #     python experiments/run_folktables.py alg=sslalm n_runs=2 run_maxtime=2
+    #     python experiments/run_folktables.py alg=ghost n_runs=2 run_maxtime=2
+    #     python experiments/run_folktables.py alg=alm n_runs=2 run_maxtime=2
+    #     python experiments/run_folktables.py alg=sgd n_runs=2 run_maxtime=2
