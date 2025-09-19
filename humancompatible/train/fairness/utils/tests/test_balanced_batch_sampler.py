@@ -48,6 +48,8 @@ class TestBalancedBatchSampler(unittest.TestCase):
         self.assertEqual(len([i for i in batch if i in self.subset_indices[1]]), 2)
         self.assertEqual(len([i for i in batch if i in self.subset_indices[2]]), 2)
 
+## TODO: test edge cases!
+
 class TestDataLoaderIntegration(unittest.TestCase):
     def setUp(self):
         self.data = torch.tensor([[i, i+1] for i in range(10)])

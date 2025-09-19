@@ -98,7 +98,7 @@ jobs:
         python -m unittest
     # - name: Install benchmark dependencies
     #   run: |
-    #     pip install -u --force-reinstall certifi
+    #     pip install -U --force-reinstall certifi
     #     pip install -r requirements_benchmark.txt
     #     pip install -e .
     # - name: Run algorithms
