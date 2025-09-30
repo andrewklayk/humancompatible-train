@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import TensorDataset
 from omegaconf import DictConfig, OmegaConf
 from torch import nn, tensor
-from utils.load_folktables import prepare_folktables_multattr
+from utils.load_dutch import prepare_dutch
 from utils.network import SimpleNet
 from humancompatible.train.benchmark.algorithms.utils import net_grads_to_tensor
 from itertools import combinations
@@ -24,8 +24,8 @@ def run(cfg: DictConfig) -> None:
 
     print(OmegaConf.to_yaml(cfg))
     N_RUNS = cfg.n_runs
-    FT_STATE = cfg.data.state
-    FT_TASK = cfg.data.task
+    FT_STATE = 'dutch'
+    FT_TASK = 'dutch'
     DOWNLOAD_DATA = cfg.data.download
     DATA_PATH = cfg.data.path
     
@@ -64,16 +64,10 @@ def run(cfg: DictConfig) -> None:
         (group_ind_train, group_ind_val, group_ind_test),
         _,
         _
-    ) = prepare_folktables_multattr(
-        FT_TASK,
-        state=FT_STATE.upper(),
-        random_state=42,
+    ) = prepare_dutch(
+        random_state=None,
         onehot=False,
-        download=DOWNLOAD_DATA,
-        path=DATA_PATH,
-        sens_cols=cfg.data.sens_attr,
-        binarize=cfg.data.binarize,
-        stratify=cfg.data.stratify,
+        stratify=True,
     )
     print(f'Train: {len(group_ind_train)} groups of size {[len(group) for group in group_ind_train]}')
     print(f'Val: {len(group_ind_val)} groups of size {[len(group) for group in group_ind_val]}')

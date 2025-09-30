@@ -5,7 +5,7 @@ import torch
 from fairret.statistic import *
 from sklearn.metrics import auc, roc_curve, accuracy_score
 
-from humancompatible.train.fairness.constraints.constraint_fns import *
+from humancompatible.train.benchmark.constraints.constraint_fns import *
 
 
 def fair_stats(p_1, y_1, p_2, y_2):
@@ -86,7 +86,8 @@ def make_groupwise_stats_table(X, y, loaded_models, full_preds=None):
                 "ppv": ppv,
                 "fomr": fomr,
                 "pr": pr,
-                "pr_fairret": pr_fairret
+                "pr_fairret": pr_fairret,
+                "loss": loss
             }
         )
     return pd.DataFrame(results_list)

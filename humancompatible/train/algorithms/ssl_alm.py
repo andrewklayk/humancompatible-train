@@ -128,7 +128,7 @@ class SSLALM(Optimizer):
         dual_update_tensor[i] = self.dual_lr * c_val
         self._dual_vars.add_(dual_update_tensor)
         for i in range(len(self._dual_vars)):
-            if self._dual_vars[i] >= self.dual_bound or self._dual_vars[i] < 0:
+            if self._dual_vars[i] >= self.dual_bound: #or self._dual_vars[i] < 0:
                 self._dual_vars[i].zero_()
 
         # save constraint grad

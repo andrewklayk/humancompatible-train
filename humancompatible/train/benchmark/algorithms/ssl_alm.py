@@ -111,8 +111,6 @@ class SSLALM(Algorithm):
         run_start = timeit.default_timer()
         while True:
             elapsed = timeit.default_timer() - run_start
-            iteration += 1
-            total_iters += 1
             if epoch >= epochs or total_iters >= max_iter or elapsed > max_runtime:
                 break
 
@@ -131,7 +129,7 @@ class SSLALM(Algorithm):
                     slack_vars.detach().cpu().numpy()
                 )
 
-                percent_iters_c_satisfied = n_iters_c_satisfied / total_iters
+                # percent_iters_c_satisfied = n_iters_c_satisfied / total_iters
 
             try:
                 (f_inputs, f_labels) = next(loss_iter)
@@ -263,6 +261,9 @@ class SSLALM(Algorithm):
                         # f"{slack_vars.detach().cpu().numpy()} | {100*percent_iters_c_satisfied:2.1f}%",
                         end="\r",
                     )
+                    
+            iteration += 1
+            total_iters += 1
 
         return self.state_history
 

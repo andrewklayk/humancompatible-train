@@ -2,12 +2,13 @@
 import_name: StochasticGhost
 
 params:
-  alpha: 0.4
+  # alpha: 0.2
+  alpha: 0.3
   beta: 1.0
-  gamma0: 0.02
-  rho: 0.8
+  gamma0: 0.005
+  rho: 0.1
   lamb: 0.5
-  zeta: 0.001
-  tau: 1
+  zeta: 0.05
+  tau: 1.0
   stepsize_rule: dimin
-  save_state_interval: 1
+  save_state_interval: 10

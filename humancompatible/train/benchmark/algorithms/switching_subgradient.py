@@ -29,6 +29,7 @@ class SSG(Algorithm):
         c_stepsize_rule,
         c_stepsize,
         batch_size,
+        constr_start = 0,
         epochs=None,
         save_iter=None,
         device="cpu",
@@ -65,8 +66,6 @@ class SSG(Algorithm):
         run_start = timeit.default_timer()
         while True:
             elapsed = timeit.default_timer() - run_start
-            iteration += 1
-            total_iters += 1
             if epoch >= epochs or total_iters >= max_iter or elapsed > max_runtime:
                 break
 
@@ -88,8 +87,8 @@ class SSG(Algorithm):
                 f_sample = next(loss_iter)
 
             self.net.zero_grad()
-            if ctol_rule == 'dimin':
-                _ctol = ctol / np.sqrt(total_iters)
+            if ctol_rule == 'dimin' and total_iters > constr_start:
+                _ctol = ctol / np.sqrt(total_iters-constr_start)
 
             if save_iter is not None and total_iters >= save_iter:
                 eta_f_list.append(f_eta_t)
@@ -98,35 +97,38 @@ class SSG(Algorithm):
             # generate sample of constraints
             c_sample = [ci.sample_loader() for ci in self.constraints]
             # calc constraints and update multipliers (line 3)
-            with torch.no_grad():
-                c_t = np.array(
-                    [
-                        ci.eval(self.net, c_sample[i]).reshape(1)
-                        for i, ci in enumerate(self.constraints)
-                    ]
-                ).flatten()
-                c_argmax = np.argmax(c_t)
-                c_max = c_t[c_argmax]
+            # with torch.no_grad():
+            c_t = [
+                    ci.eval(self.net, c_sample[i]).reshape(1)
+                    for i, ci in enumerate(self.constraints)
+                ]
+            # ).flatten()
+            # c_argmax = (c_t)
+            # c_max = c_t[c_argmax]
+            # c_max = torch.max(c_t)
+            c_max = max(c_t)
 
             x_t = net_params_to_tensor(self.net, flatten=True, copy=True)
 
-            if c_max >= _ctol:
+            if c_max >= _ctol and total_iters > constr_start:
+                iter_type = 'c'
                 c_iters += 1
-                c_max2 = self.constraints[c_argmax].eval(self.net, c_sample[c_argmax]).reshape(1)
+                c_max2 = c_max#self.constraints[c_argmax].eval(self.net, c_sample[c_argmax]).reshape(1)
 
                 c_grad = torch.autograd.grad(c_max2, self.net.parameters())
                 c_grad = torch.concat([cg.flatten() for cg in c_grad])
 
                 if c_stepsize_rule == "adaptive":
                     c_eta_t = c_max / (1e-6 + torch.norm(c_grad) ** 2)
-                elif c_stepsize_rule == "const":
-                    c_eta_t = c_stepsize
                 elif c_stepsize_rule == "dimin":
                     c_eta_t = c_stepsize / np.sqrt(total_iters)
+                elif c_stepsize_rule == "const":
+                    c_eta_t = c_stepsize
 
                 x_t1 = self.project(x_t - c_eta_t * c_grad, m=len(self.constraints))
 
             else:
+                iter_type = 'f'
                 f_iters += 1
                 f_inputs, f_labels = f_sample
                 outputs = self.net(f_inputs)
@@ -174,9 +176,13 @@ class SSG(Algorithm):
                         f"{_ctol:.3}|"
                         f"{iteration:5}|"
                         f"{loss_eval.detach().cpu().numpy():.5f}|"
-                        f"{c_t}",
+                        f"{[c.detach().cpu().numpy() for c in c_t]}",
+                        f"{iter_type}",
                         end="\r",
                     )
+                    
+            iteration += 1
+            total_iters += 1
 
         ######################
         ### POSTPROCESSING ###

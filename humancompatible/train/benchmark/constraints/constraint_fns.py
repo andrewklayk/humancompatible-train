@@ -83,8 +83,8 @@ def abs_diff_tpr(_, net, c_data):#, stat):
     g1_outs = torch.nn.functional.sigmoid(net(g1_inputs))
     g2_outs = torch.nn.functional.sigmoid(net(g2_inputs))
     
-    g1_pos_pred_mask = (g1_outs >= 0).squeeze()
-    g2_pos_pred_mask = (g2_outs >= 0).squeeze()
+    g1_pos_pred_mask = (g1_outs >= 0)
+    g2_pos_pred_mask = (g2_outs >= 0)
 
     if g1_labels.ndim == 0:
         g1_labels = g1_labels.reshape(1)
@@ -93,8 +93,8 @@ def abs_diff_tpr(_, net, c_data):#, stat):
         g1_labels = g1_labels.unsqueeze(1)
         g2_labels = g2_labels.unsqueeze(1)
 
-    g1_loss = tpr(g1_outs[g1_pos_pred_mask], None, g1_labels[g1_pos_pred_mask])
-    g2_loss = tpr(g2_outs[g2_pos_pred_mask], None, g2_labels[g2_pos_pred_mask])
+    g1_loss = tpr(g1_outs[g1_pos_pred_mask].unsqueeze(1), None, g1_labels[g1_pos_pred_mask].unsqueeze(1))
+    g2_loss = tpr(g2_outs[g2_pos_pred_mask].unsqueeze(1), None, g2_labels[g2_pos_pred_mask].unsqueeze(1))
 
     val = abs(g1_loss - g2_loss)
 
@@ -199,7 +199,7 @@ def abs_max_dev_from_overall_fpr(_, net, c_data):
     return val
 
 
-def abs_loss_equality(loss, net, c_data):
+def abs_loss_equality(loss, net, c_data, ord=2):
     g1_inputs, g1_labels = c_data[0]
     g2_inputs, g2_labels = c_data[1]
     g1_outs = net(g1_inputs)
@@ -214,7 +214,7 @@ def abs_loss_equality(loss, net, c_data):
     g2_loss = loss(g2_outs, g2_labels)
 
     val = g1_loss - g2_loss
-    return torch.abs(val)
+    return torch.linalg.norm(val, ord=ord, dim=0)
 
 
 def fairret_constr(loss, net, c_data):

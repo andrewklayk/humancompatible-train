@@ -96,17 +96,25 @@ class StochasticGhost(Algorithm):
 
         total_iters = 0
         while True:
-            total_iters += 1
+            current_time = timeit.default_timer()
+            elapsed = current_time - run_start
+
+            if total_iters % save_state_interval == 0:
+                self.state_history["params"]["w"][total_iters] = deepcopy(
+                    self.net.state_dict()
+                )
+                # self.state_history["values"]["n_samples"][total_iters] = n_samples_used
+                # self.state_history["values"]["d"][total_iters] = dsol
+                self.state_history["time"][total_iters] = elapsed
+
             if max_iter is not None and total_iters >= max_iter:
                 break
-            current_time = timeit.default_timer()
-            if total_iters % save_state_interval == 0:
-                self.state_history["time"][total_iters] = current_time - run_start
+            # if total_iters % save_state_interval == 0:
 
             if max_runtime > 0 and current_time - run_start >= max_runtime:
                 print(current_time - run_start)
-                # self.history["constr"] = pd.DataFrame(self.history["constr"])
                 return self.state_history
+
 
             if stepsize_rule == "inv_iter":
                 gamma = gamma0 / (total_iters + 1) ** zeta
@@ -116,9 +124,9 @@ class StochasticGhost(Algorithm):
                 else:
                     gamma *= 1 - zeta * gamma
 
-            Nsamp = rng.geometric(p=alpha) - 1
+            Nsamp = rng.geometric(p=alpha)
             while (2 ** (Nsamp + 1)) > max_sample_size:
-                Nsamp = rng.geometric(p=alpha) - 1
+                Nsamp = rng.geometric(p=alpha)
         
             n_samples_used = 3 * (
                     1 + 2 ** (Nsamp + 1)
@@ -234,17 +242,11 @@ class StochasticGhost(Algorithm):
                         )
                     )
                     start = end
-
-            if total_iters % save_state_interval == 0:
-                self.state_history["params"]["w"][total_iters] = deepcopy(
-                    self.net.state_dict()
-                )
-                self.state_history["values"]["n_samples"][total_iters] = n_samples_used
-
-                self.state_history["values"]["d"][total_iters] = dsol
             # self.history["w"].append(deepcopy(self.net.state_dict()))
 
             feval = self.loss_fn(outs, obj_batch[1])
+            
+            total_iters += 1
 
         # self.history["constr"] = pd.DataFrame(self.history["constr"])
         return self.state_history

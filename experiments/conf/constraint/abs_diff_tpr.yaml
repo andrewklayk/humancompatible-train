@@ -1,6 +1,6 @@
-import_name: loss_equality
+import_name: abs_diff_tpr
 
 c_batch_size: 16
 bound: 0.05
-add_negative: True
+add_negative: False
 type: "one_vs_each"

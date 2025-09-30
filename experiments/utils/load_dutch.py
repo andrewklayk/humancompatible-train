@@ -1,40 +1,15 @@
 import os
-
-import folktables
+from scipy.io.arff import loadarff
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from folktables import (
-    ACSDataSource,
-    ACSEmployment,
-    ACSIncome,
-    ACSPublicCoverage,
-    generate_categories,
-)
 import torch
-
-# sys.path.append("..")
-
-
-ACSIncomeSex = folktables.BasicProblem(
-    features=ACSIncome.features,
-    target="PINCP",
-    target_transform=lambda x: x > 50000,
-    group="SEX",
-    preprocess=folktables.adult_filter,
-    postprocess=lambda x: np.nan_to_num(x, -1),
-)
 
 RAC1P_WHITE = 1
 
 
-def download_folktables(
-    state="AL",
-    horizon="1-Year",
-    survey="person",
-    year=2018,
-    download=True,
+def load_dutch(
     path=None,
 ):
     if path is None:
@@ -42,69 +17,23 @@ def download_folktables(
     else:
         base_dir = path
 
-    data_dir = os.path.join(base_dir, str(year), horizon)
-    if not os.path.isdir(data_dir):
-        os.makedirs(data_dir)
+    raw_data = loadarff('utils/raw_data/dutch_census_2001.arff')
+    df_data = pd.DataFrame(raw_data[0])
 
-    data_source = ACSDataSource(
-        survey_year=year, horizon=horizon, survey=survey, root_dir=base_dir
-    )
+    return df_data
 
-    definition_df = data_source.get_definitions(download=download)
-    acs_data = data_source.get_data(states=[state], download=download)
-
-    return acs_data, definition_df
-
-def prepare_folktables_multattr(
-    dataset: str = "income",
-    state="AL",
-    horizon="1-Year",
-    survey="person",
-    year=2018,
-    random_state=42,
-    onehot=False,
-    download=False,
-    path=None,
-    sens_cols=["RAC1P", "SEX"],
-    binarize=[False, False],
-    binarize_values=None,
-    stratify=False,
-    test_size=0.2,
-    validation_size=0.5,
+def prepare_dutch(
+        onehot=False,
+        sens_cols=["sex"],
+        stratify=False,
+        random_state=None,
+        test_size=0.2,
+        validation_size=0.5
 ):
-    acs_data, definition_df = download_folktables(
-        state, horizon, survey, year, download, path
-    )
-
-    # ACSProblem = folktables.BasicProblem(
-    #     features=ACSIncome.features,
-    #     target="PINCP",
-    #     target_transform=lambda x: x > 50000,
-    #     group=sens_cols,
-    #     group_transform=lambda x: 
-    #     preprocess=folktables.adult_filter,
-    #     postprocess=lambda x: np.nan_to_num(x, -1),
-    # )
-
-    # if dataset == "employment":
-    #     features, label, _ = ACSEmployment.df_to_numpy(acs_data)
-    # elif dataset == "coverage":
-    #     features, label, _ = ACSPublicCoverage.df_to_numpy(acs_data)
-    if dataset == "income":
-        categories = generate_categories(features=ACSIncome.features, definition_df=definition_df)
-        features, label, _ = ACSIncome.df_to_pandas(acs_data)
-        for col in categories.keys():
-            features[col] = features[col].astype('category')
-
-    for i, c in enumerate(sens_cols):
-        if binarize[i]:
-            features[c] = features[c].apply(lambda x: int(x == binarize[i]))
-
-    # group membership (by combination of values of every sensitive attribute)
-    sensitive_groups = features[sens_cols].apply(
-        lambda x: "_".join([str(int(v)) for v in x[sens_cols]]), axis=1
-    )
-
+    df = load_dutch()
+    features = df.drop(['occupation'], axis=1)
+    labels = df['occupation']
+    sensitive_groups = features[sens_cols].to_numpy()
     sensitive_groups_onehot = torch.zeros(size=(len(features), len(sensitive_groups.unique())))
     group_codes = []
 
@@ -120,12 +49,12 @@ def prepare_folktables_multattr(
     else:
         features_desens = features.drop(sens_cols, axis=1).to_numpy()
 
-    label = label.to_numpy().flatten()
+    labels = labels.to_numpy().flatten()
     sensitive_groups = sensitive_groups.to_numpy()
 
     X_train, X_test, y_train, y_test, group_train, group_test, group_onehot_train, group_onehot_test = train_test_split(
         features_desens,
-        label,
+        labels,
         sensitive_groups,
         sensitive_groups_onehot,
         test_size=test_size,
