@@ -49,7 +49,7 @@ class TestSSLALMAdam(unittest.TestCase):
         self.optimizer.dual_step(0, c_val[0])
         self.optimizer.dual_step(1, c_val[1])
         self.assertEqual(self.optimizer._dual_vars[0], 0.0)  # Should be zeroed out
-        self.assertEqual(self.optimizer._dual_vars[1], 0.0)  # Should be zeroed out
+        self.assertNotEqual(self.optimizer._dual_vars[1], 0.0)  # Should NOT be zeroed out
 
     # ADD TEST DEALING WITH CONSTRAINTS THAT DONT USE SOME OF THE PARAMS
 

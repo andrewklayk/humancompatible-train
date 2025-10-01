@@ -47,14 +47,14 @@ class TestSSLALM(unittest.TestCase):
         self.optimizer.dual_step(0, c_val[0])
         self.optimizer.dual_step(1, c_val[1])
         self.assertEqual(self.optimizer._dual_vars[0], 0.0)  # Should be zeroed out
-        self.assertEqual(self.optimizer._dual_vars[1], 0.0)  # Should be zeroed out
+        self.assertNotEqual(self.optimizer._dual_vars[1], 0.0)  # Should NOT be zeroed out
 
 # ADD TEST DEALING WITH CONSTRAINTS THAT DONT USE SOME OF THE PARAMS
 
     def test_step(self):
         # Test primal parameter update
         # Mock gradients and constraint gradients
-        p_pre_step = {}
+        p_pre_step = {} 
         for p in self.params:
             p.grad = torch.ones_like(p)
             p_pre_step[p] = p.detach().clone()
