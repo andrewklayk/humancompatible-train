@@ -4,7 +4,6 @@ import torch
 from torch import Tensor
 from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
 
-
 class SSLALM(Optimizer):
     def __init__(
         self,
@@ -16,7 +15,9 @@ class SSLALM(Optimizer):
         dual_lr: Union[
             float, Tensor
         ] = 5e-2,  # keep as tensor for different learning rates for different constraints in the future? idk
-        dual_bound: Union[float, Tensor] = 100,
+        dual_bound : Union[
+            float, Tensor
+        ] = 100,
         # penalty term multiplier
         rho: float = 1.0,
         # smoothing term multiplier
@@ -46,7 +47,7 @@ class SSLALM(Optimizer):
             raise NotImplementedError()
         if init_dual_vars is None and fix_dual_vars is not None:
             raise ValueError(
-                "if fix_dual_vars is not None, init_dual_vars should not be None."
+                f"if fix_dual_vars is not None, init_dual_vars should not be None."
             )
 
         if differentiable:
@@ -93,7 +94,7 @@ class SSLALM(Optimizer):
             state = self.state[p]
 
             params.append(p)
-
+            
             # load z (smoothing term)
             # Lazy state initialization
             if len(state) == 0:
@@ -109,52 +110,6 @@ class SSLALM(Optimizer):
 
     def __setstate__(self, state):
         super().__setstate__(state)
-
-    # TODO: saving gradients of all parameters w.r.t. all constraints at once requires LOTS of memory
-    def _save_grad_obj(self, sum_aggregate=True):
-        r"""Function that saves the gradient to a dict. Needed for working with gradients of several functions with respect to the parameters.
-
-        Args:
-            i (int): index of the constraint
-            sum_aggregate: (bool): if a value is already present, whether to add the current gradient (`True`) or overwrite (`False`). Used for working with multiple constraints.
-        """
-
-        # save constraint grad
-        for group in self.param_groups:
-            params: list[Tensor] = []
-            grads: list[Tensor] = []
-            c_grads: list[Tensor] = []
-            smoothing: list[Tensor] = []
-            _ = self._init_group(group, params, grads, c_grads, smoothing)
-
-            for p in group["params"]:
-                state = self.state[p]
-                # state['c_grad'] is cleaned in step()
-                # so it is always empty on dual_step()
-                if sum_aggregate:
-                    state["obj_grad"].add_(p.grad)
-                else:
-                    state["obj_grad"] = p.grad
-
-    def _save_grad_constr(self, i: int, sum_aggregate=False):
-        # save constraint grad
-        for group in self.param_groups:
-            params: list[Tensor] = []
-            grads: list[Tensor] = []
-            c_grads: list[Tensor] = []
-            smoothing: list[Tensor] = []
-            _ = self._init_group(group, params, grads, c_grads, smoothing)
-
-            for p in group["params"]:
-                state = self.state[p]
-                # state['c_grad'] is cleaned in step()
-                # so it is always empty on dual_step()
-                if len(state["c_grad"]) <= i:
-                    state["c_grad"].append(p.grad)
-                elif sum_aggregate:
-                    state["c_grad"][i].add_(p.grad)
-                else:
-                    state["c_grad"][i] = p.grad
 
     def dual_step(self, i: int, c_val: Tensor):
         r"""Perform an update of the dual parameters.
@@ -173,11 +128,22 @@ class SSLALM(Optimizer):
         dual_update_tensor[i] = self.dual_lr * c_val
         self._dual_vars.add_(dual_update_tensor)
         for i in range(len(self._dual_vars)):
-            if self._dual_vars[i] >= self.dual_bound:  # or self._dual_vars[i] < 0:
+            if self._dual_vars[i] >= self.dual_bound: #or self._dual_vars[i] < 0:
                 self._dual_vars[i].zero_()
 
         # save constraint grad
-        self._save_grad_constr(i)
+        for group in self.param_groups:
+            params: list[Tensor] = []
+            grads: list[Tensor] = []
+            c_grads: list[Tensor] = []
+            smoothing: list[Tensor] = []
+            _ = self._init_group(group, params, grads, c_grads, smoothing)
+
+            for p in group["params"]:
+                state = self.state[p]
+                # state['c_grad'] is cleaned in step()
+                # so it is always empty on dual_step()
+                state["c_grad"].append(p.grad)
 
     @_use_grad_for_differentiable
     def step(self, c_val: Union[Iterable | Tensor] = None):
@@ -187,7 +153,7 @@ class SSLALM(Optimizer):
             c_val (Tensor): an Iterable of estimates of values of **ALL** constraints; used for primal parameter update.
                 Ideally, must be evaluated on an independent sample from the one used in :func:`dual_step`
         """
-
+        
         if c_val is None:
             c_val = self.c_vals
         if isinstance(c_val, Iterable) and not isinstance(c_val, torch.Tensor):
@@ -197,13 +163,10 @@ class SSLALM(Optimizer):
             c_val = torch.stack(c_val)
             if c_val.ndim > 1:
                 c_val = c_val.squeeze(-1)
-
+                
         if c_val.numel() != self.m:
-            raise ValueError(
-                f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}"
-            )
+            raise ValueError(f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}")
         G = []
-        self._save_grad_obj(sum_aggregate=False)
 
         for group in self.param_groups:
             params: list[Tensor] = []
@@ -243,6 +206,6 @@ class SSLALM(Optimizer):
                 ## add slack variables to params in constructor?
 
                 c_grads[i].clear()
-
+        
         self.c_vals.clear()
         return G
