@@ -26,6 +26,7 @@ class SSLALM_Adam(Optimizer):
         beta: float = 0.5,
         beta1: float = 0.9,
         beta2: float = 0.999,
+        device='cpu',
         eps: float = 1e-8,
         amsgrad: bool = False,
         *,
@@ -93,7 +94,7 @@ class SSLALM_Adam(Optimizer):
         if init_dual_vars is not None:
             self._dual_vars = init_dual_vars
         else:
-            self._dual_vars = torch.zeros(m, requires_grad=False)
+            self._dual_vars = torch.zeros(m, requires_grad=False, device=device)
 
     def _init_group(
         self,
@@ -231,12 +232,6 @@ class SSLALM_Adam(Optimizer):
                 smoothing
             )
             for p_i, p in enumerate(params):
-                # state = self.state[p]
-                # state['c_grad'] is cleaned in step()
-                # so it is always empty on dual_step()
-                # state["c_grad"].append(p.grad)
-                
-                # c_grads[p_i][i].add_(p.grad)
                 l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
                 aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
 
@@ -290,26 +285,12 @@ class SSLALM_Adam(Optimizer):
             )
 
             for i, param in enumerate(params):
-                ### calculate Lagrange f-n gradient (G) ###
-
-                # l_term_grad = l_term_grads[i]
-                # aug_term_grad = aug_term_grads[i]
-                # # if c_grads[i] is not None:
-                # for j, c_grad in c_grads[i].items():
-                # # for j, c_grad in enumerate(c_grads[i]):
-                #     if c_grad is None:
-                #         continue
-                #     l_term_grad.add_(c_grad, alpha=self._dual_vars[j].item())
-                #     aug_term_grad.add_(c_grad, alpha=c_val[j])
-                    # c_grads[i][j] = None
                 
                 G_i = torch.zeros_like(param)
                 G_i.add_(grads[i]).add_(l_term_grads[i]).add_(aug_term_grads[i], alpha=self.rho).add_(param - smoothing[i],alpha=self.mu)
                 
                 l_term_grads[i].zero_()
                 aug_term_grads[i].zero_()
-                
-                # G.append(G_i)
                 
                 exp_avg = exp_avgs[i]
                 exp_avg_sq = exp_avg_sqs[i]
@@ -345,15 +326,3 @@ class SSLALM_Adam(Optimizer):
 
                 ## PROJECT (keep in mind we do layer by layer)
                 ## add slack variables to params in constructor?
-                # print('asdf')
-                
-                # del G_i
-
-                # for p_i in c_grads[i].keys():
-                #     # breakpoint()
-                #     c_grads[i][p_i].zero_()
-                # c_grads[i].clear()
-        # self.c_vals.clear()
-        # for i in range(len(self.c_vals)):
-        #     self.c_vals[i] = None
-        # return G
