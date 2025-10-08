@@ -93,7 +93,7 @@ class SSLALM_Adam(Optimizer):
         if init_dual_vars is not None:
             self._dual_vars = init_dual_vars
         else:
-            self._dual_vars = torch.zeros(m, requires_grad=False, device='cuda')
+            self._dual_vars = torch.zeros(m, requires_grad=False)
 
     def _init_group(
         self,
@@ -199,12 +199,13 @@ class SSLALM_Adam(Optimizer):
         # self.c_vals.append(c_val.detach())
 
         # update dual multipliers
-        # dual_update_tensor = torch.zeros_like(self._dual_vars)
-        # dual_update_tensor[i] = self.dual_lr * c_val
-        self._dual_vars.add_(c_val.detach(), alpha=self.dual_lr)
-        for i in range(len(self._dual_vars)):
-            if self._dual_vars[i] >= self.dual_bound or self._dual_vars[i] < 0:
-                self._dual_vars[i].zero_()
+        if c_val.numel() != 1:
+            raise ValueError(f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}")
+        self._dual_vars[i].add_(c_val.detach(), alpha=self.dual_lr)
+        
+        for j in range(len(self._dual_vars)):
+            if self._dual_vars[j] >= self.dual_bound:
+                self._dual_vars[j].zero_()
 
         # save constraint grad
         for group in self.param_groups:
@@ -236,7 +237,6 @@ class SSLALM_Adam(Optimizer):
                 # state["c_grad"].append(p.grad)
                 
                 # c_grads[p_i][i].add_(p.grad)
-
                 l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
                 aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
 
@@ -262,12 +262,10 @@ class SSLALM_Adam(Optimizer):
                 
         # if c_val.numel() != self.m:
         #     raise ValueError(f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}")
-        G = []
 
         for group in self.param_groups:
             params: list[Tensor] = []
             grads: list[Tensor] = []
-            c_grads: list[Tensor] = []
             l_term_grads: list[Tensor] = []
             aug_term_grads: list[Tensor] = []
             smoothing: list[Tensor] = []
@@ -282,7 +280,6 @@ class SSLALM_Adam(Optimizer):
                 group,
                 params,
                 grads,
-                c_grads,
                 l_term_grads,
                 aug_term_grads,
                 exp_avgs,
@@ -326,7 +323,7 @@ class SSLALM_Adam(Optimizer):
                 exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
                 
 
-                smoothing[i].add_(param,alpha=self.beta).add_(smoothing[i], alpha=-self.beta)
+                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(param,alpha=self.beta)
                 
                 bias_correction1 = 1 - beta1**step_t
                 bias_correction2 = 1 - beta2**step_t
