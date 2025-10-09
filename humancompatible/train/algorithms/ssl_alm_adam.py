@@ -34,7 +34,6 @@ class SSLALM_Adam(Optimizer):
         # whether some of the dual variables should not be updated
         fix_dual_vars: Optional[Tensor] = None,
         differentiable: bool = False,
-        # custom_project_fn: Optional[Callable] = project_fn
     ):
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
             raise ValueError("Tensor lr must be 1-element")
@@ -66,12 +65,9 @@ class SSLALM_Adam(Optimizer):
             beta=beta,
             amsgrad=amsgrad,
             differentiable=differentiable,
-            # custom_project_fn=custom_project_fn
         )
 
         super().__init__(params, defaults)
-
-        # self.param_groups.append()
 
         self.m = m
         self.dual_lr = dual_lr
@@ -83,14 +79,7 @@ class SSLALM_Adam(Optimizer):
         self.mu = mu
         self.c_vals: list[Union[float, Tensor]] = []
         self._c_val_average = [None]
-        self.beta1 = beta1
-        self.beta2 = beta2
         self.eps = eps
-        # essentially, move everything here to self.state[param_group]
-        # self.state[param_group]['smoothing_avg'] <= z for that param_group;
-        # ...['grad'] <= grad w.r.t. that param_group
-        # ...['G'] <= G w.r.t. that param_group // idk if necessary
-        # ...['c_grad'][c_i] <= grad of ith constraint w.r.t. that group<w
         if init_dual_vars is not None:
             self._dual_vars = init_dual_vars
         else:
@@ -101,18 +90,14 @@ class SSLALM_Adam(Optimizer):
         group,
         params,
         grads,
-        # gradient of the lagrangian term, updated from parameter gradients during dual_step
-        l_term_grads,
-        # gradient of the regularization term, updated from parameter gradients during dual_step
-        aug_term_grads,
+        l_term_grads, # gradient of the lagrangian term, updated from parameter gradients during dual_step
+        aug_term_grads, # gradient of the regularization term, updated from parameter gradients during dual_step
         exp_avgs,
         exp_avg_sqs,
         max_exp_avg_sqs,
         state_steps,
         smoothing
     ):
-        # SHOULDN'T calculate values, only set them from the state of the respective param_group
-        # calculations only happen in step() (or rather in the func version of step)
         has_sparse_grad = False
 
         for p in group["params"]:
@@ -123,12 +108,6 @@ class SSLALM_Adam(Optimizer):
             # Lazy state initialization
             if len(state) == 0:
                 state["smoothing"] = p.detach().clone()
-                
-                # state["c_grad"] = {
-                #     j: torch.zeros_like(p, memory_format=torch.preserve_format)
-                #     for j in range(self.m)
-                # }
-                
                 state["l_term_grad"] = torch.zeros_like(
                     p, memory_format=torch.preserve_format
                 )
@@ -150,7 +129,6 @@ class SSLALM_Adam(Optimizer):
                 )
                 
                 if group["amsgrad"]:
-                    # raise NotImplementedError()
                     # Maintains max of all exp. moving avg. of sq. grad. values
                     state["max_exp_avg_sq"] = torch.zeros_like(
                         p, memory_format=torch.preserve_format
@@ -196,9 +174,6 @@ class SSLALM_Adam(Optimizer):
             c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
         """
 
-        # c_vals is cleaned in step()
-        # self.c_vals.append(c_val.detach())
-
         # update dual multipliers
         if c_val.numel() != 1:
             raise ValueError(f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}")
@@ -232,6 +207,8 @@ class SSLALM_Adam(Optimizer):
                 smoothing
             )
             for p_i, p in enumerate(params):
+                if p.grad is None:
+                    continue
                 l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
                 aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
 
@@ -285,7 +262,7 @@ class SSLALM_Adam(Optimizer):
             )
 
             for i, param in enumerate(params):
-                
+
                 G_i = torch.zeros_like(param)
                 G_i.add_(grads[i]).add_(l_term_grads[i]).add_(aug_term_grads[i], alpha=self.rho).add_(param - smoothing[i],alpha=self.mu)
                 
@@ -296,13 +273,11 @@ class SSLALM_Adam(Optimizer):
                 exp_avg_sq = exp_avg_sqs[i]
                 step_t = state_steps[i]
                 step_t += 1
-                beta1 = self.beta1
-                beta2 = self.beta2
+                beta1, beta2 = self.beta1, self.beta2
                 eps = self.eps
                 
                 exp_avg.lerp_(G_i, 1 - beta1)
                 exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
-                
 
                 smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(param,alpha=self.beta)
                 

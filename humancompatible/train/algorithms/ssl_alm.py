@@ -85,7 +85,15 @@ class SSLALM(Optimizer):
         else:
             self._dual_vars = torch.zeros(m, requires_grad=False)
 
-    def _init_group(self, group, params, grads, c_grads, smoothing):
+    def _init_group(
+            self,
+            group,
+            params,
+            grads,
+            l_term_grads, # gradient of the lagrangian term, updated from parameter gradients during dual_step
+            aug_term_grads, # gradient of the regularization term, updated from parameter gradients during dual_step
+            smoothing
+        ):
         # SHOULDN'T calculate values, only set them from the state of the respective param_group
         # calculations only happen in step() (or rather in the func version of step)
         has_sparse_grad = False
@@ -99,12 +107,19 @@ class SSLALM(Optimizer):
             # Lazy state initialization
             if len(state) == 0:
                 state["smoothing"] = p.detach().clone()
-                state["c_grad"] = []
+                state["l_term_grad"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
+                state["aug_term_grad"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
 
             smoothing.append(state.get("smoothing"))
 
             grads.append(p.grad)
-            c_grads.append(state.get("c_grad"))
+
+            l_term_grads.append(state["l_term_grad"])
+            aug_term_grads.append(state["aug_term_grad"])
 
         return has_sparse_grad
 
@@ -120,30 +135,29 @@ class SSLALM(Optimizer):
             c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
         """
 
-        # c_vals is cleaned in step()
-        self.c_vals.append(c_val.detach())
-
-        # update dual multipliers
-        dual_update_tensor = torch.zeros_like(self._dual_vars)
-        dual_update_tensor[i] = self.dual_lr * c_val
-        self._dual_vars.add_(dual_update_tensor)
-        for i in range(len(self._dual_vars)):
-            if self._dual_vars[i] >= self.dual_bound: #or self._dual_vars[i] < 0:
-                self._dual_vars[i].zero_()
+        if c_val.numel() != 1 or c_val.ndim > 0:
+            raise ValueError(f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}")
+        self._dual_vars[i].add_(c_val.detach(), alpha=self.dual_lr)
+        
+        for j in range(len(self._dual_vars)):
+            if self._dual_vars[j] >= self.dual_bound:
+                self._dual_vars[j].zero_()
 
         # save constraint grad
         for group in self.param_groups:
             params: list[Tensor] = []
             grads: list[Tensor] = []
-            c_grads: list[Tensor] = []
+            l_term_grads: list[Tensor] = []
+            aug_term_grads: list[Tensor] = []
             smoothing: list[Tensor] = []
-            _ = self._init_group(group, params, grads, c_grads, smoothing)
+            _ = self._init_group(group, params, grads, l_term_grads, aug_term_grads, smoothing)
 
-            for p in group["params"]:
-                state = self.state[p]
-                # state['c_grad'] is cleaned in step()
-                # so it is always empty on dual_step()
-                state["c_grad"].append(p.grad)
+            for p_i, p in enumerate(params):
+                if p.grad is None:
+                    continue
+                l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
+                aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
+
 
     @_use_grad_for_differentiable
     def step(self, c_val: Union[Iterable | Tensor] = None):
@@ -154,58 +168,43 @@ class SSLALM(Optimizer):
                 Ideally, must be evaluated on an independent sample from the one used in :func:`dual_step`
         """
         
-        if c_val is None:
-            c_val = self.c_vals
-        if isinstance(c_val, Iterable) and not isinstance(c_val, torch.Tensor):
-            # if len(c_val) == 1 and isinstance(c_val[0], torch.Tensor):
-            #     c_val = c_val[0]
-            # else:
-            c_val = torch.stack(c_val)
-            if c_val.ndim > 1:
-                c_val = c_val.squeeze(-1)
+        # if c_val is None:
+        #     c_val = self.c_vals
+        # if isinstance(c_val, Iterable) and not isinstance(c_val, torch.Tensor):
+        #     # if len(c_val) == 1 and isinstance(c_val[0], torch.Tensor):
+        #     #     c_val = c_val[0]
+        #     # else:
+        #     c_val = torch.stack(c_val)
+        #     if c_val.ndim > 1:
+        #         c_val = c_val.squeeze(-1)
                 
-        if c_val.numel() != self.m:
-            raise ValueError(f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}")
-        G = []
+        # if c_val.numel() != self.m:
+        #     raise ValueError(f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}")
+        
+        # G = []
 
         for group in self.param_groups:
             params: list[Tensor] = []
             grads: list[Tensor] = []
-            c_grads: list[Tensor] = []
+            l_term_grads: list[Tensor] = []
+            aug_term_grads: list[Tensor] = []
             smoothing: list[Tensor] = []
             lr = group["lr"]
-            _ = self._init_group(group, params, grads, c_grads, smoothing)
+            _ = self._init_group(group, params, grads, l_term_grads, aug_term_grads, smoothing)
 
             for i, param in enumerate(params):
                 ### calculate Lagrange f-n gradient (G) ###
 
-                # stack list of grads w.r.t. constraints to get
-                # tensor of shape (*param.shape, m)
-                l_term_grad = 0
-                aug_term_grad = 0
-                # if c_grads[i] is not None:
-                for j, c_grad in enumerate(c_grads[i]):
-                    if c_grad is None:
-                        continue
-                    l_term_grad += c_grad * self._dual_vars[j]
-                    aug_term_grad += c_grad * c_val[j]
+                
+                G_i = torch.zeros_like(param)
+                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(aug_term_grads[i], alpha=self.rho).add_(param - smoothing[i],alpha=self.mu)
+                
+                l_term_grads[i].zero_()
+                aug_term_grads[i].zero_()
 
-                G_i = (
-                    grads[i]
-                    + l_term_grad
-                    + self.rho * aug_term_grad
-                    + self.mu * (param - smoothing[i])
-                )
-                G.append(G_i)
-
-                smoothing[i].add_(param - smoothing[i], alpha=self.beta)
+                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(param,alpha=self.beta)
 
                 param.add_(G_i, alpha=-lr)
 
                 ## PROJECT (keep in mind we do layer by layer)
                 ## add slack variables to params in constructor?
-
-                c_grads[i].clear()
-        
-        self.c_vals.clear()
-        return G

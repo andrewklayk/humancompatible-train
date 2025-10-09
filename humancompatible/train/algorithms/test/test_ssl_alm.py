@@ -34,13 +34,26 @@ class TestSSLALM(unittest.TestCase):
 
     def test_dual_step(self):
         # Test dual variable update
+        for p in self.params:
+            p.grad = torch.ones_like(p)
         c_val = torch.tensor([0.5, 0.1])
         self.optimizer.dual_step(0, c_val[0])
         self.assertEqual(self.optimizer._dual_vars[0], 0.005)  # 0 + 0.01 * 0.5
         self.optimizer.dual_step(1, c_val[1])
         self.assertEqual(self.optimizer._dual_vars[1], 0.001)  # 0 + 0.01 * 0.1
+        for p in self.params:
+            torch.testing.assert_close(
+                self.optimizer.state[p]['l_term_grad'],
+                p.grad * self.optimizer._dual_vars[0] + p.grad * self.optimizer._dual_vars[1]
+            )
+            torch.testing.assert_close(
+                self.optimizer.state[p]['aug_term_grad'],
+                p.grad * c_val[0] + p.grad * c_val[1]
+            )
 
     def test_dual_bound(self):
+        for p in self.params:
+            p.grad = torch.ones_like(p)
         # Test dual variable bounding
         self.optimizer._dual_vars = torch.tensor([101.0, -1.0])
         c_val = torch.tensor([1.0, -1.0])
@@ -63,60 +76,28 @@ class TestSSLALM(unittest.TestCase):
         c_grads = {p: [torch.ones_like(p) for _ in c_val] for p in self.params}
         
         for p in self.params:
-            self.optimizer.state[p]["c_grad"] = [g.clone() for g in c_grads[p]]
             self.optimizer.state[p]["smoothing"] = p.detach().clone()
+            self.optimizer.state[p]["l_term_grad"] = torch.ones_like(p)
+            self.optimizer.state[p]["aug_term_grad"] = torch.ones_like(p)
         
         self.optimizer._dual_vars = torch.ones(2)
-        G = self.optimizer.step(c_val)
+        self.optimizer.step(c_val)
         # Check if G is computed and parameters are updated
-        self.assertEqual(len(G), len(self.params))
+        # self.assertEqual(len(G), len(self.params))
         for i, p in enumerate(self.params):
-            self.assertTrue(
-                torch.equal(
-                    G[i],
-                    (
-                        p.grad +
-                        sum(_lambda  * c_grads[p][j] for j, _lambda in enumerate(self.optimizer._dual_vars)) +
-                        sum([c_grads[p][j] * cv for j, cv in enumerate(c_val)])
-                    )
+            torch.testing.assert_close(
+                p,
+                p_pre_step[p] - 0.01*(
+                    p.grad +
+                    sum(_lambda  * c_grads[p][j] for j, _lambda in enumerate(self.optimizer._dual_vars)) +
+                    sum([c_grads[p][j] * cv for j, cv in enumerate(c_val)])
                 )
             )
 
-    def test_step_with_none_c_val(self):
-        # Test step with None c_val (should use self.c_vals)
-        c_val = torch.tensor([0.1, -0.1])
-        self.optimizer.dual_step(0, c_val[0])
-        self.optimizer.dual_step(1, c_val[1])
-
-        p_pre_step = {}
-        for p in self.params:
-            p.grad = torch.ones_like(p)
-            p_pre_step[p] = p.detach().clone()
-
-        c_grads = {p: [torch.ones_like(p) for _ in c_val] for p in self.params}
-        for p in self.params:
-            self.optimizer.state[p]["c_grad"] = [g.clone() for g in c_grads[p]]
-            self.optimizer.state[p]["smoothing"] = p.detach().clone()
-        
-        G = self.optimizer.step()
-        # Check if G is computed and parameters are updated
-        self.assertEqual(len(G), len(self.params))
-        for i, p in enumerate(self.params):
-            self.assertTrue(
-                torch.equal(
-                    G[i],
-                    (
-                        p.grad +
-                        sum(_lambda  * c_grads[p][j] for j, _lambda in enumerate(self.optimizer._dual_vars)) +
-                        sum([c_grads[p][j] * cv for j, cv in enumerate(c_val)])
-                    )
-                )
-            )
-
-    def test_step_with_invalid_c_val(self):
+    def test_dual_step_with_invalid_c_val(self):
         # Test step with invalid c_val (wrong shape)
         with self.assertRaises(ValueError):
-            self.optimizer.step(torch.tensor([0.1]))
+            self.optimizer.dual_step(0, torch.tensor([0.1, 0.5]))
 
     def test_smoothing_update(self):
         # Test smoothing term update
