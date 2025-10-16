@@ -1,7 +1,9 @@
 import unittest
 import torch
 from torch.utils.data import TensorDataset, Subset, DataLoader
+# from ..fairness.utils import BalancedBatchSampler
 from humancompatible.train.fairness.utils import BalancedBatchSampler
+# from .train.fairness.utils import BalancedBatchSampler
 
 class TestBalancedBatchSampler(unittest.TestCase):
     def setUp(self):

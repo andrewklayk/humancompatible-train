@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "humancompatible-train"
-version = "0.1.7"
+version = "0.1.8.4"
 dependencies = [
     "torch",
     "numpy",
@@ -22,8 +22,15 @@ maintainers = [
 description = "PyTorch-based package for constrained training of neural networks"
 readme = "README.md"
 
-[tool.setuptools]
-packages = ["humancompatible"]
+# [tool.setuptools]
+# package-dir = {"" = "src"}
+
+# [tool.setuptools]
+# packages = ["humancompatible.train"]
+
+# [tool.setuptools.packages.find]
+# namespaces = false
+# packages = ["humancompatible.train.optim", "humancompatible.train.fairness.utils", "humancompatible.train.benchmark"]
 
 [project.optional-dependencies]
 examples = ["ipykernel", "ipympl", "fairret", "folktables", "scikit-learn", "matplotlib"]
