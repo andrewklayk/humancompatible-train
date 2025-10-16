@@ -1,7 +1,7 @@
 import unittest
 import torch
 from torch import Tensor
-from humancompatible.train.algorithms import SSLALM
+from humancompatible.train.optim import SSLALM
 
 class TestSSLALM(unittest.TestCase):
     def setUp(self):

@@ -1,6 +1,6 @@
 import unittest
 import torch
-from humancompatible.train.algorithms import SSG
+from humancompatible.train.optim import SSG
 
 class TestSSG(unittest.TestCase):
     def setUp(self):
