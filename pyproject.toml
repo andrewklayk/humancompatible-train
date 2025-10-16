@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "humancompatible-train"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
     "torch",
     "numpy",
 ]
-requires-python = ">= 3.11"
+requires-python = ">= 3.11, <3.14"
 authors = [
     {name = "Andrii Kliachkin", email = "kliachkin.andrii@gmail.com"},
     {name = "Gilles Bareilles"},
@@ -22,6 +22,8 @@ maintainers = [
 description = "PyTorch-based package for constrained training of neural networks"
 readme = "README.md"
 
+[tool.setuptools]
+packages = ["humancompatible"]
 
 [project.optional-dependencies]
 examples = ["ipykernel", "ipympl", "fairret", "folktables", "scikit-learn", "matplotlib"]
