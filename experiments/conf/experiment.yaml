@@ -3,7 +3,7 @@ defaults:
   # REMOVE
   - alg: sslalm
   - constraint: diff_loss
-  - data: folktables
+  - data: folktables_MAR
 
 alg: ???
 constraint: ???
