@@ -119,7 +119,7 @@ class StochasticGhost(Algorithm):
             if stepsize_rule == "inv_iter":
                 gamma = gamma0 / (total_iters + 1) ** zeta
             elif stepsize_rule == "dimin":
-                if total_iters == 1:
+                if total_iters == 0:
                     gamma = gamma0
                 else:
                     gamma *= 1 - zeta * gamma
