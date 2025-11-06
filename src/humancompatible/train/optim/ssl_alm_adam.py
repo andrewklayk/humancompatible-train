@@ -85,6 +85,18 @@ class SSLALM_Adam(Optimizer):
         else:
             self._dual_vars = torch.zeros(m, requires_grad=False, device=device)
 
+    def add_constraint(self):
+        """
+        Allows to dynamically add constraints. Increments`m`, appends a zero tensor to the end of`_dual_vars`.
+        """
+        self.m += 1
+        self._dual_vars = torch.cat(
+            (
+                self._dual_vars,
+                torch.zeros(1, requires_grad=False, device=self._dual_vars.device)
+            ))
+
+
     def _init_group(
         self,
         group,
