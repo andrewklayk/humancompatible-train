@@ -358,16 +358,16 @@ def plot_time(
     return (f, f_) if sep_figs else f
 
 
-def spider_line(data, yticks, title=None):
+def spider_line(data, yticks, labels=["Ind", "Sp", "Ina", "Suf"], title=None):
     plt.rcParams.update({"font.size": 16})
 
-    labels = ["Ind", "Sep", "Ina", "Suf"]
+    # labels = ["Ind", "Sp", "Ina", "Suf", "Acc_diff"]
     # Number of variables we're plotting.
     num_vars = len(labels)
 
     # Split the circle into even parts and save the angles
     # so we know where to put each axis.
-    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    angles = (np.linspace(0, 2 * np.pi, num_vars, endpoint=False) + (0/5 * np.pi)).tolist()
 
     # The plot is a circle, so we need to "complete the loop"
     # and append the start value to the end.
@@ -377,7 +377,7 @@ def spider_line(data, yticks, title=None):
     fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
 
     for alg in data.index:
-        values = data.loc[alg, ["Ind", "Sp", "Ina", "Sf", "Ind"]].tolist()
+        values = data.loc[alg, labels].tolist()
         ax.plot(angles, values, lw=2, label=alg)
         # ax.plot(angles, values, lw=2, label=alg)
         ax.set_yticks(yticks)

@@ -86,6 +86,9 @@ class SSG(Algorithm):
                 loss_iter = iter(loss_loader)
                 f_sample = next(loss_iter)
 
+            iteration += 1
+            total_iters += 1
+
             self.net.zero_grad()
             if ctol_rule == 'dimin' and total_iters > constr_start:
                 _ctol = ctol / np.sqrt(total_iters-constr_start)
@@ -180,9 +183,6 @@ class SSG(Algorithm):
                         f"{iter_type}",
                         end="\r",
                     )
-                    
-            iteration += 1
-            total_iters += 1
 
         ######################
         ### POSTPROCESSING ###

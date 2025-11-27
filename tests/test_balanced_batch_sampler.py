@@ -23,27 +23,27 @@ class TestBalancedBatchSampler(unittest.TestCase):
 
     def test_batch_size_divisible(self):
         with self.assertRaises(AssertionError):
-            BalancedBatchSampler(subgroup_indices=self.subset_indices, batch_size=4, drop_last=True)
+            BalancedBatchSampler(group_indices=self.subset_indices, batch_size=4, drop_last=True)
 
     def test_onehot_init(self):
-        sampler = BalancedBatchSampler(subgroup_onehot=self.subset_onehot, batch_size=3)
+        sampler = BalancedBatchSampler(group_onehot=self.subset_onehot, batch_size=3)
         self.assertListEqual(
-            [i.tolist() for i in sampler.subset_indices],
+            [i.tolist() for i in sampler._group_indices],
             self.subset_indices
         )
 
     def test_iter(self):
-        sampler = BalancedBatchSampler(subgroup_indices=self.subset_indices, batch_size=6, drop_last=True)
+        sampler = BalancedBatchSampler(group_indices=self.subset_indices, batch_size=6, drop_last=True)
         batches = list(sampler)
         self.assertEqual(len(batches), 1)  # Only 1 full batch of size 6 (2+2+2)
         self.assertEqual(len(batches[0]), 6)
 
     def test_len_drop_last_true(self):
-        sampler = BalancedBatchSampler(subgroup_indices=self.subset_indices, batch_size=6, drop_last=True)
+        sampler = BalancedBatchSampler(group_indices=self.subset_indices, batch_size=6, drop_last=True)
         self.assertEqual(len(sampler), 1)
 
     def test_balanced_batches(self):
-        sampler = BalancedBatchSampler(subgroup_indices=self.subset_indices, batch_size=6, drop_last=True)
+        sampler = BalancedBatchSampler(group_indices=self.subset_indices, batch_size=6, drop_last=True)
         batch = next(iter(sampler))
         # Check that each subset contributes 2 samples
         self.assertEqual(len([i for i in batch if i in self.subset_indices[0]]), 2)
@@ -65,7 +65,7 @@ class TestDataLoaderIntegration(unittest.TestCase):
         self.subsets = [Subset(self.dataset, indices) for indices in self.subset_indices]
 
     def test_dataloader(self):
-        sampler = BalancedBatchSampler(subgroup_indices=self.subset_indices, batch_size=6, drop_last=True)
+        sampler = BalancedBatchSampler(group_indices=self.subset_indices, batch_size=6, drop_last=True)
         dataloader = DataLoader(
             self.dataset,
             batch_sampler=sampler

@@ -170,23 +170,132 @@ def run(cfg: DictConfig) -> None:
         net = SimpleNet(in_shape=X_test.shape[1], out_shape=1, dtype=DTYPE).to(device)
         model_path = model_name + f"_trial{EXP_IDX}.pt"
 
-        optimizer_name = cfg.alg.import_name
-        module = importlib.import_module("humancompatible.train.benchmark.algorithms")
-        Optimizer = getattr(module, optimizer_name)
-        optimizer = Optimizer(net, train_ds, loss_fn, c)
         # inconsequential backward pass cause first pass is very slow
         x = net.forward(X_train_tensor[0])
         x.backward()
         net.zero_grad()
-        # train!
-        history = optimizer.optimize(
-            **cfg.alg.params,
-            max_iter=cfg.run_maxiter,
-            max_runtime=cfg.run_maxtime,
-            device=device,
-            # seed=EXP_IDX,
-            verbose=True,
-        )
+
+        if cfg.alg.import_name.startswith("fairret"):
+            history = {}
+            history["params"] = {"w": {}}
+            history["values"] = {"f": {}, "d": {}, "c": {}, "n_samples": {}}
+            history["time"] = {}
+
+            from torch.utils.data import SubsetRandomSampler, DataLoader
+            from copy import deepcopy
+            m = len(group_ind_train)
+
+            _fairret_loss_module = importlib.import_module("fairret.loss")
+            _fairret_statistic_module = importlib.import_module("fairret.statistic")
+            fstat = getattr(_fairret_statistic_module, cfg.alg.params.statistic)()
+            floss = getattr(_fairret_loss_module, cfg.alg.params.loss)(fstat, p=1)
+
+            run_start = timeit.default_timer()
+
+            criterion = torch.nn.BCEWithLogitsLoss()
+            optimizer = torch.optim.SGD(net.parameters(), lr=cfg.alg.params.lr)
+            c_batch_size = cfg.alg.params.c_batch_size
+            obj_batch_size = cfg.alg.params.obj_batch_size
+            mult = cfg.alg.params.pmult
+
+            total_iters = 0
+            gen = torch.Generator(device=device)
+            gen.manual_seed(EXP_IDX)
+            obj_loader = iter(
+                torch.utils.data.DataLoader(
+                    train_ds,
+                    obj_batch_size,
+                    shuffle=True,
+                    generator=gen,
+                    drop_last=True,
+                )
+            )
+
+            constr_dataloaders = []
+            for group_indices in group_ind_train:
+                sampler = SubsetRandomSampler(group_indices, gen)
+                constr_dataloaders.append(
+                    iter(
+                        DataLoader(
+                            train_ds, c_batch_size, sampler=sampler, drop_last=True
+                        )
+                    )
+                )
+
+            epoch = 0
+            iteration = 0
+            total_iters = 0
+
+            group_ind_onehot = torch.zeros(m, (c_batch_size * m))
+            for j in range(0, m):
+                group_ind_onehot[j][c_batch_size * j : c_batch_size * (j+1)] = (
+                    torch.ones(c_batch_size)
+                )
+            group_ind_onehot = group_ind_onehot.T
+
+            while True:
+                elapsed = timeit.default_timer() - run_start
+                iteration += 1
+                total_iters += 1
+                if (
+                    cfg.run_maxiter is not None and total_iters >= cfg.run_maxiter
+                ) or elapsed > cfg.run_maxtime:
+                    break
+                if total_iters % cfg.alg.params.save_state_interval == 0:
+                    history["params"]["w"][total_iters] = deepcopy(net.state_dict())
+                history["time"][total_iters] = elapsed
+
+                net.zero_grad()
+
+                inputs, labels = sample_or_restart_iterloader(obj_loader)
+                outputs = net(inputs)
+                loss_obj = criterion(outputs.squeeze(), labels)
+
+                c_inputs, c_labels = [], []
+                for j in range(m):
+                    group_inputs, group_labels = sample_or_restart_iterloader(
+                        constr_dataloaders[j]
+                    )
+                    c_inputs.append(group_inputs)
+                    c_labels.append(group_labels)
+
+                c_inputs = torch.concat(c_inputs)
+                c_labels = torch.concat(c_labels)
+
+                outputs_c = net(c_inputs).squeeze()
+                
+                try:
+                    loss_c = floss(
+                        outputs_c.unsqueeze(1), group_ind_onehot, c_labels.unsqueeze(1)
+                    )
+                except:
+                    breakpoint()
+
+                loss = loss_obj + mult * loss_c
+
+                loss.backward()
+                optimizer.step()
+
+                with np.printoptions(precision=6, suppress=True):
+                    print(
+                        f"{epoch:2} | {iteration:5} | {loss_obj.detach().cpu().numpy():.4} | {loss_c.detach().cpu().numpy():.4}",
+                        end="\r",
+                    )
+
+        else:
+            optimizer_name = cfg.alg.import_name
+            module = importlib.import_module("humancompatible.train.benchmark.algorithms")
+            Optimizer = getattr(module, optimizer_name)
+            optimizer = Optimizer(net, train_ds, loss_fn, c)
+            # train!
+            history = optimizer.optimize(
+                **cfg.alg.params,
+                max_iter=cfg.run_maxiter,
+                max_runtime=cfg.run_maxtime,
+                device=device,
+                # seed=EXP_IDX,
+                verbose=True,
+            )
 
         ## SAVE RESULTS ##
         params = pd.DataFrame(history["params"])

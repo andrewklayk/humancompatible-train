@@ -160,7 +160,8 @@ def make_pairwise_constraint_stats_table(X_0, y_0, X_1, y_1, loaded_models):
         a1 = a1.astype(float)
         a0 /= np.sum(a0)
         a1 /= np.sum(a1)
-        wd = ot.wasserstein_1d(x0[1:], x1[1:], a0, a1, p=2)
+        wd = ot.wasserstein_1d(predictions_0, predictions_1)
+        # wd = ot.wasserstein_1d(x0[1:], x1[1:], a0, a1, p=2)
         # Store results in the DataFrame
         results_list.append(
             {

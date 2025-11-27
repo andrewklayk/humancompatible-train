@@ -127,7 +127,9 @@ class StochasticGhost(Algorithm):
             Nsamp = rng.geometric(p=alpha)
             while (2 ** (Nsamp + 1)) > max_sample_size:
                 Nsamp = rng.geometric(p=alpha)
-        
+
+            # Nsamp = 4
+
             n_samples_used = 3 * (
                     1 + 2 ** (Nsamp + 1)
                 )
