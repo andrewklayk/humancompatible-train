@@ -71,8 +71,9 @@ class BalancedBatchSampler(Sampler):
                 group_batch_indices = shuffled_group_indices[group_idx][start:end]
                 batch.extend([self._group_indices[group_idx][i] for i in group_batch_indices])
 
-            # Yield the global indices for the batch
-            yield batch
+            # Yield the global indices for the batch, shuffled
+            shuffled_batch_indices = torch.randperm(len(batch))
+            yield batch[shuffled_batch_indices]
 
     def __len__(self):
         if self._drop_last:
