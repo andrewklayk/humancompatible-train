@@ -49,8 +49,10 @@ class SSG(Optimizer):
         if dual_lr < 0.0:
             raise ValueError(f"Invalid dual learning rate: {dual_lr}")
         if not (m == 1):
-            raise ValueError(f"Switching Subgradient does not support multiple constraints."
-                             "Consider taking the largest violation at each iteration.")
+            raise ValueError(
+                f"Switching Subgradient does not support multiple constraints."
+                "Consider taking the largest violation at each iteration."
+            )
         if differentiable:
             raise NotImplementedError("SSw does not support differentiable")
 
@@ -106,7 +108,7 @@ class SSG(Optimizer):
             i (int): index of the constraint **(unused)**
             c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed **(unused)**
         """
-        
+
         if i > self.m:
             raise ValueError("SSw does not support multiple constraints.")
 
@@ -136,7 +138,7 @@ class SSG(Optimizer):
         # here assume c_val is a scalar
 
         update_con = c_val > 0
-        
+
         for group in self.param_groups:
             params: list[Tensor] = []
             grads: list[Tensor] = []
@@ -145,7 +147,6 @@ class SSG(Optimizer):
             _ = self._init_group(group, params, grads, c_grads)
 
             for i, param in enumerate(params):
-
                 if update_con:
                     param.add_(c_grads[i][0], alpha=-self.dual_lr)
                 else:

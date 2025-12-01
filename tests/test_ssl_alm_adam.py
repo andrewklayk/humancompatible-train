@@ -2,7 +2,7 @@ import unittest
 import torch
 from torch import Tensor
 from humancompatible.train.optim import SSLALM_Adam
-# from train.optim import SSLALM_Adam
+
 
 class TestSSLALMAdam(unittest.TestCase):
     def setUp(self):
@@ -20,7 +20,7 @@ class TestSSLALMAdam(unittest.TestCase):
             mu=2.0,
             beta=0.5,
             beta1=0.9,
-            beta2=0.999
+            beta2=0.999,
         )
 
     def test_initialization(self):
@@ -46,12 +46,13 @@ class TestSSLALMAdam(unittest.TestCase):
         self.assertEqual(self.optimizer._dual_vars[1], 0.001)  # 0 + 0.01 * 0.1
         for p in self.params:
             torch.testing.assert_close(
-                self.optimizer.state[p]['l_term_grad'],
-                p.grad * self.optimizer._dual_vars[0] + p.grad * self.optimizer._dual_vars[1]
+                self.optimizer.state[p]["l_term_grad"],
+                p.grad * self.optimizer._dual_vars[0]
+                + p.grad * self.optimizer._dual_vars[1],
             )
             torch.testing.assert_close(
-                self.optimizer.state[p]['aug_term_grad'],
-                p.grad * c_val[0] + p.grad * c_val[1]
+                self.optimizer.state[p]["aug_term_grad"],
+                p.grad * c_val[0] + p.grad * c_val[1],
             )
 
     def test_dual_bound(self):
@@ -62,8 +63,12 @@ class TestSSLALMAdam(unittest.TestCase):
         c_val = torch.tensor([1.0, -1.0])
         self.optimizer.dual_step(0, c_val[0])
         self.optimizer.dual_step(1, c_val[1])
-        self.assertEqual(self.optimizer._dual_vars[0].item(), 0.0)  # Should be zeroed out
-        self.assertNotEqual(self.optimizer._dual_vars[1].item(), 0.0)  # Should NOT be zeroed out
+        self.assertEqual(
+            self.optimizer._dual_vars[0].item(), 0.0
+        )  # Should be zeroed out
+        self.assertNotEqual(
+            self.optimizer._dual_vars[1].item(), 0.0
+        )  # Should NOT be zeroed out
 
     # ADD TEST DEALING WITH CONSTRAINTS THAT DONT USE SOME OF THE PARAMS
 
@@ -77,11 +82,11 @@ class TestSSLALMAdam(unittest.TestCase):
 
         c_val = torch.tensor([0.1, -0.1])
         self.optimizer._dual_vars = torch.ones(2)
-        
+
         for p in self.params:
             # self.optimizer.state[p]["c_grad"] = [g.clone() for g in c_grads[p]]
             self.optimizer.state[p]["smoothing"] = p.detach().clone()
-            
+
             self.optimizer.state[p]["step"] = 0
             self.optimizer.state[p]["exp_avg"] = torch.ones_like(p)
             self.optimizer.state[p]["exp_avg_sq"] = torch.ones_like(p)
@@ -95,32 +100,21 @@ class TestSSLALMAdam(unittest.TestCase):
             beta1 = 0.9
             beta2 = 0.999
             G_i = torch.zeros_like(p)
-            G_i.add_(p.grad).add_(torch.ones_like(p)).add_(torch.ones_like(p), alpha=self.optimizer.rho)
+            G_i.add_(p.grad).add_(torch.ones_like(p)).add_(
+                torch.ones_like(p), alpha=self.optimizer.rho
+            )
 
-            fm = beta1*torch.ones_like(p) + (1-beta1)*G_i
-            sm = beta2*torch.ones_like(p) + (1-beta2)*(torch.pow(G_i,2))
-            fm_bc = fm/(1-beta1)
-            sm_bc = sm/(1-beta2)
+            fm = beta1 * torch.ones_like(p) + (1 - beta1) * G_i
+            sm = beta2 * torch.ones_like(p) + (1 - beta2) * (torch.pow(G_i, 2))
+            fm_bc = fm / (1 - beta1)
+            sm_bc = sm / (1 - beta2)
 
             self.assertTrue(
-                torch.equal(
-                    p,
-                    p_pre_step[p] - 0.01*fm_bc/(sm_bc.sqrt() + 1e-8)
-                )
+                torch.equal(p, p_pre_step[p] - 0.01 * fm_bc / (sm_bc.sqrt() + 1e-8))
             )
             # assert correct update of exp_avg and exp_avg_sq
-            self.assertTrue(
-                torch.equal(
-                    self.optimizer.state[p]['exp_avg'],
-                    fm
-                )
-            )
-            self.assertTrue(
-                torch.equal(
-                    self.optimizer.state[p]['exp_avg_sq'],
-                    sm
-                )
-            )
+            self.assertTrue(torch.equal(self.optimizer.state[p]["exp_avg"], fm))
+            self.assertTrue(torch.equal(self.optimizer.state[p]["exp_avg_sq"], sm))
 
     def test_dual_step_with_invalid_c_val(self):
         # Test step with invalid c_val (wrong shape)
@@ -148,6 +142,7 @@ class TestSSLALMAdam(unittest.TestCase):
             SSLALM_Adam(self.params, m=self.m, dual_lr=-0.01)
         with self.assertRaises(ValueError):
             SSLALM_Adam(self.params, m=self.m, init_dual_vars=torch.tensor([1.0]))
+
 
 if __name__ == "__main__":
     unittest.main()

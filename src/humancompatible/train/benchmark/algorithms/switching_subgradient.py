@@ -6,7 +6,10 @@ import numpy as np
 import torch
 
 from .Algorithm import Algorithm
-from humancompatible.train.benchmark.algorithms.utils import _set_weights, net_params_to_tensor
+from humancompatible.train.benchmark.algorithms.utils import (
+    _set_weights,
+    net_params_to_tensor,
+)
 
 
 class SSG(Algorithm):
@@ -29,7 +32,7 @@ class SSG(Algorithm):
         c_stepsize_rule,
         c_stepsize,
         batch_size,
-        constr_start = 0,
+        constr_start=0,
         epochs=None,
         save_iter=None,
         device="cpu",
@@ -37,7 +40,7 @@ class SSG(Algorithm):
         verbose=True,
         max_runtime=None,
         max_iter=None,
-        save_state_interval=100
+        save_state_interval=100,
     ):
         self.state_history = {}
         self.state_history["params"] = {"w": {}}
@@ -90,8 +93,8 @@ class SSG(Algorithm):
             total_iters += 1
 
             self.net.zero_grad()
-            if ctol_rule == 'dimin' and total_iters > constr_start:
-                _ctol = ctol / np.sqrt(total_iters-constr_start)
+            if ctol_rule == "dimin" and total_iters > constr_start:
+                _ctol = ctol / np.sqrt(total_iters - constr_start)
 
             if save_iter is not None and total_iters >= save_iter:
                 eta_f_list.append(f_eta_t)
@@ -102,9 +105,9 @@ class SSG(Algorithm):
             # calc constraints and update multipliers (line 3)
             # with torch.no_grad():
             c_t = [
-                    ci.eval(self.net, c_sample[i]).reshape(1)
-                    for i, ci in enumerate(self.constraints)
-                ]
+                ci.eval(self.net, c_sample[i]).reshape(1)
+                for i, ci in enumerate(self.constraints)
+            ]
             # ).flatten()
             # c_argmax = (c_t)
             # c_max = c_t[c_argmax]
@@ -114,9 +117,9 @@ class SSG(Algorithm):
             x_t = net_params_to_tensor(self.net, flatten=True, copy=True)
 
             if c_max >= _ctol and total_iters > constr_start:
-                iter_type = 'c'
+                iter_type = "c"
                 c_iters += 1
-                c_max2 = c_max#self.constraints[c_argmax].eval(self.net, c_sample[c_argmax]).reshape(1)
+                c_max2 = c_max  # self.constraints[c_argmax].eval(self.net, c_sample[c_argmax]).reshape(1)
 
                 c_grad = torch.autograd.grad(c_max2, self.net.parameters())
                 c_grad = torch.concat([cg.flatten() for cg in c_grad])
@@ -131,7 +134,7 @@ class SSG(Algorithm):
                 x_t1 = self.project(x_t - c_eta_t * c_grad, m=len(self.constraints))
 
             else:
-                iter_type = 'f'
+                iter_type = "f"
                 f_iters += 1
                 f_inputs, f_labels = f_sample
                 outputs = self.net(f_inputs)
@@ -158,9 +161,7 @@ class SSG(Algorithm):
 
             if total_iters % save_state_interval == 0:
                 if c_max is not None:
-                    self.state_history["values"]["c"][total_iters] = (
-                        c_t
-                    )
+                    self.state_history["values"]["c"][total_iters] = c_t
                 if loss_eval is not None:
                     self.state_history["values"]["f"][total_iters] = (
                         loss_eval.cpu().detach().numpy()

@@ -55,6 +55,7 @@ def download_folktables(
 
     return acs_data, definition_df
 
+
 def prepare_folktables_multattr(
     dataset: str = "income",
     state="AL",
@@ -81,7 +82,7 @@ def prepare_folktables_multattr(
     #     target="PINCP",
     #     target_transform=lambda x: x > 50000,
     #     group=sens_cols,
-    #     group_transform=lambda x: 
+    #     group_transform=lambda x:
     #     preprocess=folktables.adult_filter,
     #     postprocess=lambda x: np.nan_to_num(x, -1),
     # )
@@ -91,10 +92,12 @@ def prepare_folktables_multattr(
     # elif dataset == "coverage":
     #     features, label, _ = ACSPublicCoverage.df_to_numpy(acs_data)
     if dataset == "income":
-        categories = generate_categories(features=ACSIncome.features, definition_df=definition_df)
+        categories = generate_categories(
+            features=ACSIncome.features, definition_df=definition_df
+        )
         features, label, _ = ACSIncome.df_to_pandas(acs_data)
         for col in categories.keys():
-            features[col] = features[col].astype('category')
+            features[col] = features[col].astype("category")
 
     for i, c in enumerate(sens_cols):
         if binarize[i]:
@@ -105,16 +108,18 @@ def prepare_folktables_multattr(
         lambda x: "_".join([str(int(v)) for v in x[sens_cols]]), axis=1
     )
 
-    sensitive_groups_onehot = torch.zeros(size=(len(features), len(sensitive_groups.unique())))
+    sensitive_groups_onehot = torch.zeros(
+        size=(len(features), len(sensitive_groups.unique()))
+    )
     group_codes = []
 
     for gn, x in enumerate(sensitive_groups.unique()):
         group_codes.append(gn)
-        sensitive_groups_onehot[sensitive_groups == x, gn] = 1.
+        sensitive_groups_onehot[sensitive_groups == x, gn] = 1.0
 
     # groups defined by sensitive attributes separately
     separate_sensitive_groups = [features[col].to_numpy() for col in sens_cols]
-    
+
     if onehot:
         features_desens = pd.get_dummies(features.drop(sens_cols, axis=1)).to_numpy()
     else:
@@ -123,7 +128,16 @@ def prepare_folktables_multattr(
     label = label.to_numpy().flatten()
     sensitive_groups = sensitive_groups.to_numpy()
 
-    X_train, X_test, y_train, y_test, group_train, group_test, group_onehot_train, group_onehot_test = train_test_split(
+    (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        group_train,
+        group_test,
+        group_onehot_train,
+        group_onehot_test,
+    ) = train_test_split(
         features_desens,
         label,
         sensitive_groups,
@@ -133,16 +147,24 @@ def prepare_folktables_multattr(
         random_state=random_state,
     )
 
-    X_val, X_test, y_val, y_test, group_val, group_test, group_onehot_val, group_onehot_test = train_test_split(
+    (
+        X_val,
+        X_test,
+        y_val,
+        y_test,
+        group_val,
+        group_test,
+        group_onehot_val,
+        group_onehot_test,
+    ) = train_test_split(
         X_test,
         y_test,
         group_test,
         group_onehot_test,
-        test_size=1-validation_size,
+        test_size=1 - validation_size,
         stratify=group_test if stratify else None,
         random_state=random_state,
     )
-
 
     # sep_sens_train = []
     # sep_sens_test = []
@@ -180,12 +202,12 @@ def prepare_folktables_multattr(
 
     group_order = np.unique(sensitive_groups)
 
-    return(
+    return (
         (X_train_scaled, X_val_scaled, X_test_scaled),
         (y_train, y_val, y_test),
         (group_indices_train, group_indices_val, group_indices_test),
         (group_onehot_train, group_onehot_val, group_onehot_test),
-        group_order
+        group_order,
         # group_indices_train,
         # group_onehot_train,
         # sep_sens_train,

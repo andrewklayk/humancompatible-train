@@ -9,7 +9,10 @@ from qpsolvers import solve_qp
 from scipy.optimize import linprog
 
 from .Algorithm import Algorithm
-from humancompatible.train.benchmark.algorithms.utils import _set_weights, net_params_to_tensor
+from humancompatible.train.benchmark.algorithms.utils import (
+    _set_weights,
+    net_params_to_tensor,
+)
 
 
 class StochasticGhost(Algorithm):
@@ -81,7 +84,7 @@ class StochasticGhost(Algorithm):
         verbose=True,
         max_runtime=None,
         max_iter=None,
-        save_state_interval=1
+        save_state_interval=1,
     ):
         self.state_history = {}
         self.state_history["params"] = {"w": {}}
@@ -115,7 +118,6 @@ class StochasticGhost(Algorithm):
                 print(current_time - run_start)
                 return self.state_history
 
-
             if stepsize_rule == "inv_iter":
                 gamma = gamma0 / (total_iters + 1) ** zeta
             elif stepsize_rule == "dimin":
@@ -130,9 +132,7 @@ class StochasticGhost(Algorithm):
 
             # Nsamp = 4
 
-            n_samples_used = 3 * (
-                    1 + 2 ** (Nsamp + 1)
-                )
+            n_samples_used = 3 * (1 + 2 ** (Nsamp + 1))
 
             dsols = np.zeros((4, n))
 
@@ -247,7 +247,7 @@ class StochasticGhost(Algorithm):
             # self.history["w"].append(deepcopy(self.net.state_dict()))
 
             feval = self.loss_fn(outs, obj_batch[1])
-            
+
             total_iters += 1
 
         # self.history["constr"] = pd.DataFrame(self.history["constr"])

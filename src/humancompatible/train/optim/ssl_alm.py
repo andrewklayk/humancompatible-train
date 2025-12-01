@@ -4,6 +4,7 @@ import torch
 from torch import Tensor
 from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
 
+
 class SSLALM(Optimizer):
     def __init__(
         self,
@@ -15,9 +16,7 @@ class SSLALM(Optimizer):
         dual_lr: Union[
             float, Tensor
         ] = 5e-2,  # keep as tensor for different learning rates for different constraints in the future? idk
-        dual_bound : Union[
-            float, Tensor
-        ] = 100,
+        dual_bound: Union[float, Tensor] = 100,
         # penalty term multiplier
         rho: float = 1.0,
         # smoothing term multiplier
@@ -86,14 +85,14 @@ class SSLALM(Optimizer):
             self._dual_vars = torch.zeros(m, requires_grad=False)
 
     def _init_group(
-            self,
-            group,
-            params,
-            grads,
-            l_term_grads, # gradient of the lagrangian term, updated from parameter gradients during dual_step
-            aug_term_grads, # gradient of the regularization term, updated from parameter gradients during dual_step
-            smoothing
-        ):
+        self,
+        group,
+        params,
+        grads,
+        l_term_grads,  # gradient of the lagrangian term, updated from parameter gradients during dual_step
+        aug_term_grads,  # gradient of the regularization term, updated from parameter gradients during dual_step
+        smoothing,
+    ):
         # SHOULDN'T calculate values, only set them from the state of the respective param_group
         # calculations only happen in step() (or rather in the func version of step)
         has_sparse_grad = False
@@ -102,7 +101,7 @@ class SSLALM(Optimizer):
             state = self.state[p]
 
             params.append(p)
-            
+
             # load z (smoothing term)
             # Lazy state initialization
             if len(state) == 0:
@@ -136,9 +135,11 @@ class SSLALM(Optimizer):
         """
 
         if c_val.numel() != 1 or c_val.ndim > 0:
-            raise ValueError(f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}")
+            raise ValueError(
+                f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}"
+            )
         self._dual_vars[i].add_(c_val.detach(), alpha=self.dual_lr)
-        
+
         for j in range(len(self._dual_vars)):
             if self._dual_vars[j] >= self.dual_bound:
                 self._dual_vars[j].zero_()
@@ -150,14 +151,15 @@ class SSLALM(Optimizer):
             l_term_grads: list[Tensor] = []
             aug_term_grads: list[Tensor] = []
             smoothing: list[Tensor] = []
-            _ = self._init_group(group, params, grads, l_term_grads, aug_term_grads, smoothing)
+            _ = self._init_group(
+                group, params, grads, l_term_grads, aug_term_grads, smoothing
+            )
 
             for p_i, p in enumerate(params):
                 if p.grad is None:
                     continue
                 l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
                 aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
-
 
     @_use_grad_for_differentiable
     def step(self, c_val: Union[Iterable | Tensor] = None):
@@ -167,7 +169,7 @@ class SSLALM(Optimizer):
             c_val (Tensor): an Iterable of estimates of values of **ALL** constraints; used for primal parameter update.
                 Ideally, must be evaluated on an independent sample from the one used in :func:`dual_step`
         """
-        
+
         # if c_val is None:
         #     c_val = self.c_vals
         # if isinstance(c_val, Iterable) and not isinstance(c_val, torch.Tensor):
@@ -177,10 +179,10 @@ class SSLALM(Optimizer):
         #     c_val = torch.stack(c_val)
         #     if c_val.ndim > 1:
         #         c_val = c_val.squeeze(-1)
-                
+
         # if c_val.numel() != self.m:
         #     raise ValueError(f"Number of elements in c_val must be equal to m={self.m}, got {c_val.numel()}")
-        
+
         # G = []
 
         for group in self.param_groups:
@@ -190,19 +192,24 @@ class SSLALM(Optimizer):
             aug_term_grads: list[Tensor] = []
             smoothing: list[Tensor] = []
             lr = group["lr"]
-            _ = self._init_group(group, params, grads, l_term_grads, aug_term_grads, smoothing)
+            _ = self._init_group(
+                group, params, grads, l_term_grads, aug_term_grads, smoothing
+            )
 
             for i, param in enumerate(params):
                 ### calculate Lagrange f-n gradient (G) ###
 
-                
                 G_i = torch.zeros_like(param)
-                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(aug_term_grads[i], alpha=self.rho).add_(param - smoothing[i],alpha=self.mu)
-                
+                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(
+                    aug_term_grads[i], alpha=self.rho
+                ).add_(param - smoothing[i], alpha=self.mu)
+
                 l_term_grads[i].zero_()
                 aug_term_grads[i].zero_()
 
-                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(param,alpha=self.beta)
+                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                    param, alpha=self.beta
+                )
 
                 param.add_(G_i, alpha=-lr)
 

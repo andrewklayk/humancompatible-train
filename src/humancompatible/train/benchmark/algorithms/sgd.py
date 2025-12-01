@@ -44,14 +44,14 @@ class SGD(Algorithm):
             self.dataset, batch_size, shuffle=True, generator=gen
         )
         loss_iter = iter(loss_loader)
-        
+
         epoch = 0
         iteration = 0
         total_iters = 0
         optimizer = torch.optim.SGD(self.net.parameters(), lr=lr)
         if penalty_mults is not None and not isinstance(penalty_mults, Iterable):
-            penalty_mults = [penalty_mults]*len(self.constraints)
-            
+            penalty_mults = [penalty_mults] * len(self.constraints)
+
         run_start = timeit.default_timer()
         while True:
             elapsed = timeit.default_timer() - run_start
@@ -87,7 +87,7 @@ class SGD(Algorithm):
             if np.any(penalty_mults != 0):
                 for j, c in enumerate(self.constraints):
                     sample = c.sample_loader()
-                    penalty += penalty_mults[j]*c.eval(self.net, sample)
+                    penalty += penalty_mults[j] * c.eval(self.net, sample)
             pen_loss = loss + penalty
             pen_loss.backward()
             optimizer.step()
@@ -97,7 +97,7 @@ class SGD(Algorithm):
             #         self.state_history["values"]["f"][total_iters] = (
             #             loss.detach().cpu().numpy()
             #         )
-                # self.state_history['values']['fg'][total_iters] = torch.norm(f_grad_estimate).detach().cpu().numpy()
+            # self.state_history['values']['fg'][total_iters] = torch.norm(f_grad_estimate).detach().cpu().numpy()
 
             if verbose:
                 with np.printoptions(
@@ -107,7 +107,7 @@ class SGD(Algorithm):
                         f"""{epoch:2}|{iteration:5} | {lr} | {loss.detach().cpu().numpy():1.5f}""",
                         end="\r",
                     )
-                    
+
             iteration += 1
             total_iters += 1
 

@@ -13,20 +13,20 @@ import torch
 
 
 def run_summary_full_set(
-          model: torch.nn.Module,
-          dataset: torch.utils.data.Dataset,
-          constraints: Iterable[FairnessConstraint],
-          loss_fn: Callable,
-          path: str = None,
-          state_dicts: Iterable[dict] = None,
-          ) -> pd.DataFrame:
-    """Takes a path, reads all .pt files, evaluates models and constraints on the dataset provided; """
-    
+    model: torch.nn.Module,
+    dataset: torch.utils.data.Dataset,
+    constraints: Iterable[FairnessConstraint],
+    loss_fn: Callable,
+    path: str = None,
+    state_dicts: Iterable[dict] = None,
+) -> pd.DataFrame:
+    """Takes a path, reads all .pt files, evaluates models and constraints on the dataset provided;"""
+
     c_val_vec, c_grads_mat = [], []
-    
+
     if state_dicts is not None:
         raise NotImplementedError
-    
+
     full_eval = []
     dict_paths = []
     for file in os.listdir(path):
@@ -34,7 +34,7 @@ def run_summary_full_set(
             dict_paths.append(file)
 
     for state_dict in dict_paths:
-        # if state_dicts is Non    
+        # if state_dicts is Non
         state_dict = torch.load(os.path.join(path, file))
         model.load_state_dict(state_dict)
         val_dict = {}
@@ -50,7 +50,7 @@ def run_summary_full_set(
             # c_grads_mat.append(cg)
         c_val_vec = torch.tensor(c_val_vec)
         # c_grads_mat = torch.stack(c_grads_mat)
-        
+
         # TODO: why list here
         val_dict["c"] = [c_val_vec.detach().cpu().numpy()]
         # full_eval.loc[*index_to_save]["cg"] = [c_grads_mat.detach().cpu().numpy()]
@@ -65,32 +65,33 @@ def run_summary_full_set(
         # net.zero_grad()
 
         val_dict["f"] = loss.detach().cpu().numpy()
-        
+
         full_eval.append(val_dict)
-    
+
     return pd.DataFrame(full_eval)
 
 
-
 def create_constraint_from_cfg(
-          cfg: DictConfig,
-          dataset: torch.utils.data.Dataset,
-          group_indices: Iterable[Iterable[int]],
-          loss_fn: Callable,
-          device: str,
-          seed: int = None
-          ) -> FairnessConstraint:
-    
-    constraint_fn_module = importlib.import_module("humancompatible.train.benchmark.constraints")
+    cfg: DictConfig,
+    dataset: torch.utils.data.Dataset,
+    group_indices: Iterable[Iterable[int]],
+    loss_fn: Callable,
+    device: str,
+    seed: int = None,
+) -> FairnessConstraint:
+    constraint_fn_module = importlib.import_module(
+        "humancompatible.train.benchmark.constraints"
+    )
     constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
-    if cfg.constraint.type == 'one_vs_mean':
+    if cfg.constraint.type == "one_vs_mean":
         c = [
             FairnessConstraint(
                 dataset,
                 [_group_ind, np.concat(group_indices)],
-                fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
+                fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs)
+                - cfg.constraint.bound,
                 batch_size=cfg.constraint.c_batch_size,
-                seed=seed
+                seed=seed,
             )
             for _group_ind in group_indices
         ]
@@ -100,19 +101,21 @@ def create_constraint_from_cfg(
                     FairnessConstraint(
                         dataset,
                         [group_ind, np.concat(group_indices)],
-                        fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
+                        fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs)
+                        - cfg.constraint.bound,
                         batch_size=cfg.constraint.c_batch_size,
-                        seed=seed
+                        seed=seed,
                     )
                     for group_ind in group_indices
                 ]
-        )
-    elif cfg.constraint.type == 'one_vs_each':
+            )
+    elif cfg.constraint.type == "one_vs_each":
         c = [
             FairnessConstraint(
                 dataset,
                 _group_ind,
-                fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
+                fn=lambda net, inputs: constraint_fn(loss_fn, net, inputs)
+                - cfg.constraint.bound,
                 batch_size=cfg.constraint.c_batch_size,
                 device=device,
                 seed=seed,
@@ -125,7 +128,8 @@ def create_constraint_from_cfg(
                     FairnessConstraint(
                         dataset,
                         _group_ind,
-                        fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs) - cfg.constraint.bound,
+                        fn=lambda net, inputs: -constraint_fn(loss_fn, net, inputs)
+                        - cfg.constraint.bound,
                         batch_size=cfg.constraint.c_batch_size,
                         device=device,
                         seed=seed,

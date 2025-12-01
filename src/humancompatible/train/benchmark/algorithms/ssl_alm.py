@@ -6,7 +6,10 @@ import numpy as np
 import torch
 
 from .Algorithm import Algorithm
-from humancompatible.train.benchmark.algorithms.utils import _set_weights, net_params_to_tensor
+from humancompatible.train.benchmark.algorithms.utils import (
+    _set_weights,
+    net_params_to_tensor,
+)
 
 
 class SSLALM(Algorithm):
@@ -27,12 +30,12 @@ class SSLALM(Algorithm):
         self,
         tau=0.01,
         eta=0.05,
-        lambda_bound=25.,
-        rho=1.,
-        mu=2.,
+        lambda_bound=25.0,
+        rho=1.0,
+        mu=2.0,
         beta=0.5,
-        tau_mult=1.,
-        eta_mult=1.,
+        tau_mult=1.0,
+        eta_mult=1.0,
         batch_size=16,
         epochs=None,
         start_lambda=None,
@@ -42,7 +45,7 @@ class SSLALM(Algorithm):
         device="cpu",
         verbose=True,
         use_unbiased_penalty_grad=True,
-        save_state_interval=1
+        save_state_interval=1,
     ):
         self.state_history = {}
         self.state_history["params"] = {"w": {}, "dual_ms": {}, "z": {}, "slack": {}}
@@ -74,7 +77,7 @@ class SSLALM(Algorithm):
         if seed is not None:
             gen = gen.manual_seed(seed)
         loss_loader = torch.utils.data.DataLoader(
-            self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
+            self.dataset, batch_size, shuffle=(gen.device == "cpu"), generator=gen
         )
         loss_iter = iter(loss_loader)
 
@@ -85,7 +88,7 @@ class SSLALM(Algorithm):
         ### initial f and f_grad estimate ###
         f_grad_estimate = 0
         pre_loader = torch.utils.data.DataLoader(
-            self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
+            self.dataset, batch_size, shuffle=(gen.device == "cpu"), generator=gen
         )
         pre_iter = iter(pre_loader)
         (f_inputs, f_labels) = next(pre_iter)
@@ -101,7 +104,9 @@ class SSLALM(Algorithm):
         ### c_val estimate ###
         if use_unbiased_penalty_grad:
             c_sample = [ci.sample_loader() for ci in c]
-            c_val_estimate_2 = torch.concat(self._c_value_estimate(slack_vars, c, c_sample))
+            c_val_estimate_2 = torch.concat(
+                self._c_value_estimate(slack_vars, c, c_sample)
+            )
         else:
             c_val_estimate_2 = c_val_estimate
 
@@ -138,7 +143,10 @@ class SSLALM(Algorithm):
                 iteration = 0
                 gen = gen
                 loss_loader = torch.utils.data.DataLoader(
-                    self.dataset, batch_size, shuffle=(gen.device == 'cpu'), generator=gen
+                    self.dataset,
+                    batch_size,
+                    shuffle=(gen.device == "cpu"),
+                    generator=gen,
                 )
                 loss_iter = iter(loss_loader)
                 (f_inputs, f_labels) = next(loss_iter)
@@ -158,7 +166,7 @@ class SSLALM(Algorithm):
                 _lambda = _lambda + eta * c_val_estimate
             # dual safeguard (lines 4,5)
             for i, l in enumerate(_lambda):
-                if l >= lambda_bound: #or l < 0:
+                if l >= lambda_bound:  # or l < 0:
                     _lambda[i] = 0
             # if torch.norm(_lambda) >= lambda_bound:
             #     _lambda = torch.zeros_like(_lambda, requires_grad=True)
@@ -225,7 +233,7 @@ class SSLALM(Algorithm):
                     )
                     G_par = torch.narrow(G, 0, 0, G.shape[-1] - m)
                     z_par = torch.narrow(z, 0, 0, z.shape[-1] - m)
-                    
+
                     self.state_history["values"]["G"][total_iters] = (
                         torch.norm(G_par).detach().cpu().numpy()
                     )
@@ -261,13 +269,11 @@ class SSLALM(Algorithm):
                         # f"{slack_vars.detach().cpu().numpy()} | {100*percent_iters_c_satisfied:2.1f}%",
                         end="\r",
                     )
-                    
+
             iteration += 1
             total_iters += 1
 
         return self.state_history
-
-
 
     def _c_value_estimate(self, slack_vars, c, c_sample):
         c_val = [

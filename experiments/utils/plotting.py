@@ -7,7 +7,16 @@ def getRoundedThresholdv1(a, round_step):
     return np.round(a / round_step) * round_step
 
 
-def plot_qmeans(data, plot_col, group_by_col, q1=0.25, q2=0.75, ax=None,  c="darkorange", **kwargs,):
+def plot_qmeans(
+    data,
+    plot_col,
+    group_by_col,
+    q1=0.25,
+    q2=0.75,
+    ax=None,
+    c="darkorange",
+    **kwargs,
+):
     q3 = 0.5
     means = data.groupby(group_by_col)[plot_col].mean()  # .reset_index(drop=True)
     q_lower = data.groupby(by=group_by_col)[plot_col].quantile(
@@ -40,7 +49,16 @@ def plot_qmeans(data, plot_col, group_by_col, q1=0.25, q2=0.75, ax=None,  c="dar
 
 
 def plot_sep(
-    data, plot_col, x_col, idx_col, q1=0.25, q2=0.75, idx_is_index=False, ax=None, col=None, **kwargs
+    data,
+    plot_col,
+    x_col,
+    idx_col,
+    q1=0.25,
+    q2=0.75,
+    idx_is_index=False,
+    ax=None,
+    col=None,
+    **kwargs,
 ):
     # q3 = 0.5
     # means = data.groupby(group_by_col)[plot_col].mean()#.reset_index(drop=True)
@@ -61,10 +79,12 @@ def plot_sep(
         if idx_is_index
         else [data[data[idx_col] == i] for i in data[idx_col].unique()]
     )
-    
+
     # colors = kwargs.pop('colors')
     for to_plot in plot_lines:
-        ax.plot(to_plot[x_col].to_numpy(), to_plot[plot_col].to_numpy(), color=col, **kwargs)
+        ax.plot(
+            to_plot[x_col].to_numpy(), to_plot[plot_col].to_numpy(), color=col, **kwargs
+        )
 
     xt = ax.get_xticks()
     xt_ind = xt[1:-1] - 1
@@ -199,11 +219,12 @@ def plot_trajectories(
     f.set_figwidth(w)
     return f
 
+
 def groupby_time(
     data,
     round_step,
     fill="bfill",
-    fill_limit=None,  
+    fill_limit=None,
 ):
     data["time_r"] = getRoundedThresholdv1(data["time"], round_step)
 
@@ -226,9 +247,9 @@ def groupby_time(
 
     trials = pd.concat(trials, ignore_index=True)
     trials_gr = trials.groupby("time_r")
-    
+
     return trials_gr
-    
+
 
 def plot_time(
     data,
@@ -367,7 +388,9 @@ def spider_line(data, yticks, labels=["Ind", "Sp", "Ina", "Suf"], title=None):
 
     # Split the circle into even parts and save the angles
     # so we know where to put each axis.
-    angles = (np.linspace(0, 2 * np.pi, num_vars, endpoint=False) + (0/5 * np.pi)).tolist()
+    angles = (
+        np.linspace(0, 2 * np.pi, num_vars, endpoint=False) + (0 / 5 * np.pi)
+    ).tolist()
 
     # The plot is a circle, so we need to "complete the loop"
     # and append the start value to the end.

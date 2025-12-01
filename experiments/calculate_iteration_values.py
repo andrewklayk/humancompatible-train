@@ -11,13 +11,17 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch import nn, tensor
 from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
-from humancompatible.train.fairness.constraints.constraint_fns import fairret_stat_equality
+from humancompatible.train.fairness.constraints.constraint_fns import (
+    fairret_stat_equality,
+)
 from utils.load_folktables import prepare_folktables_multattr
 from utils.network import SimpleNet
-from humancompatible.train.algorithms.utils import net_grads_to_tensor, net_params_to_tensor
+from humancompatible.train.algorithms.utils import (
+    net_grads_to_tensor,
+    net_params_to_tensor,
+)
 from itertools import combinations
 from humancompatible.train.fairness.constraints import FairnessConstraint
-
 
 
 # @hydra.main(version_base=None, config_path="conf", config_name="experiment")
@@ -64,7 +68,7 @@ def run(cfg: DictConfig) -> None:
         group_ind_test,
         sep_group_ind_test,
         group_onehot_test,
-        _
+        _,
     ) = prepare_folktables_multattr(
         FT_TASK,
         state=FT_STATE.upper(),
@@ -76,7 +80,7 @@ def run(cfg: DictConfig) -> None:
         binarize=cfg.data.binarize,
         stratify=False,
     )
-    print('Groups:')
+    print("Groups:")
     print(len(group_ind_train))
     X_train_tensor = tensor(X_train, dtype=DTYPE)
     y_train_tensor = tensor(y_train, dtype=DTYPE)
@@ -84,8 +88,6 @@ def run(cfg: DictConfig) -> None:
 
     print(f"Train data loaded: {(FT_TASK, FT_STATE)}")
     print(f"Data shape: {X_train_tensor.shape}")
-
-    PATH = 
 
     ## prepare to save results ##
 
@@ -115,7 +117,9 @@ def run(cfg: DictConfig) -> None:
     ####################################################
 
     loss_fn = nn.BCEWithLogitsLoss()
-    constraint_fn_module = importlib.import_module("humancompatible.train.fairness.constraints")
+    constraint_fn_module = importlib.import_module(
+        "humancompatible.train.fairness.constraints"
+    )
     constraint_fn = getattr(constraint_fn_module, cfg.constraint.import_name)
 
     print("----")
@@ -176,15 +180,18 @@ def run(cfg: DictConfig) -> None:
                 }
 
             if save_train:
-                if cfg.constraint.import_name == 'abs_max_dev_from_overall_tpr':
-                    data_c = [[
-                        (X_train_tensor[g_idx], y_train_tensor[g_idx]) for g_idx in group_ind_train
-                    ]]
-                elif cfg.constraint.import_name in ['abs_diff_pr', 'abs_diff_tpr']:
+                if cfg.constraint.import_name == "abs_max_dev_from_overall_tpr":
+                    data_c = [
+                        [
+                            (X_train_tensor[g_idx], y_train_tensor[g_idx])
+                            for g_idx in group_ind_train
+                        ]
+                    ]
+                elif cfg.constraint.import_name in ["abs_diff_pr", "abs_diff_tpr"]:
                     data_c = [
                         (
                             (X_train_tensor[g_idx], y_train_tensor[g_idx]),
-                            (X_train_tensor, y_train_tensor)
+                            (X_train_tensor, y_train_tensor),
                         )
                         for g_idx in group_ind_train
                     ]
@@ -210,17 +217,19 @@ def run(cfg: DictConfig) -> None:
                     **params,
                 )
 
-
             if save_test:
-                if cfg.constraint.import_name == 'abs_max_dev_from_overall_tpr':
-                    data_c = [[
-                        (X_test_tensor[g_idx], y_test_tensor[g_idx]) for g_idx in group_ind_test
-                    ]]
-                elif cfg.constraint.import_name in ['abs_diff_tpr', 'abs_diff_pr']:
+                if cfg.constraint.import_name == "abs_max_dev_from_overall_tpr":
+                    data_c = [
+                        [
+                            (X_test_tensor[g_idx], y_test_tensor[g_idx])
+                            for g_idx in group_ind_test
+                        ]
+                    ]
+                elif cfg.constraint.import_name in ["abs_diff_tpr", "abs_diff_pr"]:
                     data_c = [
                         (
                             (X_test_tensor[g_idx], y_test_tensor[g_idx]),
-                            (X_test_tensor, y_test_tensor)
+                            (X_test_tensor, y_test_tensor),
                         )
                         for g_idx in group_ind_test
                     ]
@@ -303,7 +312,6 @@ def calculate_iteration_values(
 
     full_eval.loc[*index_to_save]["f"] = loss.detach().cpu().numpy()
     full_eval.loc[*index_to_save]["fg"] = [fg.detach().cpu().numpy()]
-
 
 
 if __name__ == "__main__":

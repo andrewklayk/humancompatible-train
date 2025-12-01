@@ -29,8 +29,8 @@ def fair_stats(p_1, y_1, p_2, y_2):
 
     predictions = (p_1 >= 0.5).astype(float).flatten()
     tpr = (predictions @ y_1) / sum(y_1)
-    tnr = ((-1*predictions + 1) @ (-1*y_1 + 1)) / sum(-1*y_1+1)
-    fpr = 1-tnr
+    tnr = ((-1 * predictions + 1) @ (-1 * y_1 + 1)) / sum(-1 * y_1 + 1)
+    fpr = 1 - tnr
     fnr = 1 - tpr
 
     ind = abs(pr0 - pr1)
@@ -57,22 +57,20 @@ def make_groupwise_stats_table(X, y, loaded_models, full_preds=None):
         predictions = predictions.squeeze()
         loss = criterion(predictions.squeeze(), y).cpu().numpy()
         predictions = torch.nn.functional.sigmoid(predictions)
-        fpr, tpr, thresholds = roc_curve(
-            y.cpu().numpy(), predictions.cpu().numpy()
-        )
+        fpr, tpr, thresholds = roc_curve(y.cpu().numpy(), predictions.cpu().numpy())
         auc_score = auc(fpr, tpr)
-        acc = accuracy_score(y_pred = predictions > 0.5, y_true = y)
+        acc = accuracy_score(y_pred=predictions > 0.5, y_true=y)
         tpr_fairret = TruePositiveRate()(predictions.unsqueeze(1), None, y.unsqueeze(1))
         pr_fairret = PositiveRate()(predictions.unsqueeze(1), None)
         predictions = (predictions >= 0.5).to(float)
         tpr = (predictions @ y) / sum(y)
-        tnr = ((-1*predictions + 1) @ (-1*y + 1)) / sum(-1*y+1)
-        fpr = 1-tnr
+        tnr = ((-1 * predictions + 1) @ (-1 * y + 1)) / sum(-1 * y + 1)
+        fpr = 1 - tnr
         fnr = 1 - tpr
 
-        ppv = tpr / (tpr+fpr)
+        ppv = tpr / (tpr + fpr)
         fomr = fnr / (tnr + fnr)
-        pr = sum(predictions)/len(predictions)
+        pr = sum(predictions) / len(predictions)
 
         results_list.append(
             {
@@ -87,12 +85,12 @@ def make_groupwise_stats_table(X, y, loaded_models, full_preds=None):
                 "fomr": fomr,
                 "pr": pr,
                 "pr_fairret": pr_fairret,
-                "loss": loss
+                "loss": loss,
             }
         )
     return pd.DataFrame(results_list)
-        
-        # make table of "deviation from overall rate"
+
+    # make table of "deviation from overall rate"
 
 
 @torch.inference_mode()
@@ -129,7 +127,7 @@ def make_pairwise_constraint_stats_table(X_0, y_0, X_1, y_1, loaded_models):
         auc_1 = auc(fpr_1, tpr_1)
         auc_hm = (auc_0 * auc_1) / (auc_0 + auc_1)
         auc_m = (auc_0 + auc_1) / 2
-        
+
         # Calculate TPR-FPR difference for sensitive attribute 0
         # tpr_minus_fpr_0 = tpr_0 - fpr_0
         # optimal_threshold_index_0 = np.argmax(tpr_minus_fpr_0)
