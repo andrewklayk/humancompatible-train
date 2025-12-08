@@ -7,7 +7,16 @@ def getRoundedThresholdv1(a, round_step):
     return np.round(a / round_step) * round_step
 
 
-def plot_qmeans(data, plot_col, group_by_col, q1=0.25, q2=0.75, ax=None, **kwargs):
+def plot_qmeans(
+    data,
+    plot_col,
+    group_by_col,
+    q1=0.25,
+    q2=0.75,
+    ax=None,
+    c="darkorange",
+    **kwargs,
+):
     q3 = 0.5
     means = data.groupby(group_by_col)[plot_col].mean()  # .reset_index(drop=True)
     q_lower = data.groupby(by=group_by_col)[plot_col].quantile(
@@ -25,10 +34,10 @@ def plot_qmeans(data, plot_col, group_by_col, q1=0.25, q2=0.75, ax=None, **kwarg
         f = plt.figure()
         ax = f.add_subplot(1, 2, 1)
 
-    ax.fill_between(x=means.index, y1=q_lower, y2=q_higher, alpha=0.4)
-    ax.plot(q_lower, label=f"Q{int(q1 * 100)}", c="black", lw=0.5)
-    ax.plot(q_higher, label=f"Q{int(q2 * 100)}", c="black", lw=0.5)
-    ax.plot(q_mid, label="Median", c="darkorange", lw=0.5)
+    ax.fill_between(x=means.index, y1=q_lower, y2=q_higher, alpha=0.2)
+    ax.plot(q_lower, label=f"Q{int(q1 * 100)}", c="black", lw=0.5, alpha=0.1)
+    ax.plot(q_higher, label=f"Q{int(q2 * 100)}", c="black", lw=0.5, alpha=0.1)
+    # ax.plot(q_mid, label="Median", c=c, lw=0.3)
     ax.plot(means, label="Mean")
     xt = ax.get_xticks()
     xt_ind = xt[1:-1] - 1
@@ -40,7 +49,16 @@ def plot_qmeans(data, plot_col, group_by_col, q1=0.25, q2=0.75, ax=None, **kwarg
 
 
 def plot_sep(
-    data, plot_col, x_col, idx_col, q1=0.25, q2=0.75, idx_is_index=False, ax=None, **kwargs
+    data,
+    plot_col,
+    x_col,
+    idx_col,
+    q1=0.25,
+    q2=0.75,
+    idx_is_index=False,
+    ax=None,
+    col=None,
+    **kwargs,
 ):
     # q3 = 0.5
     # means = data.groupby(group_by_col)[plot_col].mean()#.reset_index(drop=True)
@@ -61,10 +79,12 @@ def plot_sep(
         if idx_is_index
         else [data[data[idx_col] == i] for i in data[idx_col].unique()]
     )
-    
+
     # colors = kwargs.pop('colors')
     for to_plot in plot_lines:
-        ax.plot(to_plot[x_col].to_numpy(), to_plot[plot_col].to_numpy(), **kwargs)
+        ax.plot(
+            to_plot[x_col].to_numpy(), to_plot[plot_col].to_numpy(), color=col, **kwargs
+        )
 
     xt = ax.get_xticks()
     xt_ind = xt[1:-1] - 1
@@ -199,11 +219,12 @@ def plot_trajectories(
     f.set_figwidth(w)
     return f
 
+
 def groupby_time(
     data,
     round_step,
     fill="bfill",
-    fill_limit=None,  
+    fill_limit=None,
 ):
     data["time_r"] = getRoundedThresholdv1(data["time"], round_step)
 
@@ -226,9 +247,9 @@ def groupby_time(
 
     trials = pd.concat(trials, ignore_index=True)
     trials_gr = trials.groupby("time_r")
-    
+
     return trials_gr
-    
+
 
 def plot_time(
     data,
@@ -358,16 +379,18 @@ def plot_time(
     return (f, f_) if sep_figs else f
 
 
-def spider_line(data, yticks, title=None):
+def spider_line(data, yticks, labels=["Ind", "Sp", "Ina", "Suf"], title=None):
     plt.rcParams.update({"font.size": 16})
 
-    labels = ["Ind", "Sep", "Ina", "Suf"]
+    # labels = ["Ind", "Sp", "Ina", "Suf", "Acc_diff"]
     # Number of variables we're plotting.
     num_vars = len(labels)
 
     # Split the circle into even parts and save the angles
     # so we know where to put each axis.
-    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    angles = (
+        np.linspace(0, 2 * np.pi, num_vars, endpoint=False) + (0 / 5 * np.pi)
+    ).tolist()
 
     # The plot is a circle, so we need to "complete the loop"
     # and append the start value to the end.
@@ -377,7 +400,7 @@ def spider_line(data, yticks, title=None):
     fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
 
     for alg in data.index:
-        values = data.loc[alg, ["Ind", "Sp", "Ina", "Sf", "Ind"]].tolist()
+        values = data.loc[alg, labels].tolist()
         ax.plot(angles, values, lw=2, label=alg)
         # ax.plot(angles, values, lw=2, label=alg)
         ax.set_yticks(yticks)

@@ -1,5 +1,0 @@
-import_name: torch.loss_equality
-
-c_batch_size: 128
-bound: 0.01
-add_negative: False

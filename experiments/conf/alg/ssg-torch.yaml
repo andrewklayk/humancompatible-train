@@ -10,5 +10,5 @@ params:
   f_stepsize_rule: const
   f_stepsize: 0.05
   c_stepsize_rule: dimin
-  c_stepsize: 0.5
+  c_stepsize: 0.1
   save_state_interval: 500

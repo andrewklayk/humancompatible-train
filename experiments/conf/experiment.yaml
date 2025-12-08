@@ -2,8 +2,8 @@ defaults:
   - _self_
   # REMOVE
   - alg: sslalm
-  - constraint: eq_loss
-  - data: folktables
+  - constraint: diff_loss
+  - data: folktables_MAR
 
 alg: ???
 constraint: ???

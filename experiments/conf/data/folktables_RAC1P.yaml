@@ -1,0 +1,7 @@
+task: income
+state: OK
+download: True
+path: ./utils/raw_data/
+sens_attr: ['RAC1P']
+binarize: [1]
+stratify: True
