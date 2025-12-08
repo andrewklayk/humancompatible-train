@@ -259,7 +259,7 @@ class SSLALM_Adam(Optimizer):
             )
 
             for i, param in enumerate(params):
-                G_i = torch.zeros_like(param)
+                G_i = torch.zeros_like(param, memory_format=torch.preserve_format)
                 G_i.add_(grads[i]).add_(l_term_grads[i]).add_(
                     aug_term_grads[i], alpha=self.rho
                 ).add_(param - smoothing[i], alpha=self.mu)
