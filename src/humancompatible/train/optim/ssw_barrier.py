@@ -31,6 +31,7 @@ class SSG_Barrier(Optimizer):
         beta: float = 0.5,
         beta1: float = 0.9,
         beta2: float = 0.999,
+        eps = 1e-8
         
     ):
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
@@ -80,9 +81,10 @@ class SSG_Barrier(Optimizer):
         # self.lr_rule = lr_rule
         # self.dual_lr_rule = dual_lr_rule
         self.c_vals: list[Union[float, Tensor]] = []
-        self.beta = beta
+        self.beta = beta    
         self.beta1 = beta1
         self.beta2 = beta2
+        self.eps = 1e-8
         # self.ctols = ctols
         # essentially, move everything here to self.state[param_group]
         # self.state[param_group]['smoothing_avg'] <= z for that param_group;
@@ -182,14 +184,47 @@ class SSG_Barrier(Optimizer):
             _ = self._init_group(group, params, grads, c_grads)
 
             for i, param in enumerate(params):
-                if update_con:
-                    param.add_(param.grad, alpha=-self.obj_lr_infeas) # also update the objective
-                    param.add_(c_grads[i][0], alpha=-self.dual_lr)
-                else:
-                    param.add_(param.grad, alpha=-lr)
+                # if update_con:
+                #     param.add_(param.grad, alpha=-self.obj_lr_infeas) # also update the objective
+                #     param.add_(c_grads[i][0], alpha=-self.dual_lr)
+                # else:
 
-                if c_grads[i] is not None:
-                    c_grads[i].clear()
+                # perform adam - init
+                if 'step' not in self.state[param]:
+                    self.state[param]['step'] = 0
+                    self.state[param]['exp_avg'] = torch.zeros_like(param)
+                    self.state[param]['exp_avg_sq'] = torch.zeros_like(param)
+
+                print(self.state[param]['exp_avg'])
+
+                state = self.state[param]
+
+                exp_avg = state['exp_avg']
+                exp_avg_sq = state['exp_avg_sq']
+
+                state['step'] += 1
+                t = state['step']
+
+                # ----- Adam first/second moment updates -----
+                exp_avg.lerp_(param.grad, 1 - self.beta1)
+                exp_avg_sq.mul_(self.beta2).addcmul_(param.grad, param.grad, value=1 - self.beta2)
+
+                # ----- Bias corrections -----
+                bias_correction1 = 1 - self.beta1 ** t
+                bias_correction2 = 1 - self.beta2 ** t
+
+                # correct the moment bias
+                corrected_moment1 = exp_avg / bias_correction1
+                corrected_moment2 = exp_avg_sq.sqrt() / bias_correction2**0.5
+
+                # ----- Parameter update -----
+                # param.addcdiv_(corrected_moment1, (corrected_moment2).add_(self.eps), value=-lr)
+                param.add_(corrected_moment1, alpha=-lr)
+                
+
+        # clear the grad
+        for p in group["params"]:
+            self.state[p]["c_grad"].clear()
 
         # iterate 
         self.iter += 1
