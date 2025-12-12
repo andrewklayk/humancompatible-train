@@ -9,6 +9,130 @@ from torch.nn import Sequential
 from fairret.statistic import PositiveRate
 from fairret.loss import NormLoss
 from humancompatible.train.fairness.utils import BalancedBatchSampler
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_losses_and_constraints_single_stochastic(
+    losses_list,
+    losses_std_list,
+    constraints_list,
+    constraints_std_list,
+    constraint_thresholds,
+    titles=None,
+    eval_points=2,
+    std_multiplier=2,
+    log_constraints=False,
+):
+    # --- Color palette: Tableau 10 ---
+    colors = [
+        "#4E79A7",
+        "#F28E2B",
+        "#E15759",
+        "#76B7B2",
+        "#59A14F",
+        "#EDC948",
+        "#B07AA1",
+        "#FF9DA7",
+        "#9C755F",
+        "#BAB0AB",
+    ]
+
+    # --- Marker styles (reused from inspired function) ---
+    marker_styles = ["o", "s", "D", "^", "v", "<", ">", "P", "X", "*"]
+    marker_styles = (marker_styles * ((len(losses_list) // len(marker_styles)) + 1))[
+        : len(losses_list)
+    ]
+
+    num_algos = len(losses_list)
+    if titles is None:
+        titles = [f"Algorithm {i + 1}" for i in range(num_algos)]
+    constraint_thresholds = np.atleast_1d(constraint_thresholds)
+
+    fig, axes = plt.subplots(2, 1, figsize=(9, 11))
+    ax_loss, ax_constr = axes
+
+    # --- LOSS PLOT ---
+    for j, (loss, loss_std) in enumerate(zip(losses_list, losses_std_list)):
+        x = np.arange(len(loss))
+        color = colors[j % len(colors)]
+        upper = loss + std_multiplier * loss_std
+        lower = loss - std_multiplier * loss_std
+
+        # Mean curve
+        ax_loss.plot(x, loss, lw=2.2, color=color, label=titles[j])
+        # Std shading
+        ax_loss.fill_between(x, lower, upper, color=color, alpha=0.15)
+
+        # Eval points
+        if eval_points is not None:
+            if isinstance(eval_points, int):
+                idx = np.arange(0, len(loss), eval_points)
+            else:
+                idx = np.array(eval_points)
+                idx = idx[idx < len(loss)]
+            ax_loss.plot(
+                x[idx],
+                loss[idx],
+                marker_styles[j],
+                color=color,
+                markersize=6,
+                alpha=0.8,
+            )
+
+    ax_loss.set_ylabel("Mean Loss")
+    ax_loss.set_title("Loss Comparison")
+    ax_loss.grid(True, linestyle="--", alpha=0.35)
+    ax_loss.legend(fontsize=9)
+
+    # --- CONSTRAINT PLOT ---
+    for j, (constraints, constraints_std) in enumerate(
+        zip(constraints_list, constraints_std_list)
+    ):
+        color = colors[j % len(colors)]
+        constraints = np.array(constraints)
+        constraints_std = np.array(constraints_std)
+        x = np.arange(constraints.shape[1])
+
+        c_min = np.min(constraints - std_multiplier * constraints_std, axis=0)
+        c_max = np.max(constraints + std_multiplier * constraints_std, axis=0)
+
+        # Fill min-max range
+        ax_constr.fill_between(
+            x, c_min, c_max, color=color, alpha=0.15, label=titles[j]
+        )
+
+        # Plot mean curves with markers
+        for c_mean in constraints:
+            ax_constr.plot(x, c_mean, lw=1.8, color=color, alpha=0.7)
+            if eval_points is not None:
+                if isinstance(eval_points, int):
+                    idx = np.arange(0, len(c_mean), eval_points)
+                else:
+                    idx = np.array(eval_points)
+                    idx = idx[idx < len(c_mean)]
+                ax_constr.plot(
+                    x[idx],
+                    c_mean[idx],
+                    marker_styles[j],
+                    color=color,
+                    markersize=5,
+                    alpha=0.8,
+                )
+
+    # Threshold lines
+    for th in constraint_thresholds:
+        y = np.log(th) if log_constraints else th
+        ax_constr.axhline(y, color="red", linestyle="--", lw=1.4, label="Threshold")
+
+    ax_constr.set_ylabel("Log Constraint" if log_constraints else "Constraint")
+    ax_constr.set_xlabel("Epoch")
+    ax_constr.set_title("Constraint Comparison")
+    ax_constr.grid(True, linestyle="--", alpha=0.35)
+    ax_constr.legend(fontsize=9)
+
+    plt.tight_layout()
+    # plt.show()
+    plt.savefig("./examples/data/figs/sswadam.png", dpi=100)
 
 def test_ssw_barrier_deterministic():
 
@@ -146,10 +270,10 @@ def test_ssw_barrier_stochastic():
 
     # define the torch seed here
     seed_n = 1
-    n_epochs = 10
+    n_epochs = 50
 
     # log path file
-    log_path = "./data/logs/log_benchmark.npz"
+    log_path_save = "./examples/data/logs/log_benchmark_sswadam.npz"
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -184,7 +308,6 @@ def test_ssw_barrier_stochastic():
     features_train = torch.tensor(X_train, dtype=torch.float32)
     labels_train = torch.tensor(y_train, dtype=torch.float32)
     sens_train = torch.tensor(groups_train)
-    dataset_train = torch.utils.data.TensorDataset(features_train, labels_train)
 
     # set the seed for fair comparisons
     torch.manual_seed(seed_n)
@@ -216,13 +339,19 @@ def test_ssw_barrier_stochastic():
     m = len(list(model.parameters()))
 
     # create the SSLALM optimizer
-    optimizer = SSG_Barrier(params=model.parameters(), m=1, lr=0.1, dual_lr=0.01, obj_lr_infeas=0.001)
+    optimizer = SSG_Barrier(params=model.parameters(), m=1, lr=0.01, dual_lr=0.0001, obj_lr_infeas=0.001)
 
     # define the criterion
     criterion = torch.nn.BCEWithLogitsLoss()
     statistic = PositiveRate()
     fair_criterion = NormLoss(statistic=statistic)
     fair_crit_bound = 0.2
+
+    # alloc arrays for plotting
+    SSG_S_loss_log_plotting = []  # mean
+    SSG_S_c_log_plotting = []  # mean
+    SSG_S_loss_std_log_plotting = []  # std
+    SSG_S_c_std_log_plotting = []  # std
 
     # training loop
     for epoch in range(n_epochs):
@@ -237,8 +366,7 @@ def test_ssw_barrier_stochastic():
             out = model(batch_input)
             fair_loss = fair_criterion(out, batch_sens)
             fair_constraint = torch.max(fair_loss - fair_crit_bound, torch.zeros(1))
-            # fair_constraint.backward(retain_graph=True)
-
+        
             # compute the grad of the constraints
             optimizer.dual_step(0, fair_constraint)
             optimizer.zero_grad()
@@ -253,11 +381,50 @@ def test_ssw_barrier_stochastic():
             optimizer.step(fair_constraint)
             optimizer.zero_grad()
 
+        SSG_S_c_log_plotting.append(np.mean(c_log, axis=0))
+        SSG_S_loss_log_plotting.append(np.mean(loss_log))
+        SSG_S_c_std_log_plotting.append(np.std(c_log, axis=0))
+        SSG_S_loss_std_log_plotting.append(np.std(loss_log, axis=0))
+
         print(
             f"Epoch: {epoch}, "
             f"loss: {np.mean(loss_log)}, "
             f"constraints: {np.mean(c_log, axis=0)}, "
         )
+
+    log_path = "./examples/data/logs/log_benchmark_stochastic.npz"
+    # load the prior and append
+    losses = list(np.load(log_path)["losses"])
+    constraints = list(np.load(log_path)["constraints"])
+    losses_std = list(np.load(log_path)["losses_std"])
+    constraints_std = list(np.load(log_path)["constraints_std"])
+
+    # append
+    losses += [np.array(SSG_S_loss_log_plotting)]
+    constraints += [np.array(SSG_S_c_log_plotting).T]
+    losses_std += [np.array(SSG_S_loss_std_log_plotting)]
+    constraints_std += [np.array(SSG_S_c_std_log_plotting).T]
+
+    # save the computed data
+    np.savez(
+        log_path_save,
+        losses=losses,
+        constraints=constraints,
+        losses_std=losses_std,
+        constraints_std=constraints_std,
+    )
+    
+    thresholds = [fair_crit_bound]
+    plot_losses_and_constraints_single_stochastic(
+    losses[-2:],
+    losses_std[-2:],
+    constraints[-2:],
+    constraints_std[-2:],
+    thresholds,
+    titles=["SSG", "SSG_Adam"],
+    log_constraints=False,
+    std_multiplier=1,
+)
 
 if __name__ == "__main__":
 

@@ -92,7 +92,7 @@ class SSG_Barrier(Optimizer):
         # ...['G'] <= G w.r.t. that param_group // idk if necessary
         # ...['c_grad'][c_i] <= grad of ith constraint w.r.t. that group<w
 
-    def _init_group(self, group, params, grads, c_grads):
+    def _init_group(self, group, params, grads, c_grads, moments1, moments2):
         # SHOULDN'T calculate values, only set them from the state of the respective param_group
         # calculations only happen in step() (or rather in the func version of step)
         has_sparse_grad = False
@@ -105,9 +105,18 @@ class SSG_Barrier(Optimizer):
             # Lazy state initialization
             if len(state) == 0:
                 state["c_grad"] = []
+                state["step"] = 0
 
+                # init the moments
+                state['step'] = 0
+                state['exp_avg'] = torch.zeros_like(p)
+                state['exp_avg_sq'] = torch.zeros_like(p)
+
+            # append the avgs
             grads.append(p.grad)
             c_grads.append(state.get("c_grad"))
+            moments1.append(state.get("exp_avg"))
+            moments2.append(state.get("exp_avg_sq"))
 
         return has_sparse_grad
 
@@ -155,7 +164,9 @@ class SSG_Barrier(Optimizer):
             params: list[Tensor] = []
             grads: list[Tensor] = []
             c_grads: list[Tensor] = []
-            _ = self._init_group(group, params, grads, c_grads)
+            moments1: list[Tensor] = []
+            moments2: list[Tensor] = []
+            _ = self._init_group(group, params, grads, c_grads, moments1, moments2)
 
             for p in group["params"]:
                 if p.grad is not None:
@@ -176,38 +187,36 @@ class SSG_Barrier(Optimizer):
         # here assume c_val is a scalar
         update_con = c_val > 0
 
+        # iterate 
+        self.iter += 1
+
         for group in self.param_groups:
             params: list[Tensor] = []
             grads: list[Tensor] = []
             c_grads: list[Tensor] = []
             lr = group["lr"]
-            _ = self._init_group(group, params, grads, c_grads)
+            moments1: list[Tensor] = []
+            moments2: list[Tensor] = []
+            _ = self._init_group(group, params, grads, c_grads, moments1, moments2)
 
             for i, param in enumerate(params):
-                # if update_con:
-                #     param.add_(param.grad, alpha=-self.obj_lr_infeas) # also update the objective
-                #     param.add_(c_grads[i][0], alpha=-self.dual_lr)
-                # else:
 
-                # perform adam - init
-                if 'step' not in self.state[param]:
-                    self.state[param]['step'] = 0
-                    self.state[param]['exp_avg'] = torch.zeros_like(param)
-                    self.state[param]['exp_avg_sq'] = torch.zeros_like(param)
+                # choose whether to optimize constraints or the objective
+                if update_con:
+                    grad_cur = self.obj_lr_infeas * param.grad + c_grads[i][0] # optimize the constraint
+                    # param.add_(grad_cur, alpha=-self.dual_lr) # also update the objective
+                    lr = self.dual_lr
+                else:
+                    lr = self.lr
+                    grad_cur = param.grad # in feasible region - just objective
 
-                print(self.state[param]['exp_avg'])
-
-                state = self.state[param]
-
-                exp_avg = state['exp_avg']
-                exp_avg_sq = state['exp_avg_sq']
-
-                state['step'] += 1
-                t = state['step']
+                exp_avg = moments1[i]
+                exp_avg_sq = moments2[i]
+                t = self.iter
 
                 # ----- Adam first/second moment updates -----
-                exp_avg.lerp_(param.grad, 1 - self.beta1)
-                exp_avg_sq.mul_(self.beta2).addcmul_(param.grad, param.grad, value=1 - self.beta2)
+                exp_avg.mul_(self.beta1).add_(grad_cur, alpha=1 - self.beta1)
+                exp_avg_sq.mul_(self.beta2).addcmul_(grad_cur, grad_cur, value=1 - self.beta2)
 
                 # ----- Bias corrections -----
                 bias_correction1 = 1 - self.beta1 ** t
@@ -215,16 +224,13 @@ class SSG_Barrier(Optimizer):
 
                 # correct the moment bias
                 corrected_moment1 = exp_avg / bias_correction1
-                corrected_moment2 = exp_avg_sq.sqrt() / bias_correction2**0.5
+                corrected_moment2 = exp_avg_sq.sqrt() / (bias_correction2**0.5)
 
                 # ----- Parameter update -----
-                # param.addcdiv_(corrected_moment1, (corrected_moment2).add_(self.eps), value=-lr)
-                param.add_(corrected_moment1, alpha=-lr)
-                
+                param.addcdiv_(corrected_moment1, corrected_moment2 + self.eps, value=-lr)
+                    
 
         # clear the grad
         for p in group["params"]:
             self.state[p]["c_grad"].clear()
 
-        # iterate 
-        self.iter += 1
