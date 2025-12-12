@@ -25,7 +25,7 @@ def augmented_lagrangian(t):
         return t + 0.5*torch.square(t) 
 
     else: 
-        return -0.5
+        return t*0 + 0.5
 
 def quadratic_logarithmic_penalty(t):
 
