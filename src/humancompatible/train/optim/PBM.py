@@ -31,7 +31,8 @@ class PBM(Optimizer):
         beta1: float = 0.9,
         beta2: float = 0.999,
         dual_beta: float = 0.9, # smoothing of the dual variables
-        p=1.0, # p parameter
+        init_pi = 10.0,
+        penalty_update_m='ALM', # p parameter
         device="cpu",
         eps: float = 1e-8,
         amsgrad: bool = False,
@@ -91,7 +92,6 @@ class PBM(Optimizer):
 
         # set the optimizer parameters
         self.m = m
-        self.p = p
         self.dual_lr = dual_lr
         self.dual_bound = dual_bound
         self.rho = rho
@@ -99,15 +99,24 @@ class PBM(Optimizer):
         self.beta1 = beta1
         self.beta2 = beta2
         self.dual_beta = dual_beta
-        self.p = p
+        self.init_pi = init_pi
         self.mu = mu
         self.c_vals: list[Union[float, Tensor]] = []
         self._c_val_average = [None]
         self.eps = eps
+        self.iter = 0
         if init_dual_vars is not None:
             self._dual_vars = init_dual_vars
         else:
-            self._dual_vars = torch.zeros(m, requires_grad=False, device=device)
+            self._dual_vars = torch.ones(m, requires_grad=False, device=device) * 0.01
+            self.p = torch.ones(m, requires_grad=False, device=device)
+
+            # set the defined penalty update method
+            if penalty_update_m == 'ALM':
+                self.update_p_method = self.update_p_ALM
+
+            elif penalty_update_m == "CONST":
+                self.update_p_method = self.update_p_const
 
     def add_constraint(self):
         """
@@ -191,12 +200,32 @@ class PBM(Optimizer):
             group.setdefault("differentiable", False)
             group.setdefault("decoupled_weight_decay", False)
 
-    def update_p(self):
+    # --------------------------------------------------- p update functions -------------------------------------
+
+    def update_p_ALM(self, i, t):
         """
-        update the penalty coefficient - stay 1 for now.
+        update the penalty coefficient - equiv. to ALM
         """
 
-        self.p = 1.0    
+        self.p[i] = self.rho * self._dual_vars[i]
+
+
+    def update_p_paper(self, i, t):
+        """
+        update the penalty coefficient - equiv. to ALM
+        """
+
+        self.p[i] =  t * self.rho * (self.init_pi)**self.iter
+        pass
+
+    def update_p_const(self, i, t):
+        """
+        Constant p 
+        """
+
+        self.p[i] = 1.0
+
+    # -----------------------------------------------------------------------------------------------------------
 
 
     def dual_step(self, i: int, c_val: Tensor):
@@ -208,36 +237,47 @@ class PBM(Optimizer):
             c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
         """
 
-        # update dual multipliers
+        # check for incorrect input
         if c_val.numel() != 1:
             raise ValueError(
                 f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}"
             )
+        
+        # --------------------------------
 
         # sub variable for computing grad wrt to the input to the penalty/ barrier
-        t = torch.tensor(c_val.detach().item(), dtype=torch.float32, requires_grad=True, device=self._dual_vars.device)
+        t = torch.tensor(c_val.detach().item() , dtype=torch.float32, requires_grad=True, device=self._dual_vars.device)
+        t = t / self.p[i]
 
-        # compute the grad wrt. to the sub_var 
-        penalty_barrier_val = self.dual_lr * self.p * self.barrier(t / self.p)
-        dloss_dt = torch.autograd.grad(penalty_barrier_val, t, create_graph=True)[0]
+        # compute the grad wrt. to the sub_var
+        penalty_barrier_val = self.barrier(t)
+        dloss_dt = torch.autograd.grad(penalty_barrier_val, t, retain_graph=True)[0]        
+
+        # update dual variables # TODO: do a momentum change here - equiv. to dual lr
+        # self._dual_vars[i] = self._dual_vars[i] * dloss_dt
+        self._dual_vars[i] = self.dual_beta * self._dual_vars[i]  +  (1 - self.dual_beta) * self._dual_vars[i] * dloss_dt
+        
+        # update penalty multiplier
+        self.update_p_method(i, self._dual_vars[i])
+
+        # safe-guarding 
+        if self._dual_vars[i] <= 0.001:
+            self._dual_vars[i] = 0.001
+        if self._dual_vars[i] >= 10.0:
+            self._dual_vars[i] = 10.0
 
         # compute the barrier/penalty of the output of NN  
         phi_constr = self.p * self.barrier(c_val / self.p)
 
         # compute the gradient of the constraint
         phi_constr.backward(retain_graph=True)        
-        
+
         # update the dual variables
         # self._dual_vars[i].add_(penalty_barrier_val.detach(), alpha=self.dual_lr)
-        self._dual_vars[i].lerp_(dloss_dt.detach(), weight=1-self.dual_beta)
+        # self._dual_vars[i].lerp_(dloss_dt.detach(), weight=1-self.dual_beta)
         # TODO: implement the correect p - that way t will boil down to ALM + add smoothing term. 
         # although it should work better since there is no need for the slack variable
         # NOTE: ALM is needed - dual = dual + error will guide the constr error - without the additive, it can violate it 
-
-
-        for j in range(len(self._dual_vars)):
-            if self._dual_vars[j] >= self.dual_bound:
-                self._dual_vars[j].zero_()
 
         # save constraint grad
         for group in self.param_groups:
@@ -300,7 +340,7 @@ class PBM(Optimizer):
                 # grads is the sum of gradient of the obj + linear comb. of the constraints
                 G_i = torch.zeros_like(param)
                 G_i.add_(grads[i]).add_(l_term_grads[i])
-                # G_i.add_(grads[i])
+                # G_i.add_(grads[i])    
 
                 # zero the constr grads - for next iteration
                 l_term_grads[i].zero_()
@@ -341,4 +381,6 @@ class PBM(Optimizer):
                 # adam step
                 param.addcdiv_(exp_avg, denom, value=-step_size)
                 # param.add_(G_i, alpha=-lr)
+
+                self.iter += 1
 

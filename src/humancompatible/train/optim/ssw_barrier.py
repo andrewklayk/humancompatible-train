@@ -4,7 +4,7 @@ from torch import Tensor
 from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
 import humancompatible.train.optim.barrier as Barrier
 
-class SSG_Barrier(Optimizer):
+class SSG_Adam(Optimizer):
     def __init__(
         self,
         params,

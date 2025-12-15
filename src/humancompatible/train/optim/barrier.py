@@ -21,11 +21,11 @@ def augmented_lagrangian(t):
     This penalty/barrier is equal to the standard augmented lagrangian multiplier method
     """
 
-    if t >= -0.5:
+    if t >= -1:
         return t + 0.5*torch.square(t) 
 
     else: 
-        return t*0 + 0.5
+        return t*0 - 0.5
 
 def quadratic_logarithmic_penalty(t):
 
@@ -38,7 +38,7 @@ def quadratic_logarithmic_penalty(t):
 
 def quadratic_reciprocal_penalty(t):
 
-    if t >= -0.5:
+    if t >= -1/3:
         return t + 0.5*torch.square(t) 
     else: 
         return (32/27) * (1/(1-t)) - 7/6
