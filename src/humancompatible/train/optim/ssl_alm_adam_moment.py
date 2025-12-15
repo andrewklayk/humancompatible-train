@@ -1,16 +1,11 @@
 from typing import Iterable, Optional, Union
+
 import torch
 from torch import Tensor
 from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
-import humancompatible.train.optim.barrier as Barrier
 
-"""
-This module implements the PBM optimizer.
-https://www.researchgate.net/publication/2775406_PenaltyBarrier_Multiplier_Methods_for_Convex_Programming_Problems
 
-"""
-
-class PBM(Optimizer):
+class SSLALM_Adam_moment(Optimizer):
     def __init__(
         self,
         params,
@@ -30,8 +25,7 @@ class PBM(Optimizer):
         beta: float = 0.5,
         beta1: float = 0.9,
         beta2: float = 0.999,
-        dual_beta: float = 0.9, # smoothing of the dual variables
-        p=1.0, # p parameter
+        dual_beta1: float = 0.9,
         device="cpu",
         eps: float = 1e-8,
         amsgrad: bool = False,
@@ -40,9 +34,7 @@ class PBM(Optimizer):
         # whether some of the dual variables should not be updated
         fix_dual_vars: Optional[Tensor] = None,
         differentiable: bool = False,
-        barrier='quadratic_logarithmic', # barrier method used on the constraint
     ):
-        
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
             raise ValueError("Tensor lr must be 1-element")
         if isinstance(dual_lr, torch.Tensor) and lr.numel() != 1:
@@ -77,29 +69,14 @@ class PBM(Optimizer):
 
         super().__init__(params, defaults)
 
-        # set the barrier method
-        if barrier == 'exponential':
-            self.barrier = Barrier.exponential_penalty
-        elif barrier == 'modified_log':
-            self.barrier = Barrier.modified_log_barrier
-        elif barrier == 'augmented_lagrangian':
-            self.barrier = Barrier.augmented_lagrangian
-        elif barrier == 'quadratic_logarithmic':
-            self.barrier = Barrier.quadratic_logarithmic_penalty
-        elif barrier == 'quadratic_reciprocal':
-            self.barrier = Barrier.quadratic_reciprocal_penalty
-
-        # set the optimizer parameters
         self.m = m
-        self.p = p
+        self.dual_beta1 = dual_beta1
         self.dual_lr = dual_lr
         self.dual_bound = dual_bound
         self.rho = rho
         self.beta = beta
         self.beta1 = beta1
         self.beta2 = beta2
-        self.dual_beta = dual_beta
-        self.p = p
         self.mu = mu
         self.c_vals: list[Union[float, Tensor]] = []
         self._c_val_average = [None]
@@ -108,6 +85,7 @@ class PBM(Optimizer):
             self._dual_vars = init_dual_vars
         else:
             self._dual_vars = torch.zeros(m, requires_grad=False, device=device)
+            self._dual_moment1 = torch.zeros(m, requires_grad=False, device=device)  # dual exp average
 
     def add_constraint(self):
         """
@@ -127,15 +105,18 @@ class PBM(Optimizer):
         params,
         grads,
         l_term_grads,  # gradient of the lagrangian term, updated from parameter gradients during dual_step
+        aug_term_grads,  # gradient of the regularization term, updated from parameter gradients during dual_step
         exp_avgs,
         exp_avg_sqs,
         max_exp_avg_sqs,
-        state_steps
+        state_steps,
+        smoothing,
     ):
         has_sparse_grad = False
 
         for p in group["params"]:
             state = self.state[p]
+
             params.append(p)
 
             # Lazy state initialization
@@ -175,9 +156,14 @@ class PBM(Optimizer):
                     "`requires_grad` is not supported for `step` in differentiable mode"
                 )
 
+            smoothing.append(state.get("smoothing"))
+
             state_steps.append(state["step"])
+
             grads.append(p.grad)
+
             l_term_grads.append(state["l_term_grad"])
+            aug_term_grads.append(state["aug_term_grad"])
 
         return has_sparse_grad
 
@@ -190,14 +176,6 @@ class PBM(Optimizer):
             group.setdefault("capturable", False)
             group.setdefault("differentiable", False)
             group.setdefault("decoupled_weight_decay", False)
-
-    def update_p(self):
-        """
-        update the penalty coefficient - stay 1 for now.
-        """
-
-        self.p = 1.0    
-
 
     def dual_step(self, i: int, c_val: Tensor):
         r"""Perform an update of the dual parameters.
@@ -213,27 +191,12 @@ class PBM(Optimizer):
             raise ValueError(
                 f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}"
             )
-
-        # sub variable for computing grad wrt to the input to the penalty/ barrier
-        t = torch.tensor(c_val.detach().item(), dtype=torch.float32, requires_grad=True, device=self._dual_vars.device)
-
-        # compute the grad wrt. to the sub_var 
-        penalty_barrier_val = self.dual_lr * self.p * self.barrier(t / self.p)
-        dloss_dt = torch.autograd.grad(penalty_barrier_val, t, create_graph=True)[0]
-
-        # compute the barrier/penalty of the output of NN  
-        phi_constr = self.p * self.barrier(c_val / self.p)
-
-        # compute the gradient of the constraint
-        phi_constr.backward(retain_graph=True)        
         
-        # update the dual variables
-        # self._dual_vars[i].add_(penalty_barrier_val.detach(), alpha=self.dual_lr)
-        self._dual_vars[i].lerp_(dloss_dt.detach(), weight=1-self.dual_beta)
-        # TODO: implement the correect p - that way t will boil down to ALM + add smoothing term. 
-        # although it should work better since there is no need for the slack variable
-        # NOTE: ALM is needed - dual = dual + error will guide the constr error - without the additive, it can violate it 
+        # compute the momentum of the dual variables 
+        self._dual_moment1[i] = self.dual_beta1 * self._dual_moment1[i] + (1-self.dual_beta1) * c_val.detach()
 
+        # update the dual variable with the momentum gradient
+        self._dual_vars[i].add_(self._dual_moment1[i], alpha=self.dual_lr)
 
         for j in range(len(self._dual_vars)):
             if self._dual_vars[j] >= self.dual_bound:
@@ -244,6 +207,8 @@ class PBM(Optimizer):
             params: list[Tensor] = []
             grads: list[Tensor] = []
             l_term_grads: list[Tensor] = []
+            aug_term_grads: list[Tensor] = []
+            smoothing: list[Tensor] = []
             exp_avgs: list[Tensor] = []
             exp_avg_sqs: list[Tensor] = []
             max_exp_avg_sqs: list[Tensor] = []
@@ -253,15 +218,18 @@ class PBM(Optimizer):
                 params,
                 grads,
                 l_term_grads,
+                aug_term_grads,
                 exp_avgs,
                 exp_avg_sqs,
                 max_exp_avg_sqs,
-                state_steps
+                state_steps,
+                smoothing,
             )
             for p_i, p in enumerate(params):
                 if p.grad is None:
                     continue
                 l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
+                aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
 
     @_use_grad_for_differentiable
     def step(self, c_val: Union[Iterable | Tensor] = None):
@@ -276,6 +244,8 @@ class PBM(Optimizer):
             params: list[Tensor] = []
             grads: list[Tensor] = []
             l_term_grads: list[Tensor] = []
+            aug_term_grads: list[Tensor] = []
+            smoothing: list[Tensor] = []
             exp_avgs: list[Tensor] = []
             exp_avg_sqs: list[Tensor] = []
             max_exp_avg_sqs: list[Tensor] = []
@@ -288,24 +258,23 @@ class PBM(Optimizer):
                 params,
                 grads,
                 l_term_grads,
+                aug_term_grads,
                 exp_avgs,
                 exp_avg_sqs,
                 max_exp_avg_sqs,
                 state_steps,
+                smoothing,
             )
 
-            # update the NN params 
             for i, param in enumerate(params):
-                
-                # grads is the sum of gradient of the obj + linear comb. of the constraints
                 G_i = torch.zeros_like(param)
-                G_i.add_(grads[i]).add_(l_term_grads[i])
-                # G_i.add_(grads[i])
+                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(
+                    aug_term_grads[i], alpha=self.rho
+                ).add_(param - smoothing[i], alpha=self.mu)
 
-                # zero the constr grads - for next iteration
                 l_term_grads[i].zero_()
+                aug_term_grads[i].zero_()
 
-                # compute the adam moments
                 exp_avg = exp_avgs[i]
                 exp_avg_sq = exp_avg_sqs[i]
                 step_t = state_steps[i]
@@ -313,16 +282,18 @@ class PBM(Optimizer):
                 beta1, beta2 = self.beta1, self.beta2
                 eps = self.eps
 
-                # moment1, moment2
                 exp_avg.lerp_(G_i, 1 - beta1)
                 exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
 
-                # bias correction of adam
+                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                    param, alpha=self.beta
+                )
+
                 bias_correction1 = 1 - beta1**step_t
                 bias_correction2 = 1 - beta2**step_t
 
-                # compute the bias corrected moments
                 step_size = lr / bias_correction1
+
                 bias_correction2_sqrt = bias_correction2**0.5
 
                 if amsgrad:
@@ -338,7 +309,7 @@ class PBM(Optimizer):
                 else:
                     denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
 
-                # adam step
                 param.addcdiv_(exp_avg, denom, value=-step_size)
-                # param.add_(G_i, alpha=-lr)
 
+                ## PROJECT (keep in mind we do layer by layer)
+                ## add slack variables to params in constructor?
