@@ -494,7 +494,7 @@ def test_PBM_barrier_stochastic(log_path_save, n_epochs, seed_n):
     # optimizer = PBM(params=model.parameters(), m=1, lr=0.01, dual_lr=0.1, dual_beta=0.999, p=0.1, barrier="augmented_lagrangian")
     # optimizer = PBM(params=model.parameters(), m=1, lr=0.01, rho=1.0, init_pi=10_000, dual_lr=0.1, dual_beta=0.999, penalty_update_m='ALM', barrier="quadratic_logarithmic")
     # optimizer = PBM(params=model.parameters(), m=1, lr=0.005, dual_beta=0.95, penalty_update_m='CONST', barrier="quadratic_logarithmic")
-    optimizer = PBM(params=model.parameters(), m=1, lr=0.001, dual_beta=0.95, penalty_update_m='CONST', barrier="quadratic_logarithmic")
+    optimizer = PBM(params=model.parameters(), m=1, lr=0.001, dual_beta=0.95, mu=0.1, penalty_update_m='CONST', barrier="quadratic_logarithmic")
 
     # define the criterion
     criterion = torch.nn.BCEWithLogitsLoss()
@@ -947,7 +947,7 @@ def test_sslalm_stochastic(log_path_save, n_epochs, seed_n):
         dual_lr=0.02,  # lr of a dual ALM variable
         dual_bound=5,
         rho=1,  # rho penalty in ALM parameter
-        mu=2,  # smoothing parameter
+        mu=0.1,  # smoothing parameter
     )
 
     # add slack variables - to create the equality from the inequalities    
@@ -1039,24 +1039,24 @@ def test_sslalm_stochastic(log_path_save, n_epochs, seed_n):
 
 if __name__ == "__main__":
 
-    savepath = "./examples/data/logs/testing_algs.npz"
+    savepath = "./examples/data/logs/testing_algs2.npz"
     epochs = 70
     seed = 1
 
     # save the computed data
-    # np.savez(
-    #     savepath,
-    #     losses=[],
-    #     constraints=[],
-    #     losses_std=[],
-    #     constraints_std=[],
-    # )
+    np.savez(
+        savepath,
+        losses=[],
+        constraints=[],
+        losses_std=[],
+        constraints_std=[],
+    )
 
     # train the old algorithms 
     print("Testing SSW: ")
     # test_ssw_stochastic(savepath, epochs, seed)
     
-    # print("Testing SSLALM: ")
+    print("Testing SSLALM: ")
     # test_sslalm_stochastic(savepath, epochs, seed)
     
     # # train the experimental algorithms
@@ -1067,10 +1067,10 @@ if __name__ == "__main__":
     # test_sslalm_dualmoment_stochastic(savepath, epochs, seed)
 
     print("Testing PBM: ")
-    test_PBM_barrier_stochastic(savepath, epochs, seed) 
+    # test_PBM_barrier_stochastic(savepath, epochs, seed) 
 
-    print("Testing Unconstraint: ")
-    test_unconstraint_stochastic(savepath, epochs, seed)
+    # print("Testing Unconstraint: ")
+    # test_unconstraint_stochastic(savepath, epochs, seed)
 
     # plot the results
     log_path = savepath
@@ -1097,5 +1097,5 @@ if __name__ == "__main__":
     ],
     log_constraints=False,
     std_multiplier=1,
-    savepath="./examples/data/figs/experimental_algs.png"
+    savepath="./examples/data/figs/experimental_algs2.png"
     )

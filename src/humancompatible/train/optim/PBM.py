@@ -77,7 +77,7 @@ class PBM(Optimizer):
         )
 
         super().__init__(params, defaults)
-
+        
         # set the barrier method
         if barrier == 'exponential':
             self.barrier = Barrier.exponential_penalty
