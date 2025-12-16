@@ -90,8 +90,6 @@ class PBM(Optimizer):
         elif barrier == 'quadratic_reciprocal':
             self.barrier = Barrier.quadratic_reciprocal_penalty
 
-        print('smoothing...')
-
         # set the optimizer parameters
         self.m = m
         self.dual_lr = dual_lr
