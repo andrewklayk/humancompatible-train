@@ -90,6 +90,8 @@ class PBM(Optimizer):
         elif barrier == 'quadratic_reciprocal':
             self.barrier = Barrier.quadratic_reciprocal_penalty
 
+        print('smoothing...')
+
         # set the optimizer parameters
         self.m = m
         self.dual_lr = dual_lr
@@ -139,7 +141,8 @@ class PBM(Optimizer):
         exp_avgs,
         exp_avg_sqs,
         max_exp_avg_sqs,
-        state_steps
+        state_steps,
+        smoothing
     ):
         has_sparse_grad = False
 
@@ -187,6 +190,7 @@ class PBM(Optimizer):
             state_steps.append(state["step"])
             grads.append(p.grad)
             l_term_grads.append(state["l_term_grad"])
+            smoothing.append(state.get("smoothing"))
 
         return has_sparse_grad
 
@@ -253,7 +257,7 @@ class PBM(Optimizer):
         penalty_barrier_val = self.barrier(t)
         dloss_dt = torch.autograd.grad(penalty_barrier_val, t, retain_graph=True)[0]        
 
-        # update dual variables # TODO: do a momentum change here - equiv. to dual lr
+        # update dual variables 
         # self._dual_vars[i] = self._dual_vars[i] * dloss_dt
         self._dual_vars[i] = self.dual_beta * self._dual_vars[i]  +  (1 - self.dual_beta) * self._dual_vars[i] * dloss_dt
         
@@ -267,17 +271,10 @@ class PBM(Optimizer):
             self._dual_vars[i] = 10.0
 
         # compute the barrier/penalty of the output of NN  
-        phi_constr = self.p * self.barrier(c_val / self.p)
+        phi_constr = self.p[i] * self.barrier(c_val / self.p[i])
 
         # compute the gradient of the constraint
         phi_constr.backward(retain_graph=True)        
-
-        # update the dual variables
-        # self._dual_vars[i].add_(penalty_barrier_val.detach(), alpha=self.dual_lr)
-        # self._dual_vars[i].lerp_(dloss_dt.detach(), weight=1-self.dual_beta)
-        # TODO: implement the correect p - that way t will boil down to ALM + add smoothing term. 
-        # although it should work better since there is no need for the slack variable
-        # NOTE: ALM is needed - dual = dual + error will guide the constr error - without the additive, it can violate it 
 
         # save constraint grad
         for group in self.param_groups:
@@ -286,6 +283,7 @@ class PBM(Optimizer):
             l_term_grads: list[Tensor] = []
             exp_avgs: list[Tensor] = []
             exp_avg_sqs: list[Tensor] = []
+            smoothing: list[Tensor] = []
             max_exp_avg_sqs: list[Tensor] = []
             state_steps: list[Tensor] = []
             _ = self._init_group(
@@ -296,7 +294,8 @@ class PBM(Optimizer):
                 exp_avgs,
                 exp_avg_sqs,
                 max_exp_avg_sqs,
-                state_steps
+                state_steps,
+                smoothing
             )
             for p_i, p in enumerate(params):
                 if p.grad is None:
@@ -318,6 +317,7 @@ class PBM(Optimizer):
             l_term_grads: list[Tensor] = []
             exp_avgs: list[Tensor] = []
             exp_avg_sqs: list[Tensor] = []
+            smoothing: list[Tensor] = []
             max_exp_avg_sqs: list[Tensor] = []
             state_steps: list[Tensor] = []
             lr = group["lr"]
@@ -332,15 +332,22 @@ class PBM(Optimizer):
                 exp_avg_sqs,
                 max_exp_avg_sqs,
                 state_steps,
+                smoothing
             )
 
             # update the NN params 
             for i, param in enumerate(params):
                 
-                # grads is the sum of gradient of the obj + linear comb. of the constraints
+                # grads is the sum of gradient of the obj + linear comb. of the constraints + TODO: add the smoothing term
                 G_i = torch.zeros_like(param)
-                G_i.add_(grads[i]).add_(l_term_grads[i])
+                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(param - smoothing[i], alpha=self.mu)
+                # G_i.add_(grads[i]).add_(l_term_grads[i])
                 # G_i.add_(grads[i])    
+
+                # update the smooting term
+                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                    param, alpha=self.beta
+                )
 
                 # zero the constr grads - for next iteration
                 l_term_grads[i].zero_()

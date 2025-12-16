@@ -521,7 +521,7 @@ def test_PBM_barrier_stochastic(log_path_save, n_epochs, seed_n):
             out = model(batch_input)
             fair_loss = fair_criterion(out, batch_sens)
             fair_constraint = fair_loss - fair_crit_bound
-        
+
             # compute the grad of the constraints
             optimizer.dual_step(0, fair_constraint)
             optimizer.zero_grad()
@@ -1044,27 +1044,27 @@ if __name__ == "__main__":
     seed = 1
 
     # save the computed data
-    np.savez(
-        savepath,
-        losses=[],
-        constraints=[],
-        losses_std=[],
-        constraints_std=[],
-    )
+    # np.savez(
+    #     savepath,
+    #     losses=[],
+    #     constraints=[],
+    #     losses_std=[],
+    #     constraints_std=[],
+    # )
 
     # train the old algorithms 
     print("Testing SSW: ")
-    test_ssw_stochastic(savepath, epochs, seed)
+    # test_ssw_stochastic(savepath, epochs, seed)
     
-    print("Testing SSLALM: ")
-    test_sslalm_stochastic(savepath, epochs, seed)
+    # print("Testing SSLALM: ")
+    # test_sslalm_stochastic(savepath, epochs, seed)
     
-    # train the experimental algorithms
-    print("Testing SSW-ADAM: ")
-    test_ssw_adam_stochastic(savepath, epochs, seed)
+    # # train the experimental algorithms
+    # print("Testing SSW-ADAM: ")
+    # test_ssw_adam_stochastic(savepath, epochs, seed)
     
-    print("Testing SSLALM-DM: ")
-    test_sslalm_dualmoment_stochastic(savepath, epochs, seed)
+    # print("Testing SSLALM-DM: ")
+    # test_sslalm_dualmoment_stochastic(savepath, epochs, seed)
 
     print("Testing PBM: ")
     test_PBM_barrier_stochastic(savepath, epochs, seed) 
