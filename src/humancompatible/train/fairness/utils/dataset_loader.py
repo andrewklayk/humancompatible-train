@@ -5,10 +5,12 @@ from itertools import product
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-def get_data_dutch(test_size=0.2, seed_n = 42):
+def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True):
     """
     Loads the dutch dataset with the classification of predicting the income class.
     Sensitive features are [sex, age].
+
+    drop_small_groups - if True, sensitive groups with few samples are dropped from the dataset
     """
 
     # Get the dataset
@@ -17,12 +19,16 @@ def get_data_dutch(test_size=0.2, seed_n = 42):
     # Load as pandas DataFrame
     df = dataset.load() 
 
+    # drop high aged population
+    if drop_small_groups:
+        df = df.drop(df[(df.age == '13') | (df.age == '14') | (df.age == '15')].index)
+
     # Get the target column
     target_column = dataset.get_target_column()
 
     # Transform to e.g. impute missing data
     df_transformed, transformation_info = dataset.transform(df)
-
+    
     # Sensitive columns may change due to transformation
     sensitive_columns = ['age', 'sex_1', 'sex_2']
 
@@ -40,23 +46,27 @@ def get_data_dutch(test_size=0.2, seed_n = 42):
     age = df_transformed['age'].values.astype(int)
 
     # num groups 
-    num_groups = 12 * 2
+    num_groups = 9 * 2
 
     # Map each combination to a unique index
-    group_indices = sex_idx * 12 + (age-4)  # 0-24 groups
+    group_indices = sex_idx * 9 + (age-4)  # 0-24 groups
 
     # One-hot encode the combinations
     groups_onehot = np.eye(num_groups)[group_indices]
 
     # Create dictionary mapping index to combination
     group_dict = {}
-    for i, (s, m) in enumerate(product(sex_cols, np.array(range(0, 12)) + 4)):
+    for i, (s, m) in enumerate(product(sex_cols, np.array(range(0, 9)) + 4)):
         group_dict[i] = f"{s} + age_{m}"
 
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
         df_features, df_labels, groups_onehot, test_size=test_size, random_state=seed_n
     )
+
+    # print the statistics
+    for idx in group_dict:
+        print(f"{group_dict[idx]}, : {(groups_onehot[:, idx] == 1).sum()}")
 
     # scale
     scaler = StandardScaler()
