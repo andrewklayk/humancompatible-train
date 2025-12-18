@@ -5,7 +5,7 @@ from itertools import product
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True):
+def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_stats=True):
     """
     Loads the dutch dataset with the classification of predicting the income class.
     Sensitive features are [sex, age].
@@ -22,6 +22,9 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True):
     # drop high aged population
     if drop_small_groups:
         df = df.drop(df[(df.age == '13') | (df.age == '14') | (df.age == '15')].index)
+        num_age_groups = 9
+    else: 
+        num_age_groups = 12 
 
     # Get the target column
     target_column = dataset.get_target_column()
@@ -46,17 +49,17 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True):
     age = df_transformed['age'].values.astype(int)
 
     # num groups 
-    num_groups = 9 * 2
+    num_groups = num_age_groups * 2
 
     # Map each combination to a unique index
-    group_indices = sex_idx * 9 + (age-4)  # 0-24 groups
+    group_indices = sex_idx * num_age_groups + (age-4)  # 0-24 groups
 
     # One-hot encode the combinations
     groups_onehot = np.eye(num_groups)[group_indices]
 
     # Create dictionary mapping index to combination
     group_dict = {}
-    for i, (s, m) in enumerate(product(sex_cols, np.array(range(0, 9)) + 4)):
+    for i, (s, m) in enumerate(product(sex_cols, np.array(range(0, num_age_groups)) + 4)):
         group_dict[i] = f"{s} + age_{m}"
 
     # split
@@ -65,15 +68,17 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True):
     )
 
     # print the statistics
-    for idx in group_dict:
-        print(f"{group_dict[idx]}, : {(groups_onehot[:, idx] == 1).sum()}")
+    if print_stats:
+        print("Number of Samples per group: \n")
+        for idx in group_dict:
+            print(f"{group_dict[idx]}, : {(groups_onehot[:, idx] == 1).sum()}")
 
     # scale
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    return X_train, X_test, y_train, y_test, groups_train, groups_test
+    return X_train, X_test, y_train, y_test, groups_train, groups_test, group_dict, 
 
 
 if __name__ == '__main__':
