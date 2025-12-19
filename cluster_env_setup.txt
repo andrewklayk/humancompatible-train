@@ -1,0 +1,5 @@
+put this in the jupyter: 
+
+module load JupyterNotebook/7.4.4-GCCcore-14.2.0
+module load PyTorch/2.7.1-foss-2025a-CUDA-12.8.0
+source env_fairbench/bin/activate
