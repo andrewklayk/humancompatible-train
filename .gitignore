@@ -1,5 +1,4 @@
 # Dataset and saved models
-
 experiments/utils/raw_data/
 experiments/utils/exp_results
 experiments/utils/saved_models
@@ -11,7 +10,8 @@ experiments/data
 .vscode/
 plots/
 outputs/
-
+rci_jupyter_setup.txt
+requirements_rci.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
