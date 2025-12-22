@@ -32,6 +32,7 @@ class PBM(Optimizer):
         beta2: float = 0.999,
         dual_beta: float = 0.9, # smoothing of the dual variables
         init_pi = 10.0,
+        const_p = 1.0,
         penalty_update_m='ALM', # p parameter
         device="cpu",
         eps: float = 1e-8,
@@ -117,7 +118,9 @@ class PBM(Optimizer):
 
             elif penalty_update_m == "CONST":
                 self.update_p_method = self.update_p_const
-
+                self.p_const = const_p
+                self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+                
     def add_constraint(self):
         """
         Allows to dynamically add constraints. Increments`m`, appends a zero tensor to the end of`_dual_vars`.
@@ -222,10 +225,10 @@ class PBM(Optimizer):
 
     def update_p_const(self, i, t):
         """
-        Constant p 
+        Constant p - do nothing
         """
 
-        self.p[i] = 1.0
+        pass
 
     # -----------------------------------------------------------------------------------------------------------
 
@@ -336,11 +339,11 @@ class PBM(Optimizer):
             # update the NN params 
             for i, param in enumerate(params):
                 
-                # grads is the sum of gradient of the obj + linear comb. of the constraints + TODO: add the smoothing term
+                # grads is the sum of gradient of the obj + linear comb. of the constraints + add the smoothing term
                 G_i = torch.zeros_like(param)
                 G_i.add_(grads[i]).add_(l_term_grads[i]).add_(param - smoothing[i], alpha=self.mu)
-                # G_i.add_(grads[i]).add_(l_term_grads[i])
-                # G_i.add_(grads[i])    
+                # G_i.add_(grads[i]).add_(l_term_grads[i]) # objective + lagrangian part
+                # G_i.add_(grads[i])     # no ALM - just objective 
 
                 # update the smooting term
                 smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
