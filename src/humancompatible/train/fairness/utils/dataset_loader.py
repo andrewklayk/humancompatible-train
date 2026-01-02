@@ -78,7 +78,7 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_sta
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    return X_train, X_test, y_train, y_test, groups_train, groups_test, group_dict, 
+    return X_train, X_test, y_train, y_test, groups_train, groups_test, group_dict
 
 
 if __name__ == '__main__':

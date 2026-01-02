@@ -17,11 +17,6 @@ class PBM(Optimizer):
         m: int,
         # tau in paper
         lr: Union[float, Tensor] = 5e-2,
-        # eta in paper
-        dual_lr: Union[
-            float, Tensor
-        ] = 5e-2,  # keep as tensor for different learning rates for different constraints in the future? idk
-        dual_bound: Union[float, Tensor] = 100,
         # penalty term multiplier
         rho: float = 1.0,
         # smoothing term multiplier
@@ -33,43 +28,28 @@ class PBM(Optimizer):
         dual_beta: float = 0.9, # smoothing of the dual variables
         init_pi = 10.0,
         const_p = 1.0,
+        epoch_len=None,
         penalty_update_m='ALM', # p parameter
+        p_lb = 0.1,
         device="cpu",
         eps: float = 1e-8,
         amsgrad: bool = False,
         *,
-        init_dual_vars: Optional[Tensor] = None,
-        # whether some of the dual variables should not be updated
-        fix_dual_vars: Optional[Tensor] = None,
+        init_dual = 0.1,
         differentiable: bool = False,
         barrier='quadratic_logarithmic', # barrier method used on the constraint
     ):
         
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
             raise ValueError("Tensor lr must be 1-element")
-        if isinstance(dual_lr, torch.Tensor) and lr.numel() != 1:
-            raise ValueError("Tensor dual_lr must be 1-element")
-        if lr < 0.0:
-            raise ValueError(f"Invalid learning rate: {lr}")
-        if dual_lr < 0.0:
-            raise ValueError(f"Invalid dual learning rate: {dual_lr}")
-        if init_dual_vars is not None and len(init_dual_vars) != m:
-            raise ValueError(
-                f"init_dual_vars should be of length m: expected {m}, got {len(init_dual_vars)}"
-            )
-        if fix_dual_vars is not None:
-            raise NotImplementedError()
-        if init_dual_vars is None and fix_dual_vars is not None:
-            raise ValueError(
-                f"if fix_dual_vars is not None, init_dual_vars should not be None."
-            )
+        if epoch_len == None:
+            raise ValueError("Epoch length not defined!")
 
         if differentiable:
             raise NotImplementedError("TorchSSLALM does not support differentiable")
 
         defaults = dict(
             lr=lr,
-            dual_lr=dual_lr,
             rho=rho,
             mu=mu,
             beta=beta,
@@ -93,8 +73,6 @@ class PBM(Optimizer):
 
         # set the optimizer parameters
         self.m = m
-        self.dual_lr = dual_lr
-        self.dual_bound = dual_bound
         self.rho = rho
         self.beta = beta
         self.beta1 = beta1
@@ -106,20 +84,25 @@ class PBM(Optimizer):
         self._c_val_average = [None]
         self.eps = eps
         self.iter = 0
-        if init_dual_vars is not None:
-            self._dual_vars = init_dual_vars
-        else:
-            self._dual_vars = torch.ones(m, requires_grad=False, device=device) * 0.01
-            self.p = torch.ones(m, requires_grad=False, device=device)
+        self.init_dual = init_dual
+        self._dual_vars = torch.ones(m, requires_grad=False, device=device) * init_dual
+        self.p = torch.ones(m, requires_grad=False, device=device)
+        self.epoch_len = epoch_len
+        self.p_lb = 0.1
 
-            # set the defined penalty update method
-            if penalty_update_m == 'ALM':
-                self.update_p_method = self.update_p_ALM
+        # set the defined penalty update method
+        if penalty_update_m == 'ALM':
+            self.update_p_method = self.update_p_ALM
 
-            elif penalty_update_m == "CONST":
-                self.update_p_method = self.update_p_const
-                self.p_const = const_p
-                self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+        elif penalty_update_m == "CONST":
+            self.update_p_method = self.update_p_const
+            self.p_const = const_p
+            self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+
+        elif penalty_update_m == "DIMINISH":
+            self.update_p_method = self.update_p_diminishing
+            self.p_const = const_p
+            self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
                 
     def add_constraint(self):
         """
@@ -129,7 +112,7 @@ class PBM(Optimizer):
         self._dual_vars = torch.cat(
             (
                 self._dual_vars,
-                torch.zeros(1, requires_grad=False, device=self._dual_vars.device),
+                torch.ones(1, requires_grad=False, device=self._dual_vars.device) * self.init_dual,
             )
         )
 
@@ -222,6 +205,15 @@ class PBM(Optimizer):
 
         self.p[i] =  t * self.rho * (self.init_pi)**self.iter
         pass
+
+    def update_p_diminishing(self, i, t):
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+            self.p[i] *= 0.9
+
+        if self.p[i] < self.p_lb:
+            self.p[i] = self.p_lb
 
     def update_p_const(self, i, t):
         """
@@ -390,5 +382,7 @@ class PBM(Optimizer):
                 param.addcdiv_(exp_avg, denom, value=-step_size)
                 # param.add_(G_i, alpha=-lr)
 
+                # update p
                 self.iter += 1
+
 
