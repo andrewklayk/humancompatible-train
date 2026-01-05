@@ -198,7 +198,7 @@ For more information, see <https://www.census.gov/data/developers/about/terms-of
 
 ## References
 
-If you use this work, we encourage you to cite [our paper](https://arxiv.org/abs/2507.04033),
+If you use this work, we encourage you to cite [our paper](https://arxiv.org/abs/2509.21254),
 
 ```bibtex
 @misc{kliachkin2025benchmarkingstochasticapproximationalgorithms,
