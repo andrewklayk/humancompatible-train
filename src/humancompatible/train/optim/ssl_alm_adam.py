@@ -33,6 +33,7 @@ class SSLALM_Adam(Optimizer):
         # whether some of the dual variables should not be updated
         fix_dual_vars: Optional[Tensor] = None,
         differentiable: bool = False,
+        joint_backward_pass: bool = False
     ):
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
             raise ValueError("Tensor lr must be 1-element")
@@ -79,6 +80,7 @@ class SSLALM_Adam(Optimizer):
         self.c_vals: list[Union[float, Tensor]] = []
         self._c_val_average = [None]
         self.eps = eps
+        self._joint_backward = joint_backward_pass
         if init_dual_vars is not None:
             self._dual_vars = init_dual_vars
         else:
@@ -119,13 +121,14 @@ class SSLALM_Adam(Optimizer):
             # Lazy state initialization
             if len(state) == 0:
                 state["smoothing"] = p.detach().clone()
-                state["l_term_grad"] = torch.zeros_like(
-                    p, memory_format=torch.preserve_format
-                )
 
-                state["aug_term_grad"] = torch.zeros_like(
-                    p, memory_format=torch.preserve_format
-                )
+                if not self._joint_backward:
+                    state["l_term_grad"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format
+                    )
+                    state["aug_term_grad"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format
+                    )
 
                 state["step"] = torch.tensor(0.0)
                 # Exponential moving average of gradient values
@@ -159,8 +162,9 @@ class SSLALM_Adam(Optimizer):
 
             grads.append(p.grad)
 
-            l_term_grads.append(state["l_term_grad"])
-            aug_term_grads.append(state["aug_term_grad"])
+            if not self._joint_backward:
+                l_term_grads.append(state["l_term_grad"])
+                aug_term_grads.append(state["aug_term_grad"])
 
         return has_sparse_grad
 
@@ -190,38 +194,40 @@ class SSLALM_Adam(Optimizer):
             )
         self._dual_vars[i].add_(c_val.detach(), alpha=self.dual_lr)
 
-        for j in range(len(self._dual_vars)):
-            if self._dual_vars[j] >= self.dual_bound:
-                self._dual_vars[j].zero_()
-
-        # save constraint grad
-        for group in self.param_groups:
-            params: list[Tensor] = []
-            grads: list[Tensor] = []
-            l_term_grads: list[Tensor] = []
-            aug_term_grads: list[Tensor] = []
-            smoothing: list[Tensor] = []
-            exp_avgs: list[Tensor] = []
-            exp_avg_sqs: list[Tensor] = []
-            max_exp_avg_sqs: list[Tensor] = []
-            state_steps: list[Tensor] = []
-            _ = self._init_group(
-                group,
-                params,
-                grads,
-                l_term_grads,
-                aug_term_grads,
-                exp_avgs,
-                exp_avg_sqs,
-                max_exp_avg_sqs,
-                state_steps,
-                smoothing,
-            )
-            for p_i, p in enumerate(params):
-                if p.grad is None:
-                    continue
-                l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
-                aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
+        if self._dual_vars[i] >= self.dual_bound:
+            self._dual_vars[i].zero_()
+        
+        if not self._joint_backward:
+            # save constraint grad
+            for group in self.param_groups:
+                params: list[Tensor] = []
+                grads: list[Tensor] = []
+                l_term_grads: list[Tensor] = []
+                aug_term_grads: list[Tensor] = []
+                smoothing: list[Tensor] = []
+                exp_avgs: list[Tensor] = []
+                exp_avg_sqs: list[Tensor] = []
+                max_exp_avg_sqs: list[Tensor] = []
+                state_steps: list[Tensor] = []
+                _ = self._init_group(
+                    group,
+                    params,
+                    grads,
+                    l_term_grads,
+                    aug_term_grads,
+                    exp_avgs,
+                    exp_avg_sqs,
+                    max_exp_avg_sqs,
+                    state_steps,
+                    smoothing,
+                )
+                for p_i, p in enumerate(params):
+                    if p.grad is None:
+                        continue
+                    l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
+                    aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
+        else:
+            return self._dual_vars[i]
 
     @_use_grad_for_differentiable
     def step(self, c_val: Union[Iterable | Tensor] = None):
@@ -259,13 +265,16 @@ class SSLALM_Adam(Optimizer):
             )
 
             for i, param in enumerate(params):
-                G_i = torch.zeros_like(param, memory_format=torch.preserve_format)
-                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(
-                    aug_term_grads[i], alpha=self.rho
-                ).add_(param - smoothing[i], alpha=self.mu)
+                if self._joint_backward:
+                    G_i = grads[i].add_(param - smoothing[i], alpha=self.mu)
+                else:
+                    G_i = torch.zeros_like(param, memory_format=torch.preserve_format)
+                    G_i.add_(grads[i]).add_(l_term_grads[i]).add_(
+                        aug_term_grads[i], alpha=self.rho
+                    ).add_(param - smoothing[i], alpha=self.mu)
 
-                l_term_grads[i].zero_()
-                aug_term_grads[i].zero_()
+                    l_term_grads[i].zero_()
+                    aug_term_grads[i].zero_()
 
                 exp_avg = exp_avgs[i]
                 exp_avg_sq = exp_avg_sqs[i]
