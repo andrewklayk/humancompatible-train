@@ -1067,10 +1067,10 @@ if __name__ == "__main__":
     # test_sslalm_dualmoment_stochastic(savepath, epochs, seed)
 
     print("Testing PBM: ")
-    # test_PBM_barrier_stochastic(savepath, epochs, seed) 
+    test_PBM_barrier_stochastic(savepath, epochs, seed) 
 
     # print("Testing Unconstraint: ")
-    # test_unconstraint_stochastic(savepath, epochs, seed)
+    test_unconstraint_stochastic(savepath, epochs, seed)
 
     # plot the results
     log_path = savepath

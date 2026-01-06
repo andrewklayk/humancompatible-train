@@ -73,6 +73,7 @@ class PBM(Optimizer):
 
         # set the optimizer parameters
         self.m = m
+        self.device = device
         self.rho = rho
         self.beta = beta
         self.beta1 = beta1
@@ -88,7 +89,7 @@ class PBM(Optimizer):
         self._dual_vars = torch.ones(m, requires_grad=False, device=device) * init_dual
         self.p = torch.ones(m, requires_grad=False, device=device)
         self.epoch_len = epoch_len
-        self.p_lb = 0.1
+        self.constraints = torch.zeros(m, device=device) # array of current constraint values
 
         # set the defined penalty update method
         if penalty_update_m == 'ALM':
@@ -103,6 +104,10 @@ class PBM(Optimizer):
             self.update_p_method = self.update_p_diminishing
             self.p_const = const_p
             self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+            self.p_lb = p_lb
+
+        else: 
+            raise ValueError("NO SUCH p UPDATE METHOD EXISTS!")
                 
     def add_constraint(self):
         """
@@ -121,7 +126,6 @@ class PBM(Optimizer):
         group,
         params,
         grads,
-        l_term_grads,  # gradient of the lagrangian term, updated from parameter gradients during dual_step
         exp_avgs,
         exp_avg_sqs,
         max_exp_avg_sqs,
@@ -173,7 +177,6 @@ class PBM(Optimizer):
 
             state_steps.append(state["step"])
             grads.append(p.grad)
-            l_term_grads.append(state["l_term_grad"])
             smoothing.append(state.get("smoothing"))
 
         return has_sparse_grad
@@ -212,6 +215,7 @@ class PBM(Optimizer):
         if self.iter % self.epoch_len == 0:
             self.p[i] *= 0.9
 
+        # threshold the p
         if self.p[i] < self.p_lb:
             self.p[i] = self.p_lb
 
@@ -227,7 +231,7 @@ class PBM(Optimizer):
 
     def dual_step(self, i: int, c_val: Tensor):
         r"""Perform an update of the dual parameters.
-        Also saves constraint gradient for weight update. To be called BEFORE :func:`step` in an iteration!
+        Also saved the constraint value for later use in the weights update. To be called BEFORE :func:`step` in an iteration!
 
         Args:
             i (int): index of the constraint
@@ -251,8 +255,8 @@ class PBM(Optimizer):
         dloss_dt = torch.autograd.grad(penalty_barrier_val, t, retain_graph=True)[0]        
 
         # update dual variables 
-        # self._dual_vars[i] = self._dual_vars[i] * dloss_dt
-        self._dual_vars[i] = self.dual_beta * self._dual_vars[i]  +  (1 - self.dual_beta) * self._dual_vars[i] * dloss_dt
+        # self._dual_vars[i] = self._dual_vars[i] * dloss_dt # hard update
+        self._dual_vars[i] = self.dual_beta * self._dual_vars[i]  +  (1 - self.dual_beta) * self._dual_vars[i] * dloss_dt # soft update
         
         # update penalty multiplier
         self.update_p_method(i, self._dual_vars[i])
@@ -264,50 +268,31 @@ class PBM(Optimizer):
             self._dual_vars[i] = 10.0
 
         # compute the barrier/penalty of the output of NN  
-        phi_constr = self.p[i] * self.barrier(c_val / self.p[i])
+        phi_constr = self.p[i].item() * self.barrier(c_val / self.p[i].item())
 
-        # compute the gradient of the constraint
-        phi_constr.backward(retain_graph=True)        
-
-        # save constraint grad
-        for group in self.param_groups:
-            params: list[Tensor] = []
-            grads: list[Tensor] = []
-            l_term_grads: list[Tensor] = []
-            exp_avgs: list[Tensor] = []
-            exp_avg_sqs: list[Tensor] = []
-            smoothing: list[Tensor] = []
-            max_exp_avg_sqs: list[Tensor] = []
-            state_steps: list[Tensor] = []
-            _ = self._init_group(
-                group,
-                params,
-                grads,
-                l_term_grads,
-                exp_avgs,
-                exp_avg_sqs,
-                max_exp_avg_sqs,
-                state_steps,
-                smoothing
-            )
-            for p_i, p in enumerate(params):
-                if p.grad is None:
-                    continue
-                l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
+        # save the costraint value - later will be used in 
+        self.constraints[i] = phi_constr
 
     @_use_grad_for_differentiable
-    def step(self, c_val: Union[Iterable | Tensor] = None):
+    def step(self, loss_v: Tensor):
         r"""Perform an update of the primal parameters (network weights & slack variables). To be called AFTER :func:`dual_step` in an iteration!
 
         Args:
-            c_val (Tensor): DEPRECATED! An Iterable of estimates of values of **ALL** constraints; used for primal parameter update.
-                Ideally, must be evaluated on an independent sample from the one used in :func:`dual_step`
+            loss_v (Tensor): Loss funciton value
         """
 
+        with torch.enable_grad():
+            
+            # define the augmented F and backpropagate
+            F_loss = loss_v + self._dual_vars @ self.constraints
+        
+            # backpropagate
+            F_loss.backward()
+        
+        # load the smoothing and the momentums
         for group in self.param_groups:
             params: list[Tensor] = []
             grads: list[Tensor] = []
-            l_term_grads: list[Tensor] = []
             exp_avgs: list[Tensor] = []
             exp_avg_sqs: list[Tensor] = []
             smoothing: list[Tensor] = []
@@ -320,7 +305,6 @@ class PBM(Optimizer):
                 group,
                 params,
                 grads,
-                l_term_grads,
                 exp_avgs,
                 exp_avg_sqs,
                 max_exp_avg_sqs,
@@ -328,12 +312,15 @@ class PBM(Optimizer):
                 smoothing
             )
 
+            # no need to track gradients at this point
             # update the NN params 
             for i, param in enumerate(params):
                 
                 # grads is the sum of gradient of the obj + linear comb. of the constraints + add the smoothing term
                 G_i = torch.zeros_like(param)
-                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(param - smoothing[i], alpha=self.mu)
+                G_i.add_(grads[i]).add_(param - smoothing[i], alpha=self.mu)
+
+                # G_i.add_(grads[i]).add_(l_term_grads[i]).add_(param - smoothing[i], alpha=self.mu)
                 # G_i.add_(grads[i]).add_(l_term_grads[i]) # objective + lagrangian part
                 # G_i.add_(grads[i])     # no ALM - just objective 
 
@@ -341,9 +328,6 @@ class PBM(Optimizer):
                 smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
                     param, alpha=self.beta
                 )
-
-                # zero the constr grads - for next iteration
-                l_term_grads[i].zero_()
 
                 # compute the adam moments
                 exp_avg = exp_avgs[i]
@@ -382,7 +366,11 @@ class PBM(Optimizer):
                 param.addcdiv_(exp_avg, denom, value=-step_size)
                 # param.add_(G_i, alpha=-lr)
 
-                # update p
-                self.iter += 1
+            # update p
+            self.iter += 1
+
+            # clean the gradients
+            self.zero_grad()
+            self.constraints = torch.zeros(self.m, device=self.device)
 
 
