@@ -262,8 +262,8 @@ class PBM(Optimizer):
         self.update_p_method(i, self._dual_vars[i])
 
         # safe-guarding 
-        if self._dual_vars[i] <= 0.001:
-            self._dual_vars[i] = 0.001
+        if self._dual_vars[i] <= 0.0001:
+            self._dual_vars[i] = 0.0001
         if self._dual_vars[i] >= 10.0:
             self._dual_vars[i] = 10.0
 
