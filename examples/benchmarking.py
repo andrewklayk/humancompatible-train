@@ -7,6 +7,7 @@ from humancompatible.train.fairness.utils import BalancedBatchSampler
 import copy
 import numpy as np
 from humancompatible.train.optim.ssw import SSG
+from humancompatible.train.optim.PBM import PBM
 from humancompatible.train.optim.ssl_alm_adam import SSLALM_Adam
 
 """
@@ -39,6 +40,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
     elif method == 'ssl-alm':
         lr = model_params['lr']
         dual_lr = model_params['dual_lr']
+        mu = model_params['mu']
         optimizer = SSLALM_Adam(
             params=net.parameters(),
             m=num_constraints,  # number of constraints - one in our case
@@ -46,9 +48,17 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
             dual_lr=dual_lr,  # lr of a dual ALM variable
             dual_bound=5,
             rho=2,  # rho penalty in ALM parameter
-            mu=0.1,  # smoothing parameter
+            mu=mu,  # smoothing parameter
             device=device,
         )
+    elif method == "pbm":
+        lr = model_params['lr']
+        dual_beta = model_params['dual_beta']
+        mu = model_params['mu']
+        penalty = model_params['penalty']
+        optimizer = PBM(params=net.parameters(), m=num_constraints, lr=lr, dual_beta=dual_beta, mu=mu, 
+                epoch_len=len(trainloader), init_dual=0.01, penalty_update_m='CONST', p_lb=0.1,
+                barrier=penalty, device=device)
     else: 
         raise ValueError("No such method available!")
 
@@ -149,6 +159,11 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                             optimizer.dual_step(constraint_k, constr)
                             constraints[constraint_k] = constr
 
+                        if method == 'pbm':
+
+                            # update the dual variables
+                            optimizer.dual_step(constraint_k, constr)
+
                         c_log[-1].append(g.detach().cpu().numpy())
                         constraint_k += 1
 
@@ -172,6 +187,11 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
 
             if method == 'ssl-alm':
                 optimizer.step(loss, constraints)
+                duals_log.append(optimizer._dual_vars.detach().cpu())
+
+            if method == 'pbm':
+                # backpropagate
+                optimizer.step(loss)
                 duals_log.append(optimizer._dual_vars.detach().cpu())
 
             # save the logs
