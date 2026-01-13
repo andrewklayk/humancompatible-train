@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Union
+from typing import Iterable, Optional, Tuple, Union
 
 import torch
 from torch import Tensor
@@ -22,9 +22,8 @@ class SSLALM_Adam(Optimizer):
         # smoothing term multiplier
         mu: float = 2.0,
         # smoothing term update multiplier
-        beta: float = 0.5,
-        beta1: float = 0.9,
-        beta2: float = 0.999,
+        smoothing_beta: float = 0.5,
+        betas: Tuple[float, float] = (0.9, 0.999),
         device="cpu",
         eps: float = 1e-8,
         amsgrad: bool = False,
@@ -32,8 +31,8 @@ class SSLALM_Adam(Optimizer):
         init_dual_vars: Optional[Tensor] = None,
         # whether some of the dual variables should not be updated
         fix_dual_vars: Optional[Tensor] = None,
+        implicit_backward_in_step: bool = True,
         differentiable: bool = False,
-        joint_backward_pass: bool = False
     ):
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
             raise ValueError("Tensor lr must be 1-element")
@@ -55,14 +54,15 @@ class SSLALM_Adam(Optimizer):
             )
 
         if differentiable:
-            raise NotImplementedError("TorchSSLALM does not support differentiable")
+            raise NotImplementedError("SSLALM does not support differentiable")
 
         defaults = dict(
+            eps=eps,
             lr=lr,
-            dual_lr=dual_lr,
+            betas=betas,
             rho=rho,
             mu=mu,
-            beta=beta,
+            smoothing_beta=smoothing_beta,
             amsgrad=amsgrad,
             differentiable=differentiable,
         )
@@ -73,14 +73,12 @@ class SSLALM_Adam(Optimizer):
         self.dual_lr = dual_lr
         self.dual_bound = dual_bound
         self.rho = rho
-        self.beta = beta
-        self.beta1 = beta1
-        self.beta2 = beta2
-        self.mu = mu
-        self.c_vals: list[Union[float, Tensor]] = []
-        self._c_val_average = [None]
-        self.eps = eps
-        self._joint_backward = joint_backward_pass
+        self._constraint_params = dict(
+            rho=rho,
+            implicit_backward_in_step=implicit_backward_in_step
+        )
+
+        self._implicit_backward = implicit_backward_in_step
         if init_dual_vars is not None:
             self._dual_vars = init_dual_vars
         else:
@@ -122,7 +120,7 @@ class SSLALM_Adam(Optimizer):
             if len(state) == 0:
                 state["smoothing"] = p.detach().clone()
 
-                if not self._joint_backward:
+                if not self._implicit_backward:
                     state["l_term_grad"] = torch.zeros_like(
                         p, memory_format=torch.preserve_format
                     )
@@ -162,7 +160,7 @@ class SSLALM_Adam(Optimizer):
 
             grads.append(p.grad)
 
-            if not self._joint_backward:
+            if not self._implicit_backward:
                 l_term_grads.append(state["l_term_grad"])
                 aug_term_grads.append(state["aug_term_grad"])
 
@@ -190,54 +188,31 @@ class SSLALM_Adam(Optimizer):
         # update dual multipliers
         if c_val.numel() != 1:
             raise ValueError(
-                f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}"
+                f"`dual_step` expected a scalar `c_val`, got shape {c_val.shape}"
             )
         self._dual_vars[i].add_(c_val.detach(), alpha=self.dual_lr)
 
+        # check dual bound
         if self._dual_vars[i] >= self.dual_bound:
             self._dual_vars[i].zero_()
         
-        if not self._joint_backward:
+        if not self._implicit_backward:
             # save constraint grad
-            for group in self.param_groups:
-                params: list[Tensor] = []
-                grads: list[Tensor] = []
-                l_term_grads: list[Tensor] = []
-                aug_term_grads: list[Tensor] = []
-                smoothing: list[Tensor] = []
-                exp_avgs: list[Tensor] = []
-                exp_avg_sqs: list[Tensor] = []
-                max_exp_avg_sqs: list[Tensor] = []
-                state_steps: list[Tensor] = []
-                _ = self._init_group(
-                    group,
-                    params,
-                    grads,
-                    l_term_grads,
-                    aug_term_grads,
-                    exp_avgs,
-                    exp_avg_sqs,
-                    max_exp_avg_sqs,
-                    state_steps,
-                    smoothing,
-                )
-                for p_i, p in enumerate(params):
-                    if p.grad is None:
-                        continue
-                    l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
-                    aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
+            self._save_param_grads(i, c_val)
         else:
             return self._dual_vars[i]
 
-    @_use_grad_for_differentiable
-    def step(self, c_val: Union[Iterable | Tensor] = None):
+    def step(self, loss: torch.Tensor = None, constraints: Tensor = None):
         r"""Perform an update of the primal parameters (network weights & slack variables). To be called AFTER :func:`dual_step` in an iteration!
 
         Args:
-            c_val (Tensor): DEPRECATED! An Iterable of estimates of values of **ALL** constraints; used for primal parameter update.
-                Ideally, must be evaluated on an independent sample from the one used in :func:`dual_step`
+            constraints (Tensor): A Tensor of estimates of values of **ALL** constraints; used for primal parameter update.
         """
 
+        if self._implicit_backward:
+            L = lagrangian(loss, constraints, self._dual_vars, self.rho)
+            L.backward()
+        
         for group in self.param_groups:
             params: list[Tensor] = []
             grads: list[Tensor] = []
@@ -250,6 +225,10 @@ class SSLALM_Adam(Optimizer):
             state_steps: list[Tensor] = []
             lr = group["lr"]
             amsgrad = group["amsgrad"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            mu = group["mu"]
+            smoothing_beta = group["smoothing_beta"]
 
             _ = self._init_group(
                 group,
@@ -264,53 +243,90 @@ class SSLALM_Adam(Optimizer):
                 smoothing,
             )
 
-            for i, param in enumerate(params):
-                if self._joint_backward:
-                    G_i = grads[i].add_(param - smoothing[i], alpha=self.mu)
-                else:
-                    G_i = torch.zeros_like(param, memory_format=torch.preserve_format)
-                    G_i.add_(grads[i]).add_(l_term_grads[i]).add_(
+            self.modified_adam(params, grads, l_term_grads, aug_term_grads, smoothing, mu, smoothing_beta, beta1, beta2, eps, exp_avgs, exp_avg_sqs, max_exp_avg_sqs, state_steps, lr, amsgrad)
+        
+        if self._implicit_backward:
+            self.zero_grad()
+
+
+    @_use_grad_for_differentiable
+    def modified_adam(self, params, grads, l_term_grads, aug_term_grads, smoothing, mu, smoothing_beta, beta1, beta2, eps, exp_avgs, exp_avg_sqs, max_exp_avg_sqs, state_steps, lr, amsgrad):
+        for i, param in enumerate(params):
+            if self._implicit_backward:
+                G_i = grads[i].add_(param - smoothing[i], alpha=mu)
+            else:
+                G_i = torch.zeros_like(param, memory_format=torch.preserve_format)
+                G_i.add_(grads[i]).add_(l_term_grads[i]).add_(
                         aug_term_grads[i], alpha=self.rho
-                    ).add_(param - smoothing[i], alpha=self.mu)
+                    ).add_(param - smoothing[i], alpha=mu)
 
-                    l_term_grads[i].zero_()
-                    aug_term_grads[i].zero_()
+                l_term_grads[i].zero_()
+                aug_term_grads[i].zero_()
 
-                exp_avg = exp_avgs[i]
-                exp_avg_sq = exp_avg_sqs[i]
-                step_t = state_steps[i]
-                step_t += 1
-                beta1, beta2 = self.beta1, self.beta2
-                eps = self.eps
+            exp_avg = exp_avgs[i]
+            exp_avg_sq = exp_avg_sqs[i]
+            step_t = state_steps[i]
+            step_t += 1
 
-                exp_avg.lerp_(G_i, 1 - beta1)
-                exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
+            exp_avg.lerp_(G_i, 1 - beta1)
+            exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
 
-                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
-                    param, alpha=self.beta
+            smoothing[i].add_(smoothing[i], alpha=-smoothing_beta).add_(
+                    param, alpha=smoothing_beta
                 )
 
-                bias_correction1 = 1 - beta1**step_t
-                bias_correction2 = 1 - beta2**step_t
+            bias_correction1 = 1 - beta1**step_t
+            bias_correction2 = 1 - beta2**step_t
 
-                step_size = lr / bias_correction1
+            step_size = lr / bias_correction1
 
-                bias_correction2_sqrt = bias_correction2**0.5
+            bias_correction2_sqrt = bias_correction2**0.5
 
-                if amsgrad:
-                    # Maintains the maximum of all 2nd moment running avg. till now
-                    torch.maximum(
+            if amsgrad:
+                # Maintains the maximum of all 2nd moment running avg. till now
+                torch.maximum(
                         max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i]
                     )
 
-                    # Use the max. for normalizing running avg. of gradient
-                    denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(
+                # Use the max. for normalizing running avg. of gradient
+                denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(
                         eps
                     )
-                else:
-                    denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+            else:
+                denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
 
-                param.addcdiv_(exp_avg, denom, value=-step_size)
+            param.addcdiv_(exp_avg, denom, value=-step_size)
 
-                ## PROJECT (keep in mind we do layer by layer)
-                ## add slack variables to params in constructor?
+
+    def _save_param_grads(self, i, c_val):
+        for group in self.param_groups:
+            params: list[Tensor] = []
+            grads: list[Tensor] = []
+            l_term_grads: list[Tensor] = []
+            aug_term_grads: list[Tensor] = []
+            smoothing: list[Tensor] = []
+            exp_avgs: list[Tensor] = []
+            exp_avg_sqs: list[Tensor] = []
+            max_exp_avg_sqs: list[Tensor] = []
+            state_steps: list[Tensor] = []
+            _ = self._init_group(
+                    group,
+                    params,
+                    grads,
+                    l_term_grads,
+                    aug_term_grads,
+                    exp_avgs,
+                    exp_avg_sqs,
+                    max_exp_avg_sqs,
+                    state_steps,
+                    smoothing,
+                )
+            for p_i, p in enumerate(params):
+                if p.grad is None:
+                    continue
+                l_term_grads[p_i].add_(p.grad, alpha=self._dual_vars[i].item())
+                aug_term_grads[p_i].add_(p.grad, alpha=c_val.item())
+
+
+def lagrangian(loss: torch.Tensor, constraints: torch.Tensor, dual_vars: torch.Tensor, rho: float):
+    return loss + dual_vars @ constraints + 0.5*rho*torch.square(torch.linalg.norm(constraints, ord=2))
