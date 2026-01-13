@@ -70,6 +70,7 @@ class SSLALM_Adam(Optimizer):
         super().__init__(params, defaults)
 
         self.m = m
+        self._constraints = []
         self.dual_lr = dual_lr
         self.dual_bound = dual_bound
         self.rho = rho
@@ -184,7 +185,6 @@ class SSLALM_Adam(Optimizer):
             i (int): index of the constraint
             c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
         """
-
         # update dual multipliers
         if c_val.numel() != 1:
             raise ValueError(
@@ -200,9 +200,13 @@ class SSLALM_Adam(Optimizer):
             # save constraint grad
             self._save_param_grads(i, c_val)
         else:
-            return self._dual_vars[i]
+            # save constraint values
+            if c_val.ndim == 0:
+                self._constraints.append(c_val.unsqueeze(0))
+            else:
+                self._constraints.append(c_val)
 
-    def step(self, loss: torch.Tensor = None, constraints: Tensor = None):
+    def step(self, loss: torch.Tensor, constraints: Tensor = None):
         r"""Perform an update of the primal parameters (network weights & slack variables). To be called AFTER :func:`dual_step` in an iteration!
 
         Args:
@@ -210,6 +214,9 @@ class SSLALM_Adam(Optimizer):
         """
 
         if self._implicit_backward:
+            if constraints is None:
+                constraints = torch.cat(self._constraints)
+
             L = lagrangian(loss, constraints, self._dual_vars, self.rho)
             L.backward()
         
@@ -247,6 +254,7 @@ class SSLALM_Adam(Optimizer):
         
         if self._implicit_backward:
             self.zero_grad()
+            self._constraints = []
 
 
     @_use_grad_for_differentiable
