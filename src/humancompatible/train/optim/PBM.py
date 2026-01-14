@@ -31,6 +31,8 @@ class PBM(Optimizer):
         epoch_len=None,
         penalty_update_m='ALM', # p parameter
         p_lb = 0.1,
+        duals_lb = 0.0001,
+        warm_start = 0, # number of epochs to warm start - no constraints included
         device="cpu",
         eps: float = 1e-8,
         amsgrad: bool = False,
@@ -75,6 +77,7 @@ class PBM(Optimizer):
         self.m = m
         self.device = device
         self.rho = rho
+        self.duals_lb = duals_lb
         self.beta = beta
         self.beta1 = beta1
         self.beta2 = beta2
@@ -84,6 +87,7 @@ class PBM(Optimizer):
         self.c_vals: list[Union[float, Tensor]] = []
         self._c_val_average = [None]
         self.eps = eps
+        self.warm_start = warm_start
         self.iter = 0
         self.init_dual = init_dual
         self._dual_vars = torch.ones(m, requires_grad=False, device=device) * init_dual
@@ -244,6 +248,10 @@ class PBM(Optimizer):
                 f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}"
             )
         
+        # check for warm start - no condition for n epochs
+        if self.iter // self.epoch_len < self.warm_start:
+            return # do nothing on duals before the warm start
+
         # --------------------------------
 
         # sub variable for computing grad wrt to the input to the penalty/ barrier
@@ -262,8 +270,8 @@ class PBM(Optimizer):
         self.update_p_method(i, self._dual_vars[i])
 
         # safe-guarding 
-        if self._dual_vars[i] <= 0.0001:
-            self._dual_vars[i] = 0.0001
+        if self._dual_vars[i] <= self.duals_lb:
+            self._dual_vars[i] = self.duals_lb
         if self._dual_vars[i] >= 10.0:
             self._dual_vars[i] = 10.0
 
@@ -283,8 +291,11 @@ class PBM(Optimizer):
 
         with torch.enable_grad():
             
-            # define the augmented F and backpropagate
-            F_loss = loss_v + self._dual_vars @ self.constraints
+            if self.iter // self.epoch_len < self.warm_start: # warmstart - just the objective
+                F_loss = loss_v
+            else: 
+                # define the augmented F and backpropagate
+                F_loss = loss_v + self._dual_vars @ self.constraints
         
             # backpropagate
             F_loss.backward()
@@ -318,7 +329,12 @@ class PBM(Optimizer):
                 
                 # grads is the sum of gradient of the obj + linear comb. of the constraints + add the smoothing term
                 G_i = torch.zeros_like(param)
-                G_i.add_(grads[i]).add_(param - smoothing[i], alpha=self.mu)
+
+                # check for warm start - no condition for n epochs
+                if self.iter // self.epoch_len < self.warm_start:
+                    G_i.add_(grads[i])     # no ALM - just objective 
+                else: 
+                    G_i.add_(grads[i]).add_(param - smoothing[i], alpha=self.mu)
 
                 # G_i.add_(grads[i]).add_(l_term_grads[i]).add_(param - smoothing[i], alpha=self.mu)
                 # G_i.add_(grads[i]).add_(l_term_grads[i]) # objective + lagrangian part

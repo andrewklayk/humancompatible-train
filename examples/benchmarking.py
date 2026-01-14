@@ -15,13 +15,13 @@ Helper functions for benchmarking notebook
 """
 
 def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_class_f, test_network_f, device, classes_arr, fair_crit_bound, print_n, method='unconstrained',
-                        model_params=None):
+                        model_params=None, init_weights=None):
 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
 
     # create the network
-    net = network_achitecture()
+    net = network_achitecture(init_weights, num_classes=len(classes_arr))
     net.to(device)
 
     # define the loss function and the 
@@ -57,8 +57,10 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
         dual_beta = model_params['dual_beta']
         mu = model_params['mu']
         penalty = model_params['penalty']
+        init_dual = model_params['init_dual']
+        warm_start = model_params['warm_start']
         optimizer = PBM(params=net.parameters(), m=num_constraints, lr=lr, dual_beta=dual_beta, mu=mu, 
-                epoch_len=len(trainloader), init_dual=0.01, penalty_update_m='CONST', p_lb=0.1,
+                epoch_len=len(trainloader), init_dual=init_dual, penalty_update_m='CONST', p_lb=0.1, warm_start=warm_start,
                 barrier=penalty, device=device)
     else: 
         raise ValueError("No such method available!")
