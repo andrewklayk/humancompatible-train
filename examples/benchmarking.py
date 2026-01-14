@@ -30,6 +30,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
     # define number of constraints of the demographic parity
     num_constraints = len(classes_arr) * (len(classes_arr)-1)
 
+    # set the model parameters based on the optimizer
     if method == "unconstrained":
         lr = model_params['lr']
         optimizer = optim.Adam(net.parameters(), lr=lr)
@@ -134,7 +135,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 max_c = torch.zeros(1, device=device)
 
             if method == 'ssl-alm':
-                constraints = torch.zeros(num_constraints)
+                constraints = torch.zeros(num_constraints, device=device)
 
             # compute the demographic parity
             c_log.append([])
@@ -226,7 +227,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 accuracy_per_class_plotting_t += [ copy.deepcopy(acc_pergroup_t) ]
 
                 # print of the dual variables
-                if method != 'ssw' or method != 'unconstrained':
+                if method != 'ssw' and method != 'unconstrained':
                     str_dual_print = f"dual: {np.mean(duals_log, axis=0)}"
                 else: 
                     str_dual_print = ""
