@@ -386,8 +386,8 @@ class PBM(Optimizer):
             # update p
             self.iter += 1
 
-            # clean the gradients
-            self.zero_grad()
-            self.constraints = torch.zeros(self.m, device=self.device)
+        # clean the gradients
+        self.zero_grad()
+        self.constraints = torch.zeros(self.m, device=self.device)
 
 
