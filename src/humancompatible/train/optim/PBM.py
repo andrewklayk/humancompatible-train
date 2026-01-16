@@ -44,8 +44,6 @@ class PBM(Optimizer):
         
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
             raise ValueError("Tensor lr must be 1-element")
-        if epoch_len == None:
-            raise ValueError("Epoch length not defined!")
 
         if differentiable:
             raise NotImplementedError("TorchSSLALM does not support differentiable")
@@ -73,6 +71,10 @@ class PBM(Optimizer):
         elif barrier == 'quadratic_reciprocal':
             self.barrier = Barrier.quadratic_reciprocal_penalty
 
+        if (penalty_update_m == "DIMINISH" or warm_start) and epoch_len is None:
+            raise ValueError(f"Diminishing penalty update requires {epoch_len} to be defined")
+        self.epoch_len = epoch_len
+
         # set the optimizer parameters
         self.m = m
         self.device = device
@@ -92,7 +94,6 @@ class PBM(Optimizer):
         self.init_dual = init_dual
         self._dual_vars = torch.ones(m, requires_grad=False, device=device) * init_dual
         self.p = torch.ones(m, requires_grad=False, device=device)
-        self.epoch_len = epoch_len
         self.constraints = torch.zeros(m, device=device) # array of current constraint values
 
         # set the defined penalty update method
@@ -249,7 +250,7 @@ class PBM(Optimizer):
             )
         
         # check for warm start - no condition for n epochs
-        if self.iter // self.epoch_len < self.warm_start:
+        if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start:
             return # do nothing on duals before the warm start
 
         # --------------------------------
@@ -291,7 +292,7 @@ class PBM(Optimizer):
 
         with torch.enable_grad():
             
-            if self.iter // self.epoch_len < self.warm_start: # warmstart - just the objective
+            if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start: # warmstart - just the objective
                 F_loss = loss_v
             else: 
                 # define the augmented F and backpropagate
@@ -331,7 +332,7 @@ class PBM(Optimizer):
                 G_i = torch.zeros_like(param)
 
                 # check for warm start - no condition for n epochs
-                if self.iter // self.epoch_len < self.warm_start:
+                if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start:
                     G_i.add_(grads[i])     # no ALM - just objective 
                 else: 
                     G_i.add_(grads[i]).add_(param - smoothing[i], alpha=self.mu)
