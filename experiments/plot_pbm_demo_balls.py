@@ -1,3 +1,4 @@
+from matplotlib.patches import Circle
 import torch
 from humancompatible.train.optim.PBM import PBM
 
@@ -91,7 +92,7 @@ def plot_balls_trajectory(trajectory):
     x = np.linspace(-4, 4, 100)
     y = np.linspace(-2.5, 2.5, 100)
     X, Y = np.meshgrid(x, y)
-    Z = X*2 + Y*2
+    Z = X**2 + Y**2
 
     contour = ax.contourf(X, Y, Z, levels=100, cmap='viridis', alpha=0.5, zorder=0)
     plt.colorbar(contour, ax=ax, label=r'$x^2 + y^2$')
@@ -110,30 +111,30 @@ def plot_balls_trajectory(trajectory):
 
 
 def balls(x, sample):
-    g1 = ((x[0] - 2 + sample)*2 + x[1]*2 - 1)
-    g2 = ((x[0] + 2 + sample)*2 + x[1]*2 - 1)
-    # g1 = ((x[0] - 2)*2 + x[1]*2 - 1) + sample
-    # g2 = ((x[0] + 2)*2 + x[1]*2 - 1) + sample
+    g1 = ((x[0] - 2 + sample)**2 + x[1]**2 - 1)
+    g2 = ((x[0] + 2 + sample)**2 + x[1]**2 - 1)
+    # g1 = ((x[0] - 2)**2 + x[1]**2 - 1) + sample
+    # g2 = ((x[0] + 2)**2 + x[1]**2 - 1) + sample
     if g1 <= g2:
         return g1
     else:
         return g2
 
 def parabola(x):
-    return x[0]*2 + x[1]*2
+    return x[0]**2 + x[1]**2
 
 xy = torch.nn.Parameter(data=torch.ones(2, requires_grad=True))
 with torch.no_grad():
     xy[0] = 0
     xy[1] = 1
 
-pbm = PBM([xy], m=1, lr=0.1, dual_bounds=(1e-3, 1e6), penalty_update_m='DIMINISH', epoch_len=2, mu=0)
+pbm = PBM([xy], m=1, lr=0.05, dual_bounds=(1e-3, 1e3), penalty_update_m='DIMINISH', epoch_len=2, mu=0)
 
 samples = [
-    # torch.tensor([0]),
-    # torch.tensor([0])
-    torch.tensor([-0.1]),
-    torch.tensor([0.1])
+    torch.tensor([0]),
+    torch.tensor([0])
+    # torch.tensor([-0.1]),
+    # torch.tensor([0.1])
 ]
 
 
@@ -152,9 +153,7 @@ for i in range(iters):
     
     minibatch = samples[i % 2]
     
-    c = balls(xy, minibatch) #+ minibatch
-    c_grad = torch.autograd.grad(c, xy)
-    c_grad_log.append(c_grad[0].detach().numpy())
+    c = balls(xy, minibatch)
     
     pbm.dual_step(0, c)
     dual_log.append(pbm._dual_vars.detach().numpy().copy().item())
@@ -162,8 +161,10 @@ for i in range(iters):
     obj = parabola(xy)
 
     pbm.step(obj)
+    for gr in pbm.param_groups:
+        gr['lr'] *= 0.95
 
-    con_log.append(c.detach().numpy().copy().item())# - minibatch)
+    con_log.append(c.detach().numpy().copy().item())
 
 
 # print(param_log)
