@@ -20,7 +20,7 @@ import sys, os
 from humancompatible.train.optim import SSLALM_Adam
 import sys, os
 from humancompatible.train.optim.PBM import PBM
-
+import time
 
 def plot_losses_and_constraints_stochastic(
     train_losses_list,
@@ -594,8 +594,18 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_tra
 
     losses_log = np.zeros((len(seeds), n_epochs))
     constraints_log = np.zeros((len(seeds), n_epochs, n_constraints))
+    times_cur = []
     for idx, seed in enumerate(seeds):
+
+        # time the method
+        start = time.time()
+
         losses_cur, constraints_cur = method_f(seed, n_epochs, dataloader, features_train, threshold)
+    
+        # save the timing per epoch
+        end = time.time()
+        times_cur.append([(end-start)/n_epochs])
+
         losses_log[idx] = losses_cur
         constraints_log[idx] = constraints_cur
 
@@ -603,15 +613,17 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_tra
     constraints = list(np.load(savepath)["constraints"])
     losses_std = list(np.load(savepath)["losses_std"])
     constraints_std = list(np.load(savepath)["constraints_std"])
+    times = list(np.load(savepath)['times'])
 
     # append
     losses += [losses_log.mean(axis=0)]
     constraints += [constraints_log.mean(axis=0).T]
     losses_std += [losses_log.std(axis=0)]
     constraints_std += [constraints_log.std(axis=0).T]
+    times += [np.array(times_cur).mean()]
 
     # save the computed data
-    np.savez(savepath, losses=losses, constraints=constraints, losses_std=losses_std, constraints_std=constraints_std)
+    np.savez(savepath, losses=losses, constraints=constraints, losses_std=losses_std, constraints_std=constraints_std, times=times)
 
 
 if __name__ == '__main__':
@@ -636,7 +648,8 @@ if __name__ == '__main__':
         losses=[],
         constraints=[],
         losses_std=[],
-        constraints_std=[]
+        constraints_std=[],
+        times=[]
     )
 
     # benchmark adam
@@ -660,6 +673,8 @@ if __name__ == '__main__':
     constraints = list(np.load(log_path)["constraints"])
     losses_std = list(np.load(log_path)["losses_std"])
     constraints_std = list(np.load(log_path)["constraints_std"])
+
+    print('times:', list(np.load(log_path)["times"]))
 
     plot_losses_and_constraints_stochastic(
     losses,

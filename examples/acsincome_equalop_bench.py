@@ -24,6 +24,7 @@ from humancompatible.train.fairness.utils import BalancedBatchSampler
 import numpy as np
 import matplotlib.pyplot as plt
 from itertools import product
+import time
 
 def plot_losses_and_constraints_stochastic(
     train_losses_list,
@@ -324,19 +325,39 @@ def load_data():
 
     dataloader_train, dataloader_test, features_train
 
-def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_train, threshold, method_f):
+def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, dataloader_test, features_train, threshold, method_f):
 
     losses_log = np.zeros((len(seeds), n_epochs))
     constraints_log = np.zeros((len(seeds), n_epochs, n_constraints))
+    losses_log_t = np.zeros((len(seeds), n_epochs))
+    constraints_log_t = np.zeros((len(seeds), n_epochs, n_constraints))
+    times_cur = []
     for idx, seed in enumerate(seeds):
-        losses_cur, constraints_cur = method_f(seed, n_epochs, dataloader, features_train, threshold)
+
+        # time the method
+        start = time.time()
+
+        losses_cur, constraints_cur, losses_cur_t, constraints_cur_t = method_f(seed, n_epochs, dataloader_train, dataloader_test, features_train, threshold)
+
+        # save the timing per epoch
+        end = time.time()
+        times_cur.append([(end-start)/n_epochs])
+
         losses_log[idx] = losses_cur
         constraints_log[idx] = constraints_cur
+
+        losses_log_t[idx] = losses_cur_t
+        constraints_log_t[idx] = constraints_cur_t
 
     losses = list(np.load(savepath)["losses"])
     constraints = list(np.load(savepath)["constraints"])
     losses_std = list(np.load(savepath)["losses_std"])
     constraints_std = list(np.load(savepath)["constraints_std"])
+    losses_t = list(np.load(savepath)["losses_t"])
+    constraints_t = list(np.load(savepath)["constraints_t"])
+    losses_std_t = list(np.load(savepath)["losses_std_t"])
+    constraints_std_t = list(np.load(savepath)["constraints_std_t"])
+    times = list(np.load(savepath)['times'])
 
     # append
     losses += [losses_log.mean(axis=0)]
@@ -344,8 +365,15 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_tra
     losses_std += [losses_log.std(axis=0)]
     constraints_std += [constraints_log.std(axis=0).T]
 
+    losses_t += [losses_log_t.mean(axis=0)]
+    constraints_t += [constraints_log_t.mean(axis=0).T]
+    losses_std_t += [losses_log_t.std(axis=0)]
+    constraints_std_t += [constraints_log_t.std(axis=0).T]
+    times += [np.array(times_cur).mean()]
+
     # save the computed data
-    np.savez(savepath, losses=losses, constraints=constraints, losses_std=losses_std, constraints_std=constraints_std)
+    np.savez(savepath, losses=losses, constraints=constraints, losses_std=losses_std, constraints_std=constraints_std,
+             losses_t=losses_t, constraints_t=constraints_t, losses_std_t=losses_std_t, constraints_std_t=constraints_std_t, times=times)
 
 
 if __name__ == '__main__':
@@ -374,7 +402,8 @@ if __name__ == '__main__':
         losses_t=[],
         constraints_t=[],
         losses_std_t=[],
-        constraints_std_t=[]
+        constraints_std_t=[],
+        times=[]
     )
 
     # benchmark adam
