@@ -31,7 +31,7 @@ class PBM(Optimizer):
         epoch_len=None,
         penalty_update_m='ALM', # p parameter
         p_lb = 0.1,
-        duals_lb = 0.0001,
+        dual_bounds = (1e-4, 10),
         warm_start = 0, # number of epochs to warm start - no constraints included
         device="cpu",
         eps: float = 1e-8,
@@ -72,14 +72,14 @@ class PBM(Optimizer):
             self.barrier = Barrier.quadratic_reciprocal_penalty
 
         if (penalty_update_m == "DIMINISH" or warm_start) and epoch_len is None:
-            raise ValueError(f"Diminishing penalty update requires {epoch_len} to be defined")
+            raise ValueError(f"Diminishing penalty update requires epoch_len to be defined")
         self.epoch_len = epoch_len
 
         # set the optimizer parameters
         self.m = m
         self.device = device
         self.rho = rho
-        self.duals_lb = duals_lb
+        self.dual_bounds = dual_bounds
         self.beta = beta
         self.beta1 = beta1
         self.beta2 = beta2
@@ -271,10 +271,10 @@ class PBM(Optimizer):
         self.update_p_method(i, self._dual_vars[i])
 
         # safe-guarding 
-        if self._dual_vars[i] <= self.duals_lb:
-            self._dual_vars[i] = self.duals_lb
-        if self._dual_vars[i] >= 10.0:
-            self._dual_vars[i] = 10.0
+        if self._dual_vars[i] <= self.dual_bounds[0]:
+            self._dual_vars[i] = self.dual_bounds[0]
+        if self._dual_vars[i] >= self.dual_bounds[1]:
+            self._dual_vars[i] = self.dual_bounds[1]
 
         # compute the barrier/penalty of the output of NN  
         phi_constr = self.p[i].item() * self.barrier(c_val / self.p[i].item())
@@ -342,46 +342,46 @@ class PBM(Optimizer):
                 # G_i.add_(grads[i])     # no ALM - just objective 
 
                 # update the smooting term
-                smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
-                    param, alpha=self.beta
-                )
+                # smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                #     param, alpha=self.beta
+                # )
 
-                # compute the adam moments
-                exp_avg = exp_avgs[i]
-                exp_avg_sq = exp_avg_sqs[i]
-                step_t = state_steps[i]
-                step_t += 1
-                beta1, beta2 = self.beta1, self.beta2
-                eps = self.eps
+                # # compute the adam moments
+                # exp_avg = exp_avgs[i]
+                # exp_avg_sq = exp_avg_sqs[i]
+                # step_t = state_steps[i]
+                # step_t += 1
+                # beta1, beta2 = self.beta1, self.beta2
+                # eps = self.eps
 
-                # moment1, moment2
-                exp_avg.lerp_(G_i, 1 - beta1)
-                exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
+                # # moment1, moment2
+                # exp_avg.lerp_(G_i, 1 - beta1)
+                # exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
 
-                # bias correction of adam
-                bias_correction1 = 1 - beta1**step_t
-                bias_correction2 = 1 - beta2**step_t
+                # # bias correction of adam
+                # bias_correction1 = 1 - beta1**step_t
+                # bias_correction2 = 1 - beta2**step_t
 
-                # compute the bias corrected moments
-                step_size = lr / bias_correction1
-                bias_correction2_sqrt = bias_correction2**0.5
+                # # compute the bias corrected moments
+                # step_size = lr / bias_correction1
+                # bias_correction2_sqrt = bias_correction2**0.5
 
-                if amsgrad:
-                    # Maintains the maximum of all 2nd moment running avg. till now
-                    torch.maximum(
-                        max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i]
-                    )
+                # if amsgrad:
+                #     # Maintains the maximum of all 2nd moment running avg. till now
+                #     torch.maximum(
+                #         max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i]
+                #     )
 
-                    # Use the max. for normalizing running avg. of gradient
-                    denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(
-                        eps
-                    )
-                else:
-                    denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+                #     # Use the max. for normalizing running avg. of gradient
+                #     denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(
+                #         eps
+                #     )
+                # else:
+                #     denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
 
-                # adam step
-                param.addcdiv_(exp_avg, denom, value=-step_size)
-                # param.add_(G_i, alpha=-lr)
+                # # adam step
+                # param.addcdiv_(exp_avg, denom, value=-step_size)
+                param.add_(G_i, alpha=-lr)
 
             # update p
             self.iter += 1
