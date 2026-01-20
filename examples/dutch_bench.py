@@ -872,7 +872,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 2
+    n_epochs = 30
     n_constraints = 306
     threshold = 0.1
     device = "cpu"

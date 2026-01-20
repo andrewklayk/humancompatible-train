@@ -128,13 +128,13 @@ with torch.no_grad():
     xy[0] = 0
     xy[1] = 1
 
-pbm = PBM([xy], m=1, lr=0.05, dual_bounds=(1e-3, 1e3), penalty_update_m='DIMINISH', epoch_len=2, mu=0, opt_method="SGD")
+pbm = PBM([xy], m=1, lr=0.01, dual_bounds=(1e-3, 1e3), penalty_update_m='CONST', epoch_len=2, mu=0, opt_method="SGD")
 
 samples = [
     # torch.tensor([0]),
     # torch.tensor([0])
-    torch.tensor([-0.1]),
-    torch.tensor([0.1])
+    torch.tensor([-0.2]),
+    torch.tensor([0.2])
 ]
 
 
@@ -178,6 +178,7 @@ plot_balls_trajectory(
     np.array(param_log)
 )
 
-print(np.array(dual_log))
+print(param_log)
+# print(np.array(dual_log))
+# print(np.array(con_log))
 print(np.array(con_log))
-print(np.array(c_grad_log))

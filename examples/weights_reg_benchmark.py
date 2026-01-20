@@ -629,7 +629,7 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_tra
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 2
+    n_epochs = 30
     n_constraints = 6
     threshold = 0.2
 

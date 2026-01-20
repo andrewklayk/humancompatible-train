@@ -402,7 +402,7 @@ def ssw(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, fai
         torch.nn.Linear(hsize2, 1),
     )
 
-    optimizer = SSG(params=model.parameters(), m=1, lr=0.1, dual_lr=0.05)
+    optimizer = SSG(params=model.parameters(), m=1, lr=0.01, dual_lr=0.05)
 
     # define epochs + loss function
     criterion = torch.nn.BCEWithLogitsLoss()
@@ -722,7 +722,7 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 6
+    n_epochs = 30
     n_constraints = 1
     threshold = 0.1
 
@@ -797,5 +797,5 @@ if __name__ == '__main__':
         std_multiplier=1,
         mode='train_test', # change this to 'train', to ignore the test=
         plot_time_instead_epochs=False,
-        save_path="./data/figs/ACSIncome_vector.pdf"
+        save_path="./data/figs/ACSIncome_vector_bench.pdf"
     )
