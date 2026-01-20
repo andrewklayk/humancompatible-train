@@ -757,13 +757,15 @@ if __name__ == '__main__':
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
     print('SSW DONE!!!')
 
-    # # benchmark sslalm
+    # benchmark sslalm
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
     print('SSLALM DONE!!!')
 
-    # # benchmark pbm
+    # benchmark pbm
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)
     print('PBM DONE!!!')
+
+    print('times:', list(np.load(log_path)["times"]))
 
     # PLOT 
     losses = list(np.load(log_path)["losses"])
