@@ -39,6 +39,7 @@ class PBM(Optimizer):
         *,
         init_dual = 0.1,
         differentiable: bool = False,
+        opt_method = 'ADAM',
         barrier='quadratic_logarithmic', # barrier method used on the constraint
     ):
         
@@ -58,7 +59,10 @@ class PBM(Optimizer):
         )
 
         super().__init__(params, defaults)
-        
+
+        if opt_method != 'ADAM' and opt_method != 'SGD':
+            raise ValueError(f"Opt. method needs to be either 'ADAM' or 'SGD'.")
+
         # set the barrier method
         if barrier == 'exponential':
             self.barrier = Barrier.exponential_penalty
@@ -92,6 +96,7 @@ class PBM(Optimizer):
         self.warm_start = warm_start
         self.iter = 0
         self.init_dual = init_dual
+        self.opt_method = opt_method
         self._dual_vars = torch.ones(m, requires_grad=False, device=device) * init_dual
         self.p = torch.ones(m, requires_grad=False, device=device)
         self.constraints = torch.zeros(m, device=device) # array of current constraint values
@@ -337,51 +342,57 @@ class PBM(Optimizer):
                 else: 
                     G_i.add_(grads[i]).add_(param - smoothing[i], alpha=self.mu)
 
-                # G_i.add_(grads[i]).add_(l_term_grads[i]).add_(param - smoothing[i], alpha=self.mu)
-                # G_i.add_(grads[i]).add_(l_term_grads[i]) # objective + lagrangian part
-                # G_i.add_(grads[i])     # no ALM - just objective 
+                if self.opt_method == 'ADAM':
 
-                # update the smooting term
-                # smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
-                #     param, alpha=self.beta
-                # )
+                    # update the smooting term
+                    smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                        param, alpha=self.beta
+                    )
 
-                # # compute the adam moments
-                # exp_avg = exp_avgs[i]
-                # exp_avg_sq = exp_avg_sqs[i]
-                # step_t = state_steps[i]
-                # step_t += 1
-                # beta1, beta2 = self.beta1, self.beta2
-                # eps = self.eps
+                    # compute the adam moments
+                    exp_avg = exp_avgs[i]
+                    exp_avg_sq = exp_avg_sqs[i]
+                    step_t = state_steps[i]
+                    step_t += 1
+                    beta1, beta2 = self.beta1, self.beta2
+                    eps = self.eps
 
-                # # moment1, moment2
-                # exp_avg.lerp_(G_i, 1 - beta1)
-                # exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
+                    # moment1, moment2
+                    exp_avg.lerp_(G_i, 1 - beta1)
+                    exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
 
-                # # bias correction of adam
-                # bias_correction1 = 1 - beta1**step_t
-                # bias_correction2 = 1 - beta2**step_t
+                    # bias correction of adam
+                    bias_correction1 = 1 - beta1**step_t
+                    bias_correction2 = 1 - beta2**step_t
 
-                # # compute the bias corrected moments
-                # step_size = lr / bias_correction1
-                # bias_correction2_sqrt = bias_correction2**0.5
+                    # compute the bias corrected moments
+                    step_size = lr / bias_correction1
+                    bias_correction2_sqrt = bias_correction2**0.5
 
-                # if amsgrad:
-                #     # Maintains the maximum of all 2nd moment running avg. till now
-                #     torch.maximum(
-                #         max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i]
-                #     )
+                    if amsgrad:
+                        # Maintains the maximum of all 2nd moment running avg. till now
+                        torch.maximum(
+                            max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i]
+                        )
 
-                #     # Use the max. for normalizing running avg. of gradient
-                #     denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(
-                #         eps
-                #     )
-                # else:
-                #     denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+                        # Use the max. for normalizing running avg. of gradient
+                        denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(
+                            eps
+                        )
+                    else:
+                        denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
 
-                # # adam step
-                # param.addcdiv_(exp_avg, denom, value=-step_size)
-                param.add_(G_i, alpha=-lr)
+                    # adam step
+                    param.addcdiv_(exp_avg, denom, value=-step_size)
+
+                elif self.opt_method == "SGD":
+                    
+                    # update the smooting term
+                    smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                        param, alpha=self.beta
+                    )
+                    
+                    param.add_(G_i, alpha=-lr)
 
             # update p
             self.iter += 1
