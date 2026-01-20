@@ -312,10 +312,10 @@ def load_data():
 
     # create a balanced sampling - needed for an unbiased gradient
     sampler = BalancedBatchSampler(
-        group_onehot=sens_train, batch_size=120, drop_last=True
+        group_onehot=sens_train, batch_size=30, drop_last=True
     )
     sampler_test = BalancedBatchSampler(
-        group_onehot=sens_test, batch_size=120, drop_last=True
+        group_onehot=sens_test, batch_size=30, drop_last=True
     )
 
     # create a dataloader from the sampler
@@ -386,7 +386,7 @@ def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, th
     )
 
     criterion = torch.nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.01)
 
     # alloc arrays for plotting
     adam_S_loss_log_plotting = []  # mean
@@ -730,7 +730,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     criterion = torch.nn.BCEWithLogitsLoss()
 
     # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, penalty_update_m='CONST', barrier="quadratic_logarithmic", epoch_len=len(dataloader))
-    optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.95, mu=0.1, 
+    optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.01, dual_beta=0.95, mu=0.1, 
                     penalty_update_m='DIMINISH', barrier="quadratic_logarithmic", epoch_len=len(dataloader_train))
 
     # alloc arrays for plotting
@@ -832,7 +832,7 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
 
         # save the timing per epoch
         end = time.time()
-        times_cur.append([(end-start)/n_epochs])
+        times_cur.append([(end-start)/(n_epochs-1)])
 
         losses_log[idx] = losses_cur
         constraints_log[idx] = constraints_cur

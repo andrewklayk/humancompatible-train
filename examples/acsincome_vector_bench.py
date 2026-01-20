@@ -684,7 +684,7 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
 
         # save the timing per epoch
         end = time.time()
-        times_cur.append([(end-start)/n_epochs])
+        times_cur.append([(end-start)/(n_epochs-1)])
 
         losses_log[idx] = losses_cur
         constraints_log[idx] = constraints_cur
@@ -722,7 +722,7 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 2
+    n_epochs = 6
     n_constraints = 1
     threshold = 0.1
 
