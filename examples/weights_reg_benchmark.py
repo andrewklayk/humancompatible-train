@@ -204,8 +204,6 @@ def plot_losses_and_constraints_stochastic(
 
 def load_data():
 
-    # load and prepare data
-
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
     acs_data = data_source.get_data(states=["VA"], download=True)
