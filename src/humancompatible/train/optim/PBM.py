@@ -29,7 +29,7 @@ class PBM(Optimizer):
         init_pi = 10.0,
         const_p = 1.0,
         epoch_len=None,
-        penalty_update_m='ALM', # p parameter
+        penalty_update_m='CONST', # p parameter
         p_lb = 0.1,
         dual_bounds = (1e-4, 10),
         warm_start = 0, # number of epochs to warm start - no constraints included
