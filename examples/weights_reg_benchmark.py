@@ -448,7 +448,7 @@ def sslalm(seed_n, n_epochs, dataloader, features_train, threshold):
     m = len(list(model.parameters()))
 
     # create the SSLALM optimizer
-    optimizer = SSLALM_Adam(params=model.parameters(), m=m, lr=0.001, dual_lr=0.1)
+    optimizer = SSLALM_Adam(params=model.parameters(), m=m, lr=0.01, dual_lr=0.1)
 
     # bounds for the constraints: norm of each weight matrix should be <= 1
     constraint_bounds = [threshold] * m
@@ -631,7 +631,7 @@ if __name__ == '__main__':
     # define the torch seed here
     n_epochs = 30
     n_constraints = 6
-    threshold = 0.2
+    threshold = 2.0
 
     # define seeds
     seeds = [1, 2, 3]
