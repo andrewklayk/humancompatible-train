@@ -710,7 +710,7 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
 
     return SSLALM_S_loss_log_plotting, SSLALM_S_c_log_plotting, t_loss_log_plotting, t_c_log_plotting
 
-def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
+def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold, dual_beta, mu):
 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
@@ -728,9 +728,8 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     # 5*6 constraint - per subgroup inequality + 2 per inequality
     number_of_constraints = 30
     criterion = torch.nn.BCEWithLogitsLoss()
-
     # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, penalty_update_m='CONST', barrier="quadratic_logarithmic", epoch_len=len(dataloader))
-    optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.95, mu=0.1, 
+    optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.001, dual_beta=dual_beta, mu=mu, 
                     penalty_update_m='DIMINISH', barrier="quadratic_logarithmic", epoch_len=len(dataloader_train))
 
     # alloc arrays for plotting
@@ -816,7 +815,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     
     return PBM_S_loss_log_plotting, PBM_S_c_log_plotting, t_loss_log_plotting, t_c_log_plotting
 
-def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, dataloader_test, features_train, threshold, method_f):
+def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, dataloader_test, features_train, threshold, dual_beta, mu, method_f):
 
     losses_log = np.zeros((len(seeds), n_epochs))
     constraints_log = np.zeros((len(seeds), n_epochs, n_constraints))
@@ -828,7 +827,7 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
         # time the method
         start = time.time()
 
-        losses_cur, constraints_cur, losses_cur_t, constraints_cur_t = method_f(seed, n_epochs, dataloader_train, dataloader_test, features_train, threshold)
+        losses_cur, constraints_cur, losses_cur_t, constraints_cur_t = method_f(seed, n_epochs, dataloader_train, dataloader_test, features_train, threshold, dual_beta, mu)
 
         # save the timing per epoch
         end = time.time()
@@ -872,48 +871,61 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 30
+    n_epochs = 20
     n_constraints = 30
     threshold = 0.1
 
     # define seeds
-    seeds = [1, 2, 3]
+    seeds = [1,2,3]
+
+    # define dual betas here
+    # dual_betas = [0.1, 0.3, 0.5, 0.7, 0.9]
+    dual_betas = [0.1, 0.3, 0.5, 0.7, 0.9, 0.0]
+    mus = [0.0, 0.1, 0.5, 1.0]
+    bench_beta = True
+    bench_mu = False
 
     # log path file
-    log_path = "./data/logs/log_benchmark_stochastic_2_bench.npz"
+    if bench_mu:
+        log_path = "./data/logs/log_benchmark_mu.npz"
+    if bench_beta:
+        log_path = "./data/logs/log_benchmark_beta.npz"
 
     # load data
     dataloader_train, dataloader_test, features_train = load_data()
 
     # resave to empty file
-    np.savez(
-    log_path,
-        losses=[],
-        constraints=[],
-        losses_std=[],
-        constraints_std=[],
-        losses_t=[],
-        constraints_t=[],
-        losses_std_t=[],
-        constraints_std_t=[],
-        times=[]
-    )
+    # np.savez(
+    # log_path,
+    #     losses=[],
+    #     constraints=[],
+    #     losses_std=[],
+    #     constraints_std=[],
+    #     losses_t=[],
+    #     constraints_t=[],
+    #     losses_std_t=[],
+    #     constraints_std_t=[],
+    #     times=[]
+    # )
 
-    # benchmark adam
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, adam)
-    print('ADAM DONE!!!')
+    titles = []
 
-    # benchmark ssw
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
-    print('SSW DONE!!!')
+    if bench_beta:
+        for dual_beta in dual_betas:
 
-    # # benchmark sslalm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
-    print('SSLALM DONE!!!')
+            if dual_beta == 0:
+                # # benchmark pbm
+                benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, dual_beta, 0.1, pbm)
+            print(f'{dual_beta} DONE')
+            titles.append([f"SPBM_gamma={dual_beta}"])
 
-    # # benchmark pbm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)
-    print('PBM DONE!!!')
+    if bench_mu:
+        for mu in mus:
+
+            # # benchmark pbm
+            benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, 0.95, mu, pbm)
+            print(f'{mu} DONE')
+            titles.append([f"SPBM_mu={mu}"])
 
     # PLOT 
     losses = list(np.load(log_path)["losses"])
@@ -927,25 +939,40 @@ if __name__ == '__main__':
 
     print('times:', list(np.load(log_path)["times"]))   
 
-    plot_losses_and_constraints_stochastic(
-        losses,
-        losses_std,
-        constraints,
-        constraints_std,
-        [threshold],
-        test_losses_list=losses_t,
-        test_losses_std_list=losses_std_t,
-        test_constraints_list=constraints_t,
-        test_constraints_std_list=constraints_std_t,
-        titles=[
-            "Unconstrained Adam",
-            "SSW",
-            "SSLALM",
-            "SPBM"
-        ],
-        log_constraints=False,
-        std_multiplier=1,
-        mode='train_test', # change this to 'train', to ignore the test=
-        plot_time_instead_epochs=False,
-        save_path="./data/figs/ACSIncome_equal_opportunity_bench.pdf"
-    )
+    if bench_beta:
+        plot_losses_and_constraints_stochastic(
+            losses,
+            losses_std,
+            constraints,
+            constraints_std,
+            [threshold],
+            test_losses_list=losses_t,
+            test_losses_std_list=losses_std_t,
+            test_constraints_list=constraints_t,
+            test_constraints_std_list=constraints_std_t,
+            titles=titles,
+            log_constraints=False,
+            std_multiplier=1,
+            mode='train_test', # change this to 'train', to ignore the test=
+            plot_time_instead_epochs=False,
+            save_path="./data/figs/dual_beta_bench.pdf"
+        )
+
+    else: 
+        plot_losses_and_constraints_stochastic(
+            losses,
+            losses_std,
+            constraints,
+            constraints_std,
+            [threshold],
+            test_losses_list=losses_t,
+            test_losses_std_list=losses_std_t,
+            test_constraints_list=constraints_t,
+            test_constraints_std_list=constraints_std_t,
+            titles=titles,
+            log_constraints=False,
+            std_multiplier=1,
+            mode='train_test', # change this to 'train', to ignore the test=
+            plot_time_instead_epochs=False,
+            save_path="./data/figs/mu_bench.pdf"
+        )
