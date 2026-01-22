@@ -42,3 +42,40 @@ def quadratic_reciprocal_penalty(t):
         return t + 0.5*torch.square(t) 
     else: 
         return (32/27) * (1/(1-t)) - 7/6
+
+# ---------------------------------------------
+
+def exponential_penalty_derivative(t):
+
+    return torch.exp(t) 
+
+def modified_log_barrier_derivative(t):
+
+    return 1 / (1-t)
+
+def augmented_lagrangian_derivative(t):
+    """
+    This penalty/barrier is equal to the standard augmented lagrangian multiplier method
+    """
+
+    if t >= -1:
+        return 1 + t
+
+    else: 
+        return t*0
+
+def quadratic_logarithmic_penalty_derivative(t):
+    
+    if t >= -0.5:
+        return 1 + t
+
+    else: 
+        return -1/(4*t)
+    
+
+def quadratic_reciprocal_penalty_derivative(t):
+
+    if t >= -1/3:
+        return 1 + t
+    else: 
+        return (32/27) * (1/torch.square(1-t))

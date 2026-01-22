@@ -585,7 +585,7 @@ def load_data(balanced=False):
         [transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    batch_size = 60
+    batch_size = 20
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                             download=True, transform=transform)
@@ -898,7 +898,6 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     dual_betas = [0.9]
     mus = [mu]
     init_duals = [0.01]
-    # penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
     penalties = ["quadratic_logarithmic"]
     warm_starts = [0]
 
@@ -922,18 +921,18 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 2
+    n_epochs = 4
     n_constraints = 90
     threshold = 0.1
     device = 'cpu'    
     # device = 'cuda:0'
-    bench_mus = True  # true to benchmark mus on cifar10 pbm
+    bench_mus = False  # true to benchmark mus on cifar10 pbm
 
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
 
     # define seeds
-    seeds = [1, 2]
+    seeds = [1]
 
 
     # log path file
@@ -980,7 +979,7 @@ if __name__ == '__main__':
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
         print('SSW DONE!!!')
 
-        # # benchmark sslalm
+        # benchmark sslalm
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
         print('SSLALM DONE!!!')
 

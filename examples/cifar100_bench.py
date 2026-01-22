@@ -924,8 +924,8 @@ if __name__ == '__main__':
 
     # define the torch seed here
     n_epochs = 2
-    n_constraints = 90
-    threshold = 0.1
+    n_constraints = 900
+    threshold = 0.5
     device = 'cpu'    
     # device = 'cuda:0'
     bench_mus = False  # true to benchmark mus on cifar10 pbm

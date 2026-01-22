@@ -41,6 +41,7 @@ class PBM(Optimizer):
         differentiable: bool = False,
         opt_method = 'ADAM',
         barrier='quadratic_logarithmic', # barrier method used on the constraint
+        use_autograd_for_phider=False # if phi should be computed using autograd or using a hardcoded function - hardcoded is known for our given phi
     ):
         
         if isinstance(lr, torch.Tensor) and lr.numel() != 1:
@@ -66,14 +67,28 @@ class PBM(Optimizer):
         # set the barrier method
         if barrier == 'exponential':
             self.barrier = Barrier.exponential_penalty
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.exponential_penalty_derivative
+
         elif barrier == 'modified_log':
             self.barrier = Barrier.modified_log_barrier
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.modified_log_barrier_derivative
+
         elif barrier == 'augmented_lagrangian':
             self.barrier = Barrier.augmented_lagrangian
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.augmented_lagrangian_derivative
+
         elif barrier == 'quadratic_logarithmic':
             self.barrier = Barrier.quadratic_logarithmic_penalty
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.quadratic_logarithmic_penalty_derivative
+
         elif barrier == 'quadratic_reciprocal':
             self.barrier = Barrier.quadratic_reciprocal_penalty
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.quadratic_reciprocal_penalty_derivative
 
         if (penalty_update_m == "DIMINISH" or warm_start) and epoch_len is None:
             raise ValueError(f"Diminishing penalty update requires epoch_len to be defined")
@@ -97,6 +112,7 @@ class PBM(Optimizer):
         self.iter = 0
         self.init_dual = init_dual
         self.opt_method = opt_method
+        self.use_autograd_for_phider = use_autograd_for_phider
         self._dual_vars = torch.ones(m, requires_grad=False, device=device) * init_dual
         self.p = torch.ones(m, requires_grad=False, device=device)
         self.constraints = torch.zeros(m, device=device) # array of current constraint values
@@ -260,16 +276,24 @@ class PBM(Optimizer):
 
         # --------------------------------
 
-        # sub variable for computing grad wrt to the input to the penalty/ barrier
-        t = torch.tensor(c_val.detach().item() , dtype=torch.float32, requires_grad=True, device=self._dual_vars.device)
-        t = t / self.p[i]
+        # compute the derivative of the barrier wrt using autograd
+        if self.use_autograd_for_phider:
+            # sub variable for computing grad wrt to the input to the penalty/ barrier
+            t = torch.tensor(c_val.detach().item() , dtype=torch.float32, requires_grad=True, device=self._dual_vars.device)
+            t = t / self.p[i]
 
-        # compute the grad wrt. to the sub_var
-        penalty_barrier_val = self.barrier(t)
-        dloss_dt = torch.autograd.grad(penalty_barrier_val, t, retain_graph=True)[0]        
+            # compute the grad wrt. to the sub_var
+            penalty_barrier_val = self.barrier(t)
+            dloss_dt = torch.autograd.grad(penalty_barrier_val, t, retain_graph=True)[0]        
+        
+        # compute the derivative of the barrier wrt using hardcoded function
+        else: 
+            t = torch.tensor(c_val.detach().item())
+            t = t / self.p[i]
+            dloss_dt = self.barrier_der(t)
+
 
         # update dual variables 
-        # self._dual_vars[i] = self._dual_vars[i] * dloss_dt # hard update
         self._dual_vars[i] = self.dual_beta * self._dual_vars[i]  +  (1 - self.dual_beta) * self._dual_vars[i] * dloss_dt # soft update
         
         # update penalty multiplier
