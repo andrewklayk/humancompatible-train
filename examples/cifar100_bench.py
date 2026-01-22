@@ -40,7 +40,7 @@ def plot_accuracy_per_epoch_std(
     titles=None,
     eval_points=1,
     train_test='Train',
-    save_path="./data/figs/cifar10_benchacc_",
+    save_path="./data/figs/cifar100_benchacc_",
 ):
     """
     Plots overall accuracy and accuracy per class per epoch (mean ± std).
@@ -153,8 +153,8 @@ def plot_accuracy_per_epoch_std(
         ax.legend(fontsize=9, loc="upper left")
 
     plt.tight_layout()
-    plt.savefig(save_path + train_test + ".pdf")
-    # plt.show()
+    # plt.savefig(save_path + train_test + ".pdf")
+    plt.show()
 
 
 def plot_accuracy_per_epoch(algorithms_data, titles=None, eval_points=1, train_test='Train',
@@ -259,6 +259,7 @@ def plot_accuracy_per_epoch(algorithms_data, titles=None, eval_points=1, train_t
     plt.show()
 
 
+
 def plot_losses_and_constraints_stochastic(
     train_losses_list,
     train_losses_std_list,
@@ -275,7 +276,7 @@ def plot_losses_and_constraints_stochastic(
     log_constraints=False,
     mode="train",  # "train" or "train_test"
     plot_time_instead_epochs=False,
-    save_path="./data/figs/cifar10_bench",
+    save_path="./data/figs/cifar100.pdf",
     constraints_min_max=True
 ):
     """
@@ -370,15 +371,11 @@ def plot_losses_and_constraints_stochastic(
                 ax.plot(x, c_max_v, lw=1.8, color=color, alpha=0.6, label=None)
                 ax.fill_between(x, c_min_v, c_max_v, color=color, alpha=0.2)
             else: 
-                ax.fill_between(x, c_min, c_max, color=color, alpha=0.1)
 
-                for idx_c, c_mean in enumerate(constraints):
-                    
-                    if idx_c == 0:
-                        label = titles[j]
-                    else: 
-                        label = None
-                        
+                ax.fill_between(x, c_min, c_max, color=color, alpha=0.1)
+                for i, c_mean in enumerate(constraints):
+
+                    label = titles[j] if i == 0 else None
                     ax.plot(x, c_mean, lw=1.8, color=color, alpha=0.3, label=label)
 
                     if eval_points is not None:
@@ -438,7 +435,7 @@ def plot_losses_and_constraints_stochastic(
 
     plt.tight_layout()
     plt.savefig(save_path)
-    plt.show()
+    # plt.show()
 
 def dict_to_array_classes_pergroup(dict_arr, classes):
 
@@ -585,18 +582,28 @@ def load_data(balanced=False):
         [transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    batch_size = 60
+    batch_size = 400
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+    trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
                                             download=True, transform=transform)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+    testset = torchvision.datasets.CIFAR100(root='./data', train=False,
                                         download=True, transform=transform)
-    
-    # make some parameters global
+
+    # Get class names for CIFAR-100
     global classes
-    classes = ('plane', 'car', 'bird', 'cat',
-            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+    classes = [
+        'apple', 'aquarium_fish', 'baby', 'bear', 'beaver', 'bed', 'bee', 'beetle', 'bicycle', 'bottle',
+        'bowl', 'boy', 'bridge', 'bus', 'butterfly', 'camel', 'can', 'castle', 'caterpillar', 'cattle',
+        'chair', 'chimpanzee', 'clock', 'cloud', 'cockroach', 'couch', 'crab', 'crocodile', 'cup', 'dinosaur',
+        'dolphin', 'elephant', 'flatfish', 'forest', 'fox', 'girl', 'hamster', 'house', 'kangaroo', 'keyboard',
+        'lamp', 'lawn_mower', 'leopard', 'lion', 'lizard', 'lobster', 'man', 'maple_tree', 'motorcycle', 'mountain',
+        'mouse', 'mushroom', 'oak_tree', 'orange', 'orchid', 'otter', 'palm_tree', 'pear', 'pickup_truck', 'pine_tree',
+        'plain', 'plate', 'poppy', 'porcupine', 'possum', 'rabbit', 'raccoon', 'ray', 'road', 'rocket',
+        'rose', 'sea', 'seal', 'shark', 'shrew', 'skunk', 'skyscraper', 'snail', 'snake', 'spider',
+        'squirrel', 'streetcar', 'sunflower', 'sweet_pepper', 'table', 'tank', 'telephone', 'television', 'tiger', 'tractor',
+        'train', 'trout', 'tulip', 'turtle', 'wardrobe', 'whale', 'willow_tree', 'wolf', 'woman', 'worm'
+    ]
 
     class_ind = {}
 
@@ -612,7 +619,7 @@ def load_data(balanced=False):
     targets = torch.tensor([item[1] for item in trainset])
 
     # create onehot vectors
-    groups_onehot = torch.eye(10)[targets]
+    groups_onehot = torch.eye(100)[targets]
 
     # create a train dataset
     dataset_train = torch.utils.data.TensorDataset(X, groups_onehot, targets)
@@ -631,7 +638,7 @@ def load_data(balanced=False):
     targets_test = torch.tensor([item[1] for item in testset])
 
     # create onehot vectors
-    groups_onehot_test = torch.eye(10)[targets_test]
+    groups_onehot_test = torch.eye(100)[targets_test]
 
     # create a train dataset
     dataset_test = torch.utils.data.TensorDataset(X_test, groups_onehot_test, targets_test)
@@ -640,26 +647,24 @@ def load_data(balanced=False):
     sampler = BalancedBatchSampler(
         group_onehot=groups_onehot_test, batch_size=batch_size, drop_last=True
     )
-
-    global testloader
+    global testloader   
     if balanced:
         testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler, num_workers=10)
-    else: 
+    else:
         testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, num_workers=10)
 
     # clean the memory of redundant variables
     del X, targets, groups_onehot
     del X_test, targets_test, groups_onehot_test
 
-
     return trainloader, testloader, classes, class_ind
 
-def loss_per_class_f(batch_outputs, batch_targets, network, criterion, num_classes=10):
+def loss_per_class_f(batch_outputs, batch_targets, network, criterion, num_classes=100):
     """
     Computes the constraint of a demographic parity - that is a loss between all groups
     """
 
-    losses_per_class = torch.zeros(10)
+    losses_per_class = torch.zeros(num_classes)
 
     # for each class compute a loss
     for class_number in range(0, num_classes):
@@ -726,14 +731,13 @@ def test_network(network):
             # compute the demographic parity constraints
             c_log.append([])
             constraint_k = 0
-            for group_i in range(0, 10):
-                for group_j in range(0, 10):
+            for group_i in range(0, 100):
+                for group_j in range(0, 100):
 
                     if group_i != group_j:
                         
                         # demographic parity between i,j
                         g = loss_per_class[group_i] - loss_per_class[group_j]
-                        # constr = g - fair_crit_bound
 
                         c_log[-1].append(g.detach().cpu().numpy())
                         constraint_k += 1
@@ -796,9 +800,7 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     print_n = len(trainloader)
 
     # define the params and the number of epochs 
-    n_epochs_fit = 2
-    # lrs =[0.001, 0.002, 0.003]
-    lrs =[0.003]
+    lrs =[0.001]
 
     # best 
     best_params = None
@@ -809,12 +811,11 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
             # set the model params
             best_params = {'lr': lr}
 
-
     # train the model on cifar dataset, with the best fit
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
     test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
     accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
-            cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='unconstrained', model_params=best_params)
+            cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='unconstrained', model_params=best_params, init_weights=init_weights)
 
     return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t
 
@@ -831,7 +832,7 @@ def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     print_n = len(trainloader)
 
     # define the params and the number of epochs 
-    lrs =[0.0013]    
+    lrs =[0.0008]    
     dual_lrs = [0.0008]
 
     # best 
@@ -863,7 +864,7 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     # define the length of the print
     print_n = len(trainloader)
 
-    lrs = [0.0008]
+    lrs = [0.0013]
     dual_lrs = [0.0008]
     mus = [0.1]
 
@@ -894,13 +895,13 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     # define the length of the print
     print_n = len(trainloader)
 
-    lrs =[0.003]
+    lrs =[0.0018]
     dual_betas = [0.9]
     mus = [mu]
-    init_duals = [0.01]
+    init_duals = [0.001]
     # penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
     penalties = ["quadratic_logarithmic"]
-    warm_starts = [0]
+    warm_starts = [2]
 
     for lr in lrs:
         for dual_beta in dual_betas:
@@ -927,7 +928,7 @@ if __name__ == '__main__':
     threshold = 0.1
     device = 'cpu'    
     # device = 'cuda:0'
-    bench_mus = True  # true to benchmark mus on cifar10 pbm
+    bench_mus = False  # true to benchmark mus on cifar10 pbm
 
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
@@ -938,9 +939,9 @@ if __name__ == '__main__':
 
     # log path file
     if bench_mus:
-        log_path = "./data/logs/cifar10_bench_mus.npz"
+        log_path = "./data/logs/cifar100_bench_mus.npz"
     else: 
-        log_path = "./data/logs/cifar10_bench.npz"
+        log_path = "./data/logs/cifar100_bench.npz"
 
 
     # load data
@@ -970,7 +971,7 @@ if __name__ == '__main__':
 
     if not bench_mus:
 
-        print('Starting cifar10 benchmark')
+        print('Starting cifar100 benchmark')
 
         # benchmark adam
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
@@ -1000,7 +1001,7 @@ if __name__ == '__main__':
         for mu in mus: 
             benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
             print(f'PBM {mu} DONE!!!')
-            titles.append(f"SPBM_mu={mu}")
+            titles.append( f"SPBM_mu={mu}")
 
 
     # PLOT 
@@ -1044,17 +1045,17 @@ if __name__ == '__main__':
             std_multiplier=1,
             mode='train_test', # change this to 'train', to ignore the test=
             plot_time_instead_epochs=False,
-            save_path="./data/figs/cifar10_bench.pdf"
+            save_path="./data/figs/cifar100_bench.pdf"
         )
         
         accuracy_per_group = array_to_dict_classes_pergroup_all(accuracy_per_group, classes)
         accuracy_per_group_std = array_to_dict_classes_pergroup_all(accuracy_per_group_std, classes)
         # plot_accuracy_per_epoch(accuracy_per_group, titles=["Unconstrained Adam", "SSW", "SSL-ALM", f"SPBM"], train_test='Train')
-        plot_accuracy_per_epoch_std(accuracy_per_group, accuracy_per_group_std, titles=["Unconstrained Adam", "SSW", "SSL-ALM", f"SPBM"], train_test='Train', save_path="./data/figs/cifar10_benchacc_")
+        plot_accuracy_per_epoch_std(accuracy_per_group, accuracy_per_group_std, titles=["Unconstrained Adam", "SSW", "SSL-ALM", f"SPBM"], train_test='Train', save_path="./data/figs/cifar100_benchacc_")
 
         accuracy_per_group_t = array_to_dict_classes_pergroup_all(accuracy_per_group_t, classes)
         accuracy_per_group_t_std = array_to_dict_classes_pergroup_all(accuracy_per_group_t_std, classes)
-        plot_accuracy_per_epoch_std(accuracy_per_group_t, accuracy_per_group_t_std, titles=["Unconstrained Adam", "SSW", "SSL-ALM", f"SPBM"], train_test='Test', save_path="./data/figs/cifar10_benchacc_")
+        plot_accuracy_per_epoch_std(accuracy_per_group_t, accuracy_per_group_t_std, titles=["Unconstrained Adam", "SSW", "SSL-ALM", f"SPBM"], train_test='Test', save_path="./data/figs/cifar100_benchacc_")
 
 
     else: 
@@ -1073,14 +1074,14 @@ if __name__ == '__main__':
             std_multiplier=1,
             mode='train_test', # change this to 'train', to ignore the test=
             plot_time_instead_epochs=False,
-            save_path="./data/figs/cifar10_mus_bench.pdf"
+            save_path="./data/figs/cifar100_mus_bench.pdf"
         )
 
         accuracy_per_group = array_to_dict_classes_pergroup_all(accuracy_per_group, classes)
         accuracy_per_group_std = array_to_dict_classes_pergroup_all(accuracy_per_group_std, classes)
         plot_accuracy_per_epoch(accuracy_per_group, titles=titles, train_test='Train')
-        plot_accuracy_per_epoch_std(accuracy_per_group, accuracy_per_group_std, titles=titles, train_test='Train', save_path="./data/figs/cifar10_mus_benchacc_")
+        plot_accuracy_per_epoch_std(accuracy_per_group, accuracy_per_group_std, titles=titles, train_test='Train', save_path="./data/figs/cifar100_mus_benchacc_")
 
         accuracy_per_group_t = array_to_dict_classes_pergroup_all(accuracy_per_group_t, classes)
         accuracy_per_group_t_std = array_to_dict_classes_pergroup_all(accuracy_per_group_t_std, classes)
-        plot_accuracy_per_epoch_std(accuracy_per_group_t, accuracy_per_group_t_std, titles=titles, train_test='Test', save_path="./data/figs/cifar10_mus_benchacc_")
+        plot_accuracy_per_epoch_std(accuracy_per_group_t, accuracy_per_group_t_std, titles=titles, train_test='Test', save_path="./data/figs/cifar100_mus_benchacc_")
