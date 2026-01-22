@@ -123,7 +123,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                     correct_pred_epoch[classes_arr[label]] += 1
                     
                 # save the number of samples per that group in the batch
-                total_pred_epoch[classes_arr[label]] += 1
+                total_pred_epoch[classes_arr[label]] += 1   
 
             ############################ BACKPROPAGATION ###########
 

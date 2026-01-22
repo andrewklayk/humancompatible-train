@@ -33,6 +33,7 @@ from benchmarking import cifar_train
 import copy
 import numpy as np
 import matplotlib.pyplot as plt
+from torchvision.models import resnet18
 
 def plot_accuracy_per_epoch_std(
     accuracy_mean,
@@ -582,7 +583,7 @@ def load_data(balanced=False):
         [transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    batch_size = 400
+    batch_size = 3600
 
     trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
                                             download=True, transform=transform)
@@ -789,7 +790,8 @@ class Net(nn.Module):
 
 def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
-    network_arch = Net
+    # define the network architecture for all classes here
+    network_arch = resnet18
 
     # define the criterion
     global criterion
@@ -815,14 +817,14 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
     test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
     accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
-            cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='unconstrained', model_params=best_params, init_weights=init_weights)
+            cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='unconstrained', model_params=best_params)
 
     return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t
 
 
 def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
-    network_arch = Net
+    network_arch = resnet18
 
     # define the criterion
     global criterion
@@ -855,7 +857,7 @@ def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
 def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
-    network_arch = Net
+    network_arch = resnet18
 
     # define the criterion
     global criterion
@@ -886,7 +888,7 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
 def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
 
-    network_arch = Net
+    network_arch = resnet18
 
     # define the criterion
     global criterion
@@ -923,18 +925,18 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 2
-    n_constraints = 900
+    n_epochs = 5
+    n_constraints = 9900
     threshold = 0.5
-    device = 'cpu'    
-    # device = 'cuda:0'
+    # device = 'cpu'    
+    device = 'cuda:0'
     bench_mus = False  # true to benchmark mus on cifar10 pbm
-
+    print(torch.version.cuda)
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
 
     # define seeds
-    seeds = [1, 2]
+    seeds = [2, 2]
 
 
     # log path file
@@ -992,7 +994,7 @@ if __name__ == '__main__':
 
     else: 
 
-        print('Starting cifar10 mus benchmark')
+        print('Starting cifar100 mus benchmark')
 
         titles = []
         seeds = [1, 2, 3]
