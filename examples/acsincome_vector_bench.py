@@ -250,18 +250,12 @@ def load_data():
     groups = df_feat[sens_cols].to_numpy(dtype="float")
     labels = df_labels.to_numpy(dtype="float")
 
-    print(sens_cols)
-    print(features.shape)
-    print(groups.shape)
-    print(labels.shape)
-
     # set the same seed for fair comparisons
     torch.manual_seed(0)
 
-    # split
-    X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
-        features, labels, groups, test_size=0.2, random_state=42
-    )
+    X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(features, labels, groups, 
+                                                                                   test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(X_train, y_train, groups_train, test_size=0.25)
 
     # scale
     scaler = StandardScaler()
@@ -790,7 +784,7 @@ if __name__ == '__main__':
         titles=[
             "Unconstrained Adam",
             "SSW",
-            "SSLALM",
+            "SSL-ALM",
             "SPBM"
         ],
         log_constraints=False,

@@ -1036,7 +1036,7 @@ if __name__ == '__main__':
             titles=[
                 "Unconstrained Adam",
                 "SSW",
-                "SSLALM",
+                "SSL-ALM",
                 "SPBM"
             ],
             log_constraints=False,

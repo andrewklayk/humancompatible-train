@@ -4,8 +4,9 @@ import numpy as np
 from itertools import product
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GroupShuffleSplit
 
-def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_stats=True):
+def get_data_dutch(seed_n = 42, drop_small_groups=True, print_stats=True):
     """
     Loads the dutch dataset with the classification of predicting the income class.
     Sensitive features are [sex, age].
@@ -62,11 +63,10 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_sta
     for i, (s, m) in enumerate(product(sex_cols, np.array(range(0, num_age_groups)) + 4)):
         group_dict[i] = f"{s} + age_{m}"
 
-    # split
-    X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
-        df_features, df_labels, groups_onehot, test_size=test_size, random_state=seed_n
-    )
-
+    X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(df_features, df_labels, groups_onehot, 
+                                                                                   test_size=0.2, random_state=seed_n)
+    X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(X_train, y_train, groups_train, test_size=0.25)
+    
     # print the statistics
     if print_stats:
         print("Number of Samples per group: \n")
@@ -77,8 +77,9 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_sta
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
+    X_val = scaler.transform(X_val)
 
-    return X_train, X_test, y_train, y_test, groups_train, groups_test, group_dict
+    return X_train, X_test, X_val, y_train, y_test, y_val, groups_train, groups_test, groups_val, group_dict
 
 
 if __name__ == '__main__':

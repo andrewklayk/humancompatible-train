@@ -876,11 +876,13 @@ if __name__ == '__main__':
     threshold = 0.1
 
     # define seeds
-    seeds = [1,2,3]
+    # seeds = [1,2,3]
+    seeds = [1]
 
     # define dual betas here
     # dual_betas = [0.1, 0.3, 0.5, 0.7, 0.9]
-    dual_betas = [0.1, 0.3, 0.5, 0.7, 0.9, 0.0]
+    # dual_betas = [0.1, 0.3, 0.5, 0.7, 0.9, 0.0]
+    dual_betas = [0.0, 0.9]
     mus = [0.0, 0.1, 0.5, 1.0]
     bench_beta = True
     bench_mu = False
@@ -889,33 +891,32 @@ if __name__ == '__main__':
     if bench_mu:
         log_path = "./data/logs/log_benchmark_mu.npz"
     if bench_beta:
-        log_path = "./data/logs/log_benchmark_beta.npz"
+        log_path = "./data/logs/log_benchmark_beta2.npz"
 
     # load data
     dataloader_train, dataloader_test, features_train = load_data()
 
     # resave to empty file
-    # np.savez(
-    # log_path,
-    #     losses=[],
-    #     constraints=[],
-    #     losses_std=[],
-    #     constraints_std=[],
-    #     losses_t=[],
-    #     constraints_t=[],
-    #     losses_std_t=[],
-    #     constraints_std_t=[],
-    #     times=[]
-    # )
+    np.savez(
+    log_path,
+        losses=[],
+        constraints=[],
+        losses_std=[],
+        constraints_std=[],
+        losses_t=[],
+        constraints_t=[],
+        losses_std_t=[],
+        constraints_std_t=[],
+        times=[]
+    )
 
     titles = []
 
     if bench_beta:
         for dual_beta in dual_betas:
 
-            if dual_beta == 0:
-                # # benchmark pbm
-                benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, dual_beta, 0.1, pbm)
+            # # benchmark pbm
+            benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, dual_beta, 0.1, pbm)
             print(f'{dual_beta} DONE')
             titles.append([f"SPBM_gamma={dual_beta}"])
 

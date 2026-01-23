@@ -727,12 +727,12 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader,  dataloader_
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 5
+    n_epochs = 30
     n_constraints = 6
     threshold = 2.0
 
     # define seeds
-    seeds = [1, 2]
+    seeds = [1, 2, 3]
 
     # log path file
     log_path = "./data/logs/weights_reg_bench.npz"

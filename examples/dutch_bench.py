@@ -213,11 +213,11 @@ def load_data():
 
     # get the data
     X_train, X_test, X_val, y_train, y_test, y_val, groups_train, groups_test, groups_val, group_dict =\
-                                    get_data_dutch(test_size=0.4, seed_n = 42, drop_small_groups=True, print_stats=True)
+                                    get_data_dutch(seed_n = 42, drop_small_groups=True, print_stats=True)
 
     # make into a pytorch dataset, remove the sensitive attribute
     features_train = torch.tensor(X_train, dtype=torch.float32)
-    labels_train = torch.tensor(y_train, dtype=torch.float32).reshape((-1, 1))
+    labels_train = torch.tensor(y_train.to_numpy(), dtype=torch.float32).reshape((-1, 1))
     sens_train = torch.tensor(groups_train)
     dataset_train = torch.utils.data.TensorDataset(features_train, labels_train)
 
@@ -250,7 +250,7 @@ def load_data():
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test, num_workers=8) # balanced
     # dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=256, shuffle=True, num_workers=8) # unbalanced
 
-    return dataloader_train, dataloader_train, features_train
+    return dataloader_train, dataloader_test, features_train
 
 
 def positive_rate(out_batch, batch_sens, prob_f=torch.nn.functional.sigmoid):
@@ -372,19 +372,19 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
              losses_t=losses_t, constraints_t=constraints_t, losses_std_t=losses_std_t, constraints_std_t=constraints_std_t, times=times)
 
 
-def NET(features_train):
-        
-    hsize1 = 128
-    hsize2 = 64
-    model_con = Sequential(
-        torch.nn.Linear(features_train.shape[1], hsize1),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize1, hsize2),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize2, 1),
-    ).to(device)
+def NET(features_train, hidden_dim=256, depth=2):
+    layers = []
+    in_dim = features_train.shape[1]
 
-    return model_con
+    for _ in range(depth):
+        layers.append(torch.nn.Linear(in_dim, hidden_dim))
+        layers.append(torch.nn.ReLU())
+        in_dim = hidden_dim
+
+    layers.append(torch.nn.Linear(hidden_dim, 1))
+
+    model = torch.nn.Sequential(*layers)
+    return model
 
 def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
 
@@ -396,13 +396,14 @@ def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, th
     torch.manual_seed(seed_n)
 
     model_con = NET(features_train)
+    model_con.to(device)
 
     # per each pair of subgroup - 1x inequality 
     number_of_constraints = 306
 
     print("Number of constraints in total: ", number_of_constraints)
 
-    optimizer = torch.optim.Adam(params=model_con.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(params=model_con.parameters(), lr=0.005)
 
     # alloc arrays for plotting
     adam_S_loss_log_plotting = []  # mean
@@ -491,23 +492,14 @@ def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, th
 
 def ssw(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
 
-    # define network size
-    hsize1 = 128
-    hsize2 = 64
-    
     # define criterion here
     criterion = torch.nn.BCEWithLogitsLoss()
 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
 
-    model_con = Sequential(
-        torch.nn.Linear(features_train.shape[1], hsize1),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize1, hsize2),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize2, 1),
-    ).to(device)
+    model_con = NET(features_train)
+    model_con.to(device)
 
     # per each pair of subgroup - 1x inequality 
     number_of_constraints = 306
@@ -614,10 +606,6 @@ def ssw(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
 
 def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
-
-    # define network size
-    hsize1 = 128
-    hsize2 = 64
     
     # define criterion here
     criterion = torch.nn.BCEWithLogitsLoss()
@@ -625,13 +613,8 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
 
-    model_con = Sequential(
-        torch.nn.Linear(features_train.shape[1], hsize1),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize1, hsize2),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize2, 1),
-    ).to(device)
+    model_con = NET(features_train)
+    model_con.to(device)
 
     # per each pair of subgroup - 1x inequality 
     number_of_constraints = 306
@@ -757,23 +740,14 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
 
 def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
 
-    # define network size
-    hsize1 = 128
-    hsize2 = 64
-    
     # define criterion here
     criterion = torch.nn.BCEWithLogitsLoss()
 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
 
-    model_con = Sequential(
-        torch.nn.Linear(features_train.shape[1], hsize1),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize1, hsize2),
-        torch.nn.ReLU(),
-        torch.nn.Linear(hsize2, 1),
-    ).to(device)
+    model_con = NET(features_train)
+    model_con.to(device)
 
     # per each pair of subgroup - 1x inequality 
     number_of_constraints = 306
@@ -883,6 +857,7 @@ if __name__ == '__main__':
     n_constraints = 306
     threshold = 0.1
     device = "cpu"
+    device = "cuda:0"
 
     # define seeds
     seeds = [1, 2, 3]
@@ -912,16 +887,16 @@ if __name__ == '__main__':
     print('ADAM DONE!!!')
 
     # benchmark ssw
-    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
-    # print('SSW DONE!!!')
+    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
+    print('SSW DONE!!!')
 
     # # # benchmark sslalm
-    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
-    # print('SSLALM DONE!!!')
+    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
+    print('SSLALM DONE!!!')
 
     # # # benchmark pbm
-    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)
-    # print('PBM DONE!!!')
+    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)
+    print('PBM DONE!!!')
 
     # PLOT 
     losses = list(np.load(log_path)["losses"])
@@ -948,7 +923,7 @@ if __name__ == '__main__':
         titles=[
             "Unconstrained Adam",
             "SSW",
-            "SSLALM",
+            "SSL-ALM",
             "SPBM"
         ],
         log_constraints=False,
