@@ -36,10 +36,10 @@ def plot_losses_and_constraints_stochastic(
     eval_points=1,
     std_multiplier=2,
     log_constraints=False,
-    mode="train",  # "train" or "train_test"
+    mode='train_test',  # "train" or "train_test"
     times=[], # second per epoch
     plot_time_instead_epochs=False,
-    save_path="./data/figs/weight_reg_bench.pdf"
+    save_path="./data/figs/ACSIncome_vector_bench.pdf"
 ):
     """
     mode:
@@ -200,6 +200,8 @@ def plot_losses_and_constraints_stochastic(
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path)
+    # plt.show()
+
 
 
 def load_data():
@@ -232,11 +234,16 @@ def load_data():
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
         features, labels, groups, test_size=0.2, random_state=42
     )
+    
+    X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(features, labels, groups, 
+                                                                                   test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(X_train, y_train, groups_train, test_size=0.25)
 
     # scale
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
+    X_val = scaler.transform(X_val)
 
     # make into a pytorch dataset, remove the sensitive attribute
     features_train = torch.tensor(X_train, dtype=torch.float32)
@@ -248,16 +255,62 @@ def load_data():
     labels_test = torch.tensor(y_test, dtype=torch.float32)
     sens_test = torch.tensor(groups_test)
 
+    # make into a pytorch dataset, remove the sensitive attribute
+    features_val = torch.tensor(X_val, dtype=torch.float32)
+    labels_val = torch.tensor(y_val, dtype=torch.float32)
+    sens_val = torch.tensor(groups_val)
+
     # create a dataset
     dataset_train = torch.utils.data.TensorDataset(features_train, labels_train)
 
     # create the dataloader
     dataloader = torch.utils.data.DataLoader(dataset_train, batch_size=64, shuffle=True)
 
-    return dataloader, features_train
+    # create a dataset
+    dataset_test = torch.utils.data.TensorDataset(features_test, labels_test)
+
+    # create the dataloader
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=64, shuffle=True)
+
+    # create a dataset
+    dataset_val = torch.utils.data.TensorDataset(features_val, labels_val)
+
+    # create the dataloader
+    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=64, shuffle=True)
+
+    return dataloader, dataloader_test, dataloader_val, features_train
 
 
-def adam(seed_n, n_epochs, dataloader, features_train, threshold):
+def test_model(model, dataloader_test):
+
+    # define epochs + loss function
+    criterion = torch.nn.BCEWithLogitsLoss()
+
+    c_log = []
+    loss_log = []
+
+    with torch.no_grad():
+        # go through all data
+        for batch_input, batch_label in dataloader_test:
+            # calculate constraints - just for logging since this is an unconstrainted optimization
+            c_log.append([])
+            for i, param in enumerate(model.parameters()):
+                # norm of the w. matrix
+                norm = torch.linalg.norm(param, ord=2)
+
+                # save the value of the constraint
+                c_log[-1].append(norm.detach().numpy())
+
+            # calculate loss and grad
+            batch_output = model(batch_input)
+            loss = criterion(batch_output, batch_label)
+
+            # save the loss and the dual variables
+            loss_log.append(loss.detach().numpy())
+
+    return np.mean(loss_log), np.mean(c_log, axis=0)
+
+def adam(seed_n, n_epochs, dataloader, dataloader_test, features_train, threshold):
 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
@@ -291,6 +344,8 @@ def adam(seed_n, n_epochs, dataloader, features_train, threshold):
     # alloc arrays for plotting
     Adam_loss_log_plotting = []
     Adam_c_log_plotting = []
+    t_loss_log_plotting = []  # mean
+    t_c_log_plotting = []  # mean
 
     # training loop
     for epoch in range(n_epochs):
@@ -327,17 +382,21 @@ def adam(seed_n, n_epochs, dataloader, features_train, threshold):
         # save the epoch values for plotting
         Adam_loss_log_plotting.append(np.mean(loss_log))
         Adam_c_log_plotting.append(np.mean(c_log, axis=0))
+        t_loss, t_c = test_model(model, dataloader_test)
+
+        t_c_log_plotting.append(t_c)
+        t_loss_log_plotting.append(t_loss)
 
         # print out the epoch values
         print(
             f"Epoch: {epoch}, "
-            f"loss: {np.mean(loss_log)}, "
-            f"constraints: {np.mean(c_log, axis=0)}, "
+            f"loss (train/test): {np.mean(loss_log)}/{t_loss}, "
+            f"constraints (train/test): {np.mean(c_log, axis=0)}/{t_c}, "
         )
 
-    return Adam_loss_log_plotting, Adam_c_log_plotting
+    return Adam_loss_log_plotting, Adam_c_log_plotting, t_loss_log_plotting, t_c_log_plotting
 
-def ssw(seed_n, n_epochs, dataloader, features_train, threshold):
+def ssw(seed_n, n_epochs, dataloader,  dataloader_test, features_train, threshold):
 
     # set the seed for fair comparisons
     torch.manual_seed(seed_n)
@@ -368,6 +427,8 @@ def ssw(seed_n, n_epochs, dataloader, features_train, threshold):
     # alloc the plotting array
     SSG_c_log_plotting = []
     SSG_loss_log_plotting = []
+    t_loss_log_plotting = []  # mean
+    t_c_log_plotting = []  # mean
 
     # training loop
     for epoch in range(n_epochs):
@@ -418,17 +479,23 @@ def ssw(seed_n, n_epochs, dataloader, features_train, threshold):
         # save the epoch values for plotting
         SSG_loss_log_plotting.append(np.mean(loss_log))
         SSG_c_log_plotting.append(np.mean(c_log, axis=0))
+        t_loss, t_c = test_model(model, dataloader_test)
 
+        t_c_log_plotting.append(t_c)
+        t_loss_log_plotting.append(t_loss)
+
+        # print out the epoch values
         print(
             f"Epoch: {epoch}, "
-            f"loss: {np.mean(loss_log)}, "
-            f"constraints: {np.mean(c_log, axis=0)}, "
+            f"loss (train/test): {np.mean(loss_log)}/{t_loss}, "
+            f"constraints (train/test): {np.mean(c_log, axis=0)}/{t_c}, "
+            f"dual: {np.mean(duals_log, axis=0)}"
         )
 
-    return SSG_loss_log_plotting, SSG_c_log_plotting
+    return SSG_loss_log_plotting, SSG_c_log_plotting, t_loss_log_plotting, t_c_log_plotting
 
 
-def sslalm(seed_n, n_epochs, dataloader, features_train, threshold):
+def sslalm(seed_n, n_epochs, dataloader,  dataloader_test, features_train, threshold):
 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
@@ -459,6 +526,9 @@ def sslalm(seed_n, n_epochs, dataloader, features_train, threshold):
     # alloc arrays for plotting
     SSL_ALM_Adam_loss_log_plotting = []
     SSL_ALM_Adam_c_log_plotting = []
+
+    t_loss_log_plotting = []  # mean
+    t_c_log_plotting = []  # mean
 
     # training loop
     for epoch in range(n_epochs):
@@ -499,17 +569,22 @@ def sslalm(seed_n, n_epochs, dataloader, features_train, threshold):
         SSL_ALM_Adam_loss_log_plotting.append(np.mean(loss_log))
         SSL_ALM_Adam_c_log_plotting.append(np.mean(c_log, axis=0))
 
+        t_loss, t_c = test_model(model, dataloader_test)
+
+        t_c_log_plotting.append(t_c)
+        t_loss_log_plotting.append(t_loss)
+
         # print out the epoch values
         print(
             f"Epoch: {epoch}, "
-            f"loss: {np.mean(loss_log)}, "
-            f"constraints: {np.mean(c_log, axis=0)}, "
+            f"loss (train/test): {np.mean(loss_log)}/{t_loss}, "
+            f"constraints (train/test): {np.mean(c_log, axis=0)}/{t_c}, "
             f"dual: {np.mean(duals_log, axis=0)}"
         )
 
-    return SSL_ALM_Adam_loss_log_plotting, SSL_ALM_Adam_c_log_plotting
+    return SSL_ALM_Adam_loss_log_plotting, SSL_ALM_Adam_c_log_plotting, t_loss_log_plotting, t_c_log_plotting
 
-def pbm(seed_n, n_epochs, dataloader, features_train, threshold):
+def pbm(seed_n, n_epochs, dataloader,  dataloader_test, features_train, threshold):
 
     # set the same seed for fair comparisons
     torch.manual_seed(seed_n)
@@ -540,6 +615,9 @@ def pbm(seed_n, n_epochs, dataloader, features_train, threshold):
     # alloc arrays for plotting
     PBM_Adam_loss_log_plotting = []
     PBM_Adam_c_log_plotting = []
+
+    t_loss_log_plotting = []  # mean
+    t_c_log_plotting = []  # mean
 
     # training loop
     for epoch in range(n_epochs):
@@ -580,27 +658,34 @@ def pbm(seed_n, n_epochs, dataloader, features_train, threshold):
         PBM_Adam_loss_log_plotting.append(np.mean(loss_log))
         PBM_Adam_c_log_plotting.append(np.mean(c_log, axis=0))
 
+        t_loss, t_c = test_model(model, dataloader_test)
+
+        t_c_log_plotting.append(t_c)
+        t_loss_log_plotting.append(t_loss)
+
         # print out the epoch values
         print(
             f"Epoch: {epoch}, "
-            f"loss: {np.mean(loss_log)}, "
-            f"constraints: {np.mean(c_log, axis=0)}, "
+            f"loss (train/test): {np.mean(loss_log)}/{t_loss}, "
+            f"constraints (train/test): {np.mean(c_log, axis=0)}/{t_c}, "
             f"dual: {np.mean(duals_log, axis=0)}"
         )
 
-    return PBM_Adam_loss_log_plotting, PBM_Adam_c_log_plotting
+    return PBM_Adam_loss_log_plotting, PBM_Adam_c_log_plotting, t_loss_log_plotting, t_c_log_plotting
 
-def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_train, threshold, method_f):
+def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader,  dataloader_test, features_train, threshold, method_f):
 
     losses_log = np.zeros((len(seeds), n_epochs))
     constraints_log = np.zeros((len(seeds), n_epochs, n_constraints))
+    losses_log_t = np.zeros((len(seeds), n_epochs))
+    constraints_log_t = np.zeros((len(seeds), n_epochs, n_constraints))
     times_cur = []
     for idx, seed in enumerate(seeds):
 
         # time the method
         start = time.time()
 
-        losses_cur, constraints_cur = method_f(seed, n_epochs, dataloader, features_train, threshold)
+        losses_cur, constraints_cur, losses_cur_t, constraints_cur_t = method_f(seed, n_epochs, dataloader,  dataloader_test, features_train, threshold)
     
         # save the timing per epoch
         end = time.time()
@@ -609,10 +694,17 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_tra
         losses_log[idx] = losses_cur
         constraints_log[idx] = constraints_cur
 
+        losses_log_t[idx] = losses_cur_t
+        constraints_log_t[idx] = constraints_cur_t
+
     losses = list(np.load(savepath)["losses"])
     constraints = list(np.load(savepath)["constraints"])
     losses_std = list(np.load(savepath)["losses_std"])
     constraints_std = list(np.load(savepath)["constraints_std"])
+    losses_t = list(np.load(savepath)["losses_t"])
+    constraints_t = list(np.load(savepath)["constraints_t"])
+    losses_std_t = list(np.load(savepath)["losses_std_t"])
+    constraints_std_t = list(np.load(savepath)["constraints_std_t"])
     times = list(np.load(savepath)['times'])
 
     # append
@@ -620,27 +712,33 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader, features_tra
     constraints += [constraints_log.mean(axis=0).T]
     losses_std += [losses_log.std(axis=0)]
     constraints_std += [constraints_log.std(axis=0).T]
+
+    losses_t += [losses_log_t.mean(axis=0)]
+    constraints_t += [constraints_log_t.mean(axis=0).T]
+    losses_std_t += [losses_log_t.std(axis=0)]
+    constraints_std_t += [constraints_log_t.std(axis=0).T]
     times += [np.array(times_cur).mean()]
 
     # save the computed data
-    np.savez(savepath, losses=losses, constraints=constraints, losses_std=losses_std, constraints_std=constraints_std, times=times)
+    np.savez(savepath, losses=losses, constraints=constraints, losses_std=losses_std, constraints_std=constraints_std,
+             losses_t=losses_t, constraints_t=constraints_t, losses_std_t=losses_std_t, constraints_std_t=constraints_std_t, times=times)
 
 
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 30
+    n_epochs = 5
     n_constraints = 6
     threshold = 2.0
 
     # define seeds
-    seeds = [1, 2, 3]
+    seeds = [1, 2]
 
     # log path file
     log_path = "./data/logs/weights_reg_bench.npz"
 
     # load data
-    dataloader, features_train = load_data()
+    dataloader, dataloader_test, dataloader_val, features_train = load_data()
 
     # resave to empty file
     np.savez(
@@ -649,23 +747,27 @@ if __name__ == '__main__':
         constraints=[],
         losses_std=[],
         constraints_std=[],
+        losses_t=[],
+        constraints_t=[],
+        losses_std_t=[],
+        constraints_std_t=[],
         times=[]
     )
 
     # benchmark adam
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader, features_train, threshold, adam)
+    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader,  dataloader_test, features_train, threshold, adam)
     print('ADAM DONE!!!')
 
     # benchmark ssw
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader, features_train, threshold, ssw)
+    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader,  dataloader_test, features_train, threshold, ssw)
     print('SSW DONE!!!')
 
     # benchmark sslalm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader, features_train, threshold, sslalm)
+    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader,  dataloader_test, features_train, threshold, sslalm)
     print('SSLALM DONE!!!')
 
     # benchmark pbm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader, features_train, threshold, pbm)
+    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader,  dataloader_test, features_train, threshold, pbm)
     print('PBM DONE!!!')
 
     # PLOT 
@@ -673,6 +775,10 @@ if __name__ == '__main__':
     constraints = list(np.load(log_path)["constraints"])
     losses_std = list(np.load(log_path)["losses_std"])
     constraints_std = list(np.load(log_path)["constraints_std"])
+    losses_t = list(np.load(log_path)["losses_t"])
+    constraints_t = list(np.load(log_path)["constraints_t"])
+    losses_std_t = list(np.load(log_path)["losses_std_t"])
+    constraints_std_t = list(np.load(log_path)["constraints_std_t"])
 
     print('times:', list(np.load(log_path)["times"]))
 
@@ -682,5 +788,19 @@ if __name__ == '__main__':
     constraints,
     constraints_std,
     [threshold],
-    titles=["Unconstrained Adam", "SSW", "SSL-ALM", "SPBM"]
-    )
+    test_losses_list=losses_t,
+    test_losses_std_list=losses_std_t,
+    test_constraints_list=constraints,
+    test_constraints_std_list=constraints_std,
+    titles=[
+        "Unconstrained Adam",
+        "SSW",
+        "SSL-ALM",
+        "SPBM"
+    ],
+    log_constraints=False,
+    std_multiplier=1,
+    mode='train_test', # change this to 'train', to ignore the test=
+    plot_time_instead_epochs=False,
+    save_path="./data/figs/weight_reg_bench.pdf"
+)
