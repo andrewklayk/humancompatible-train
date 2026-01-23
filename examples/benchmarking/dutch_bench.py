@@ -764,9 +764,18 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     #                 epoch_len=len(dataloader_train), penalty_update_m='DIMINISH', p_lb=0.01,
     #                 barrier="quadratic_logarithmic", device=device)
 
+    # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=1.0, 
+    #                 epoch_len=len(dataloader_train), penalty_update_m='DIMINISH', p_lb=0.01,
+    #                 barrier="quadratic_reciprocal", device=device)
+
+
     optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=1.0, 
-                    epoch_len=len(dataloader_train), penalty_update_m='DIMINISH', p_lb=0.01,
+                    epoch_len=len(dataloader_train), penalty_update_m='ADAPT',
                     barrier="quadratic_reciprocal", device=device)
+
+    # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=1.0, 
+    #                 epoch_len=len(dataloader_train), penalty_update_m='CONST',
+    #                 barrier="quadratic_reciprocal", device=device)
 
 
         # alloc arrays for plotting
@@ -804,32 +813,22 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
             # compute per group positive rate
             pos_rate_pergroup = positive_rate(out, batch_sens, prob_f=torch.nn.functional.sigmoid)
+            
+            # loss_per_class: shape (N,)
+            N = pos_rate_pergroup.shape[0]
 
-            # prepare counter + array of constr for this batch
-            current_constr = 0
-            c_log.append([])
+            # pairwise differences: shape (N, N)
+            diff = pos_rate_pergroup.unsqueeze(1) - pos_rate_pergroup.unsqueeze(0)
+            
+            # remove diagonal (i == j)
+            mask = ~torch.eye(N, dtype=torch.bool, device=pos_rate_pergroup.device)
 
-            # compute the equal opportunity constraint
-            constraints = torch.zeros(306, device=device)
-            for i in range(0, len(pos_rate_pergroup)):
-                for j in range(0, len(pos_rate_pergroup)):
+            # apply fairness bound and flatten
+            constr = (diff - threshold)[mask]   # shape: (N*(N-1),)
 
-                    # calculate the constraint only for different subgroups
-                    if i != j:
+            optimizer.dual_steps(constr)
 
-                        # the constraint with the slack variables
-                        constr_ij = pos_rate_pergroup[i] - pos_rate_pergroup[j] 
-                        constr_ij = constr_ij - threshold
-
-                        # perform the dual step variable + save the dual grad for later
-                        optimizer.dual_step(current_constr, c_val=constr_ij)
-                        constraints[current_constr] = constr_ij
-
-                        # save the value of the constraint
-                        c_log[-1].append(constr_ij.detach().cpu().numpy() + threshold)
-                        
-                        # iterate the constraint counter
-                        current_constr += 1
+            c_log.append(diff[mask].detach().cpu().numpy())
 
             loss = criterion(out, batch_label)
             optimizer.step(loss)
@@ -846,21 +845,25 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
         test_S_loss_log_plotting.append(np.mean(losses_test))
         test_S_c_log_plotting.append(np.mean(c_test, axis=0))
-        print(optimizer.p[0])
         
         # compute the largest violations
         argmax = np.argsort(np.abs(np.mean(c_log, axis=0)))[::-1]
         n_max = 5
         print(f'argmax constraints ({n_max}): {argmax[:n_max]}')
         print(f'max constraints ({n_max}): {np.abs(np.mean(c_log, axis=0))[argmax[:n_max]]}')
-        print(f'duals ({n_max}): {np.mean(duals_log, axis=0)[argmax[:n_max]]}')
+        # print(f'duals ({n_max}): {np.mean(duals_log, axis=0)[argmax[:n_max]]}')
 
         print(
             f"Epoch: {epoch}, "
             f"loss ({np.mean(loss_log):.4f}/{np.mean(losses_test):.4f}):"
-            f"constraints (train/test): ({np.max(np.abs(np.mean(c_log, axis=0))):.4f}/{np.max(np.abs(np.mean(c_test, axis=0))):.4f}), "
+            f"constraints (train/test): ({np.max(np.mean(c_log, axis=0)):.4f}/{np.max(np.mean(c_test, axis=0)):.4f}), "
             f"dual: {np.max(np.mean(duals_log, axis=0))}"
         )
+
+        # print(optimizer.p)
+
+        # if epoch == 3:
+        #     exit()
 
     return pbm_S_loss_log_plotting, pbm_S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting       
 

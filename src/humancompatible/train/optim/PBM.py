@@ -31,6 +31,7 @@ class PBM(Optimizer):
         epoch_len=None,
         penalty_update_m='CONST', # p parameter
         p_lb = 0.1,
+        p_ub = 2.0,
         dual_bounds = (1e-4, 10),
         warm_start = 0, # number of epochs to warm start - no constraints included
         device="cpu",
@@ -90,7 +91,7 @@ class PBM(Optimizer):
             if not use_autograd_for_phider:
                 self.barrier_der = Barrier.quadratic_reciprocal_penalty_derivative
 
-        if (penalty_update_m == "DIMINISH" or warm_start) and epoch_len is None:
+        if (penalty_update_m == "DIMINISH" or warm_start or penalty_update_m == "ADAPT") and epoch_len is None:
             raise ValueError(f"Diminishing penalty update requires epoch_len to be defined")
         self.epoch_len = epoch_len
 
@@ -121,17 +122,27 @@ class PBM(Optimizer):
         if penalty_update_m == 'ALM':
             self.update_p_method = self.update_p_ALM
 
-        elif penalty_update_m == "CONST":
+        elif penalty_update_m == "CONST": # P IS NOT UPDATED
             self.update_p_method = self.update_p_const
             self.update_ps_method = self.update_ps_const
             self.p_const = const_p
             self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
 
-        elif penalty_update_m == "DIMINISH":
-            self.update_p_method = self.update_p_diminishing
+        elif penalty_update_m == "DIMINISH":  # P IS DIMINISHING OVER TIME TO P_LB
+            self.update_p_method = self.update_p_diminishing 
+            self.update_ps_method = self.update_ps_diminishing
             self.p_const = const_p
             self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
             self.p_lb = p_lb
+        
+        elif penalty_update_m == "ADAPT": # P IS ADAPTIVE BASED ON MEAN OF THE TRAIN CONSTRINTS
+            self.update_p_method = self.update_ps_adapt
+            self.update_ps_method = self.update_ps_adapt
+            self.p_const = const_p
+            self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+            self.p_lb = p_lb
+            self.p_ub = p_ub
+            self.constraints_epoch = torch.zeros(m, requires_grad=False, device=device)
 
         else: 
             raise ValueError("NO SUCH p UPDATE METHOD EXISTS!")
@@ -227,15 +238,6 @@ class PBM(Optimizer):
 
         self.p[i] = self.rho * self._dual_vars[i]
 
-
-    def update_p_paper(self, i, t):
-        """
-        update the penalty coefficient - equiv. to ALM
-        """
-
-        self.p[i] =  t * self.rho * (self.init_pi)**self.iter
-        pass
-
     def update_p_diminishing(self, i, t):
 
         # diminishing update once per defined number of steps
@@ -245,6 +247,66 @@ class PBM(Optimizer):
         # threshold the p
         if self.p[i] < self.p_lb:
             self.p[i] = self.p_lb
+    
+    def update_ps_diminishing(self, t):
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+            self.p *= 0.9
+
+        self.p[ self.p < self.p_lb ] = self.p[ self.p < self.p_lb ] = self.p_lb
+
+    def update_p_adapt(self, i, constraints_cur):
+
+        # add current constraints - then mean them
+        self.constraints_epoch[i] += constraints_cur
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+            
+            # mean the constraints - over this epoch
+            self.constraints_epoch[i] = self.constraints_epoch[i] / self.epoch_len
+
+            # project into using the barrier derivative
+            growth_p = self.barrier_der( self.constraints_epoch[i] )
+
+            # decrease for unsatisfied constraints and increase for satisfied constraints
+            self.p[i] = self.p[i] / growth_p
+
+            self.constraints_epoch[i] = 0
+
+        # safeguarding
+        self.p[i] = torch.clamp(self.p[i], self.p_lb, self.p_ub)
+
+    def update_ps_adapt(self, constraints_cur):
+
+        # add current constraints - then mean them
+        self.constraints_epoch += constraints_cur
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+            
+            # self.constraints_epoch += constraints_cur
+
+            # mean the constraints - over this epoch
+            self.constraints_epoch = self.constraints_epoch / self.epoch_len
+
+            print(self.constraints_epoch[ self.constraints_epoch > 0 ])
+
+            # project into using the barrier derivative
+            growth_p = self.barrier_der( self.constraints_epoch )
+
+            # decrease for unsatisfied constraints and increase for satisfied constraints
+            # self.p = 0.9 * self.p + 0.1 * (self.p / growth_p)
+            self.p = self.p / growth_p
+
+            print(self.p[self.constraints_epoch > 0])
+
+            # restart the statistics
+            # self.constraints_epoch = 0
+
+        # safeguarding
+        self.p = torch.clamp(self.p, self.p_lb, self.p_ub)
 
     def update_p_const(self, i, t):
         """
@@ -290,7 +352,7 @@ class PBM(Optimizer):
         self._dual_vars = self.dual_beta * self._dual_vars  +  (1 - self.dual_beta) * self._dual_vars * dloss_dt  # soft update
 
         # update penalty multiplier
-        self.update_ps_method(self._dual_vars)
+        self.update_ps_method(c_vals.detach())
 
         # safe-guarding 
         self._dual_vars[ self._dual_vars <= self.dual_bounds[0] ] = self.dual_bounds[0]
@@ -344,7 +406,7 @@ class PBM(Optimizer):
         self._dual_vars[i] = self.dual_beta * self._dual_vars[i]  +  (1 - self.dual_beta) * self._dual_vars[i] * dloss_dt # soft update
         
         # update penalty multiplier
-        self.update_p_method(i, self._dual_vars[i])
+        self.update_p_method(i, c_val.detach())
 
         # safe-guarding 
         if self._dual_vars[i] <= self.dual_bounds[0]:
