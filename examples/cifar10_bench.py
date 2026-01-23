@@ -585,7 +585,7 @@ def load_data(balanced=False):
         [transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    batch_size = 20
+    batch_size = 120
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                             download=True, transform=transform)
@@ -938,7 +938,7 @@ if __name__ == '__main__':
     print(device)
 
     # define seeds
-    seeds = [1]
+    seeds = [1, 2, 3]
 
     # log path file
     if bench_mus:

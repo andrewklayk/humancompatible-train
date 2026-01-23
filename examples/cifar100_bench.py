@@ -583,7 +583,7 @@ def load_data(balanced=False):
         [transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    batch_size = 3600
+    batch_size = 400
 
     trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
                                             download=True, transform=transform)
@@ -929,7 +929,7 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 5
+    n_epochs = 30
     n_constraints = 9900
     threshold = 0.5
     # device = 'cpu'    
@@ -940,7 +940,7 @@ if __name__ == '__main__':
     print(device)
 
     # define seeds
-    seeds = [2, 2]
+    seeds = [1, 2, 3]
 
 
     # log path file
