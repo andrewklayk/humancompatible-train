@@ -663,7 +663,7 @@ def loss_per_class_f(batch_outputs, batch_targets, network, criterion, num_class
     Computes the constraint of a demographic parity - that is a loss between all groups
     """
 
-    losses_per_class = torch.zeros(10)
+    losses_per_class = torch.zeros(10, device=device)
 
     # for each class compute a loss
     for class_number in range(0, num_classes):
@@ -935,7 +935,7 @@ if __name__ == '__main__':
     print(device)
 
     # define seeds
-    seeds = [1, 2, 3]
+    seeds = [1]
 
     # log path file
     if bench_mus:

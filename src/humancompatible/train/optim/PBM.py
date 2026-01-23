@@ -341,7 +341,6 @@ class PBM(Optimizer):
             return # do nothing on duals before the warm start
 
         # ----------------------------------
-
         t = c_vals
         t = t / self.p
         dloss_dt = self.barrier_der(t.detach())
