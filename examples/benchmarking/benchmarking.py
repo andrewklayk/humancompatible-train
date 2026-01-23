@@ -140,36 +140,62 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
             if method == 'ssl-alm':
                 constraints = torch.zeros(num_constraints, device=device)
 
-            # compute the demographic parity
-            c_log.append([])
-            constraint_k = 0
-            for group_i in range(0, len(classes_arr)):
-                for group_j in range(0, len(classes_arr)):
 
-                    if group_i != group_j:
-                        
-                        # demographic parity between i,j
-                        g = loss_per_class[group_i] - loss_per_class[group_j]
-                        constr = g - fair_crit_bound
+            if method == 'ssl-alm' or method == 'ssw':
+                # compute the demographic parity
+                c_log.append([])
+                constraint_k = 0
+                for group_i in range(0, len(classes_arr)):
+                    for group_j in range(0, len(classes_arr)):
 
-                        if method == "unconstrained":
-                            pass
+                        if group_i != group_j:
+                            
+                            # demographic parity between i,j
+                            g = loss_per_class[group_i] - loss_per_class[group_j]
+                            constr = g - fair_crit_bound
 
-                        if method == 'ssw':
-                            max_c = torch.max(constr, max_c)
-                        
-                        if method == 'ssl-alm':
-                            constr = torch.max( g - fair_crit_bound, torch.zeros(1) )[0]
-                            optimizer.dual_step(constraint_k, constr)
-                            constraints[constraint_k] = constr
+                            if method == 'ssw':
+                                max_c = torch.max(constr, max_c)
+                            
+                            if method == 'ssl-alm':
+                                constr = torch.max( g - fair_crit_bound, torch.zeros(1) )[0]
+                                optimizer.dual_step(constraint_k, constr)
+                                constraints[constraint_k] = constr 
 
-                        if method == 'pbm':
+                            c_log[-1].append(g.detach().cpu().numpy())
+                            constraint_k += 1
 
-                            # update the dual variables
-                            optimizer.dual_step(constraint_k, constr)
+            # for unconstrained and pbm do vectorized version
+            elif method == 'pbm':
 
-                        c_log[-1].append(g.detach().cpu().numpy())
-                        constraint_k += 1
+                # loss_per_class: shape (N,)
+                N = loss_per_class.shape[0]
+
+                # pairwise differences: shape (N, N)
+                diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
+                
+                # remove diagonal (i == j)
+                mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
+
+                # apply fairness bound and flatten
+                constr = (diff - fair_crit_bound)[mask]   # shape: (N*(N-1),)
+
+                optimizer.dual_steps(constr)
+
+                c_log.append(diff[mask].detach().cpu().numpy())
+
+            else: # unsconstrained - just save the constraint 
+
+                # loss_per_class: shape (N,)
+                N = loss_per_class.shape[0]
+
+                # pairwise differences: shape (N, N)
+                diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
+                
+                # remove diagonal (i == j)
+                mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
+
+                c_log.append(diff[mask].detach().cpu().numpy())
 
             if method == "unconstrained":
 

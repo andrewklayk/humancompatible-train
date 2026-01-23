@@ -123,6 +123,7 @@ class PBM(Optimizer):
 
         elif penalty_update_m == "CONST":
             self.update_p_method = self.update_p_const
+            self.update_ps_method = self.update_ps_const
             self.p_const = const_p
             self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
 
@@ -252,8 +253,54 @@ class PBM(Optimizer):
 
         pass
 
+    def update_ps_const(self, t):
+        """
+        Constant p - do nothing
+        """
+
+        pass
+
     # -----------------------------------------------------------------------------------------------------------
 
+
+    def dual_steps(self, c_vals: Tensor):
+        r"""Perform an update of the dual parameters. THIS IS A VECTORIZED VERSION! IT IS EXPECTED TO PASS A VECTOR OF ALL CONSTRAINTS.
+        Also saved the constraint value for later use in the weights update. To be called BEFORE :func:`step` in an iteration!
+
+        Args:
+            c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
+        """
+
+        if c_vals.shape != self._dual_vars.shape:
+            raise ValueError(
+                f"`dual_steps` is a vectorized version of the dual step. Pass a vector of constraints!"
+            )
+
+        # check for warm start - no condition for n epochs
+        if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start:
+            return # do nothing on duals before the warm start
+
+        # ----------------------------------
+
+        t = c_vals
+        t = t / self.p
+        dloss_dt = self.barrier_der(t.detach())
+
+        # update dual variables 
+        self._dual_vars = self.dual_beta * self._dual_vars  +  (1 - self.dual_beta) * self._dual_vars * dloss_dt  # soft update
+
+        # update penalty multiplier
+        self.update_ps_method(self._dual_vars)
+
+        # safe-guarding 
+        self._dual_vars[ self._dual_vars <= self.dual_bounds[0] ] = self.dual_bounds[0]
+        self._dual_vars[ self._dual_vars >= self.dual_bounds[1] ] = self.dual_bounds[1]
+        
+        # compute the barrier/penalty of the output of NN  
+        phi_constr = self.p * self.barrier(c_vals / self.p)
+
+        # save the costraint value - later will be used in 
+        self.constraints = phi_constr
 
     def dual_step(self, i: int, c_val: Tensor):
         r"""Perform an update of the dual parameters.

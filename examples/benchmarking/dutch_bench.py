@@ -372,13 +372,22 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
              losses_t=losses_t, constraints_t=constraints_t, losses_std_t=losses_std_t, constraints_std_t=constraints_std_t, times=times)
 
 
-def NET(features_train, hidden_dim=256, depth=2):
+def NET(features_train, hidden_dim=128, depth=1):
     layers = []
     in_dim = features_train.shape[1]
 
     for _ in range(depth):
         layers.append(torch.nn.Linear(in_dim, hidden_dim))
         layers.append(torch.nn.ReLU())
+        in_dim = hidden_dim
+
+    layers.append(torch.nn.Linear(in_dim, 16))
+    layers.append(torch.nn.ReLU())
+
+    in_dim = 16
+    for _ in range(depth):
+        layers.append(torch.nn.Linear(in_dim, hidden_dim))
+        layers.append(torch.nn.Identity())
         in_dim = hidden_dim
 
     layers.append(torch.nn.Linear(hidden_dim, 1))
@@ -402,7 +411,7 @@ def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, th
 
     print("Number of constraints in total: ", number_of_constraints)
 
-    optimizer = torch.optim.Adam(params=model_con.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(params=model_con.parameters(), lr=0.005, weight_decay=1e-4)
 
     # alloc arrays for plotting
     adam_S_loss_log_plotting = []  # mean
@@ -751,9 +760,14 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     # per each pair of subgroup - 1x inequality 
     number_of_constraints = 306
 
-    optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
-                    epoch_len=len(dataloader_train), penalty_update_m='DIMINISH', p_lb=0.05,
-                    barrier="quadratic_logarithmic", device=device)
+    # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
+    #                 epoch_len=len(dataloader_train), penalty_update_m='DIMINISH', p_lb=0.01,
+    #                 barrier="quadratic_logarithmic", device=device)
+
+    optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=1.0, 
+                    epoch_len=len(dataloader_train), penalty_update_m='DIMINISH', p_lb=0.01,
+                    barrier="quadratic_reciprocal", device=device)
+
 
         # alloc arrays for plotting
     pbm_S_loss_log_plotting = []  # mean
@@ -832,6 +846,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
         test_S_loss_log_plotting.append(np.mean(losses_test))
         test_S_c_log_plotting.append(np.mean(c_test, axis=0))
+        print(optimizer.p[0])
         
         # compute the largest violations
         argmax = np.argsort(np.abs(np.mean(c_log, axis=0)))[::-1]
@@ -855,8 +870,8 @@ if __name__ == '__main__':
     n_epochs = 30
     n_constraints = 306
     threshold = 0.1
-    device = "cpu"
-    # device = "cuda:0"
+    # device = "cpu"
+    device = "cuda:0"
 
     # define seeds
     seeds = [1, 2, 3]
@@ -882,18 +897,18 @@ if __name__ == '__main__':
     )
 
     # benchmark adam
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, adam)
-    print('ADAM DONE!!!')
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, adam)
+    # print('ADAM DONE!!!')
 
-    # # # benchmark ssw
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
-    print('SSW DONE!!!')
+    # # benchmark ssw
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
+    # print('SSW DONE!!!')
 
     # # benchmark sslalm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
-    print('SSLALM DONE!!!')
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
+    # print('SSLALM DONE!!!')
 
-    # # # benchmark pbm
+    # benchmark pbm
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)
     print('PBM DONE!!!')
 
