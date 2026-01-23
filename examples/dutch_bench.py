@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 from itertools import product
 import time
 from humancompatible.train.fairness.utils.dataset_loader import get_data_dutch
+from sklearn.model_selection import GroupShuffleSplit
 
 def plot_losses_and_constraints_stochastic(
     train_losses_list,
@@ -203,14 +204,16 @@ def plot_losses_and_constraints_stochastic(
         )
 
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
+    # if save_path:
+    #     plt.savefig(save_path)
 
+    plt.show()
 
 def load_data():
 
     # get the data
-    X_train, X_test, y_train, y_test, groups_train, groups_test, group_names_dict = get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_stats=True)
+    X_train, X_test, X_val, y_train, y_test, y_val, groups_train, groups_test, groups_val, group_dict =\
+                                    get_data_dutch(test_size=0.4, seed_n = 42, drop_small_groups=True, print_stats=True)
 
     # make into a pytorch dataset, remove the sensitive attribute
     features_train = torch.tensor(X_train, dtype=torch.float32)
@@ -369,18 +372,10 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
              losses_t=losses_t, constraints_t=constraints_t, losses_std_t=losses_std_t, constraints_std_t=constraints_std_t, times=times)
 
 
-def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
-
-    # define network size
+def NET(features_train):
+        
     hsize1 = 128
     hsize2 = 64
-
-    # define criterion here
-    criterion = torch.nn.BCEWithLogitsLoss()
-
-    # set the same seed for fair comparisons
-    torch.manual_seed(seed_n)
-
     model_con = Sequential(
         torch.nn.Linear(features_train.shape[1], hsize1),
         torch.nn.ReLU(),
@@ -388,8 +383,20 @@ def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, th
         torch.nn.ReLU(),
         torch.nn.Linear(hsize2, 1),
     ).to(device)
-    
-    
+
+    return model_con
+
+def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
+
+
+    # define criterion here
+    criterion = torch.nn.BCEWithLogitsLoss()
+
+    # set the same seed for fair comparisons
+    torch.manual_seed(seed_n)
+
+    model_con = NET(features_train)
+
     # per each pair of subgroup - 1x inequality 
     number_of_constraints = 306
 
@@ -872,7 +879,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 30
+    n_epochs = 10
     n_constraints = 306
     threshold = 0.1
     device = "cpu"
@@ -905,16 +912,16 @@ if __name__ == '__main__':
     print('ADAM DONE!!!')
 
     # benchmark ssw
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
-    print('SSW DONE!!!')
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
+    # print('SSW DONE!!!')
 
-    # # benchmark sslalm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
-    print('SSLALM DONE!!!')
+    # # # benchmark sslalm
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
+    # print('SSLALM DONE!!!')
 
-    # # benchmark pbm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)
-    print('PBM DONE!!!')
+    # # # benchmark pbm
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)
+    # print('PBM DONE!!!')
 
     # PLOT 
     losses = list(np.load(log_path)["losses"])
