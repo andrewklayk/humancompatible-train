@@ -204,10 +204,10 @@ def plot_losses_and_constraints_stochastic(
         )
 
     plt.tight_layout()
-    # if save_path:
-    #     plt.savefig(save_path)
+    if save_path:
+        plt.savefig(save_path)
 
-    plt.show()
+    # plt.show()
 
 def load_data():
 
@@ -388,7 +388,6 @@ def NET(features_train, hidden_dim=256, depth=2):
 
 def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, threshold):
 
-
     # define criterion here
     criterion = torch.nn.BCEWithLogitsLoss()
 
@@ -403,7 +402,7 @@ def adam(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, th
 
     print("Number of constraints in total: ", number_of_constraints)
 
-    optimizer = torch.optim.Adam(params=model_con.parameters(), lr=0.005)
+    optimizer = torch.optim.Adam(params=model_con.parameters(), lr=0.01)
 
     # alloc arrays for plotting
     adam_S_loss_log_plotting = []  # mean
@@ -624,11 +623,11 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
     optimizer = SSLALM_Adam(
         params=model_con.parameters(),
         m=number_of_constraints,  # number of constraints - one in our case
-        lr=0.01,  # primal variable lr
-        dual_lr=0.05,  # lr of a dual ALM variable
+        lr=0.001,  # primal variable lr
+        dual_lr=0.001,  # lr of a dual ALM variable
         dual_bound=5,
-        rho=1,  # rho penalty in ALM parameter
-        mu=2,  # smoothing parameter
+        rho=0.0,  # rho penalty in ALM parameter
+        mu=0.1,  # smoothing parameter
         device=device
     )
 
@@ -678,7 +677,7 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
             c_log.append([])
 
             # compute the equal opportunity constraint
-            constraints = torch.zeros(number_of_constraints)
+            constraints = torch.zeros(number_of_constraints, device=device)
             for i in range(0, len(pos_rate_pergroup)):
                 for j in range(0, len(pos_rate_pergroup)):
 
@@ -752,8 +751,8 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     # per each pair of subgroup - 1x inequality 
     number_of_constraints = 306
 
-    optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.01, dual_beta=0.9, mu=0.1, 
-                    epoch_len=len(dataloader_train), init_dual=0.01, penalty_update_m='DIMINISH', dual_bounds=(0.1, 10.0),
+    optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
+                    epoch_len=len(dataloader_train), penalty_update_m='DIMINISH', p_lb=0.05,
                     barrier="quadratic_logarithmic", device=device)
 
         # alloc arrays for plotting
@@ -853,11 +852,11 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 10
+    n_epochs = 30
     n_constraints = 306
     threshold = 0.1
     device = "cpu"
-    device = "cuda:0"
+    # device = "cuda:0"
 
     # define seeds
     seeds = [1, 2, 3]
@@ -886,11 +885,11 @@ if __name__ == '__main__':
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, adam)
     print('ADAM DONE!!!')
 
-    # benchmark ssw
+    # # # benchmark ssw
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
     print('SSW DONE!!!')
 
-    # # # benchmark sslalm
+    # # benchmark sslalm
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
     print('SSLALM DONE!!!')
 

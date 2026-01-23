@@ -281,6 +281,11 @@ def load_data():
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
         features, labels, groups_onehot, test_size=0.2, random_state=42
     )
+    
+    X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(features, labels, groups_onehot, 
+                                                                                   test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(X_train, y_train, groups_train, test_size=0.25, 
+                                                                                random_state=42)
 
     # scale
     scaler = StandardScaler()
@@ -604,9 +609,9 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
         params=model.parameters(),
         m=number_of_constraints,  # number of constraints - one in our case
         lr=0.001,  # primal variable lr
-        dual_lr=0.05,  # lr of a dual ALM variable
+        dual_lr=0.001,  # lr of a dual ALM variable
         dual_bound=5,
-        rho=1,  # rho penalty in ALM parameter
+        rho=0.0,  # rho penalty in ALM parameter
         mu=2,  # smoothing parameter
     )
 
@@ -730,8 +735,8 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     criterion = torch.nn.BCEWithLogitsLoss()
 
     # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, penalty_update_m='CONST', barrier="quadratic_logarithmic", epoch_len=len(dataloader))
-    optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.95, mu=0.1, 
-                    penalty_update_m='DIMINISH', barrier="quadratic_logarithmic", epoch_len=len(dataloader_train))
+    optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
+                    penalty_update_m='CONST', barrier="quadratic_logarithmic", epoch_len=len(dataloader_train))
 
     # alloc arrays for plotting
     PBM_S_loss_log_plotting = []  # mean
@@ -903,7 +908,7 @@ if __name__ == '__main__':
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, adam)
     print('ADAM DONE!!!')
 
-    # benchmark ssw
+    # # benchmark ssw
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
     print('SSW DONE!!!')
 

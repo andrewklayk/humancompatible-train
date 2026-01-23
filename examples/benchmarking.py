@@ -42,13 +42,14 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
         lr = model_params['lr']
         dual_lr = model_params['dual_lr']
         mu = model_params['mu']
+        rho = model_params['rho']
         optimizer = SSLALM_Adam(
             params=net.parameters(),
             m=num_constraints,  # number of constraints - one in our case
             lr=lr,  # primal variable lr
             dual_lr=dual_lr,  # lr of a dual ALM variable
             dual_bound=5,
-            rho=2,  # rho penalty in ALM parameter
+            rho=rho,  # rho penalty in ALM parameter
             mu=mu,  # smoothing parameter
             device=device,
         )
