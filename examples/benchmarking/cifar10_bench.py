@@ -928,7 +928,7 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 5
+    n_epochs = 30
     n_constraints = 90
     threshold = 0.1
     # device = 'cpu'    
@@ -940,7 +940,6 @@ if __name__ == '__main__':
 
     # define seeds
     seeds = [1, 2, 3]
-    seeds = [1]
 
     # log path file
     if bench_mus:
@@ -982,15 +981,15 @@ if __name__ == '__main__':
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
         print('ADAM DONE!!!')
 
-        # # benchmark ssw
-        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
-        # print('SSW DONE!!!')
+        # benchmark ssw
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
+        print('SSW DONE!!!')
 
-        # # benchmark sslalm
-        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
-        # print('SSLALM DONE!!!')
+        # benchmark sslalm
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
+        print('SSLALM DONE!!!')
 
-        # #  benchmark pbm  
+        #  benchmark pbm  
         mu = 1.0
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
         print('PBM DONE!!!')
