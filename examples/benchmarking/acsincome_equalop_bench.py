@@ -612,7 +612,7 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
         dual_lr=0.001,  # lr of a dual ALM variable
         dual_bound=5,
         rho=0.0,  # rho penalty in ALM parameter
-        mu=2,  # smoothing parameter
+        mu=0.1,  # smoothing parameter
     )
 
     # add slack variables - to create the equality from the inequalities    
@@ -709,7 +709,7 @@ def sslalm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, 
         print(
             f"Epoch: {epoch}, "
             f"loss Train/Test: {np.mean(loss_log)}/{np.mean(t_loss)}, "
-            f"constraints: {np.max(np.abs(np.mean(c_log, axis=0)))}/{np.max(np.abs(np.mean(t_c_log_plotting, axis=0)))}, "
+            f"constraints: {np.max(np.mean(c_log, axis=0))}/{np.max(np.mean(t_c, axis=0))}, "
         f"dual: {np.max(np.mean(duals_log, axis=0).mean())}"
         )
 
@@ -735,8 +735,11 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     criterion = torch.nn.BCEWithLogitsLoss()
 
     # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, penalty_update_m='CONST', barrier="quadratic_logarithmic", epoch_len=len(dataloader))
+    # optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
+    #                 penalty_update_m='CONST', barrier="quadratic_logarithmic", epoch_len=len(dataloader_train))
+    
     optimizer = PBM(params=model.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
-                    penalty_update_m='CONST', barrier="quadratic_logarithmic", epoch_len=len(dataloader_train))
+                    penalty_update_m='ADAPT', barrier="quadratic_logarithmic", epoch_len=len(dataloader_train), delta=2.0)
 
     # alloc arrays for plotting
     PBM_S_loss_log_plotting = []  # mean
@@ -815,9 +818,11 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
         print(
             f"Epoch: {epoch}, "
             f"loss Train/Test: {np.mean(loss_log)}/{np.mean(t_loss)}, "
-            f"constraints: {np.max(np.abs(np.mean(c_log, axis=0)))}/{np.max(np.abs(np.mean(t_c_log_plotting, axis=0)))}, "
+            f"constraints: {np.max(np.mean(c_log, axis=0))}/{np.max(np.mean(t_c, axis=0))}, "
             f"dual: {np.max(np.mean(duals_log, axis=0).mean())}"
         )
+
+        print(optimizer.p)
     
     return PBM_S_loss_log_plotting, PBM_S_c_log_plotting, t_loss_log_plotting, t_c_log_plotting
 
@@ -912,7 +917,7 @@ if __name__ == '__main__':
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
     print('SSW DONE!!!')
 
-    # # benchmark sslalm
+    # benchmark sslalm
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
     print('SSLALM DONE!!!')
 

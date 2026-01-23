@@ -31,7 +31,8 @@ class PBM(Optimizer):
         epoch_len=None,
         penalty_update_m='CONST', # p parameter
         p_lb = 0.1,
-        p_ub = 2.0,
+        p_ub = 1.0,
+        delta = 1.5, # speed of p decrease with ADAPT option
         dual_bounds = (1e-4, 10),
         warm_start = 0, # number of epochs to warm start - no constraints included
         device="cpu",
@@ -136,12 +137,13 @@ class PBM(Optimizer):
             self.p_lb = p_lb
         
         elif penalty_update_m == "ADAPT": # P IS ADAPTIVE BASED ON MEAN OF THE TRAIN CONSTRINTS
-            self.update_p_method = self.update_ps_adapt
+            self.update_p_method = self.update_p_adapt
             self.update_ps_method = self.update_ps_adapt
             self.p_const = const_p
             self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
             self.p_lb = p_lb
             self.p_ub = p_ub
+            self.delta = delta
             self.constraints_epoch = torch.zeros(m, requires_grad=False, device=device)
 
         else: 
@@ -271,9 +273,12 @@ class PBM(Optimizer):
             growth_p = self.barrier_der( self.constraints_epoch[i] )
 
             # decrease for unsatisfied constraints and increase for satisfied constraints
-            self.p[i] = self.p[i] / growth_p
+            if growth_p > 1.0:
+                self.p[i] = 0.1* self.p[i] + 0.9 * self.p[i] / (self.delta * growth_p)
+            else: 
+                self.p[i] = 0.1* self.p[i] + 0.9 * self.p[i] / growth_p
 
-            self.constraints_epoch[i] = 0
+            self.constraints_epoch[i] *= 0
 
         # safeguarding
         self.p[i] = torch.clamp(self.p[i], self.p_lb, self.p_ub)
@@ -285,25 +290,18 @@ class PBM(Optimizer):
 
         # diminishing update once per defined number of steps
         if self.iter % self.epoch_len == 0:
-            
-            # self.constraints_epoch += constraints_cur
 
             # mean the constraints - over this epoch
             self.constraints_epoch = self.constraints_epoch / self.epoch_len
 
-            print(self.constraints_epoch[ self.constraints_epoch > 0 ])
-
             # project into using the barrier derivative
             growth_p = self.barrier_der( self.constraints_epoch )
 
-            # decrease for unsatisfied constraints and increase for satisfied constraints
-            # self.p = 0.9 * self.p + 0.1 * (self.p / growth_p)
-            self.p = self.p / growth_p
-
-            print(self.p[self.constraints_epoch > 0])
+            self.p[ growth_p > 1.0 ] = 0.1 * self.p[ growth_p > 1.0 ] + 0.9 * self.p[ growth_p > 1.0 ] / (self.delta * growth_p[ growth_p > 1.0 ])
+            self.p[ growth_p <= 1.0 ] = 0.1 * self.p[ growth_p <= 1.0 ] + 0.9 * self.p[ growth_p <= 1.0 ] / (growth_p[ growth_p <= 1.0 ])
 
             # restart the statistics
-            # self.constraints_epoch = 0
+            self.constraints_epoch*= 0 
 
         # safeguarding
         self.p = torch.clamp(self.p, self.p_lb, self.p_ub)

@@ -663,7 +663,7 @@ def loss_per_class_f(batch_outputs, batch_targets, network, criterion, num_class
     Computes the constraint of a demographic parity - that is a loss between all groups
     """
 
-    losses_per_class = torch.zeros(10, device=device)
+    losses_per_class = torch.zeros(10)
 
     # for each class compute a loss
     for class_number in range(0, num_classes):
@@ -794,15 +794,12 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     # define the criterion
     global criterion
     criterion = nn.CrossEntropyLoss()
-    
 
     # define the length of the print
     print_n = len(trainloader)
 
     # define the params and the number of epochs 
-    n_epochs_fit = 2
-    # lrs =[0.001, 0.002, 0.003]
-    lrs =[0.003]
+    lrs =[0.001]
 
     # best 
     best_params = None
@@ -835,8 +832,8 @@ def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     print_n = len(trainloader)
 
     # define the params and the number of epochs 
-    lrs =[0.0013]    
-    dual_lrs = [0.0008]
+    lrs =[0.01]    
+    dual_lrs = [0.01]
 
     # best 
     best_params = None
@@ -867,9 +864,9 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     # define the length of the print
     print_n = len(trainloader)
 
-    lrs = [0.003]
-    dual_lrs = [0.003]
-    mus = [1.0]
+    lrs = [0.001]
+    dual_lrs = [0.001]
+    mus = [0.0]
     rhos = [0.0]
 
     for lr in lrs:
@@ -900,11 +897,10 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     # define the length of the print
     print_n = len(trainloader)
 
-    lrs =[0.003]
+    lrs = [0.001]
     dual_betas = [0.9]
     mus = [mu]
     init_duals = [0.01]
-    penalties = ["quadratic_logarithmic"]
     penalties = ["quadratic_reciprocal"]
     warm_starts = [0]
 
@@ -989,8 +985,8 @@ if __name__ == '__main__':
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
         print('SSLALM DONE!!!')
 
-        #  benchmark pbm  
-        mu = 1.0
+        # #  benchmark pbm  
+        mu = 0.1
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
         print('PBM DONE!!!')
 
