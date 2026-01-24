@@ -381,6 +381,7 @@ def grid_pbm(n_epochs_fit, seed_n, fair_crit_bound, print_n):
     # best 
     best_fit = np.inf
     best_params = None
+    penalty_update_ms = ["CONST", "ADAPT"]
 
     for lr in lrs:
         for dual_beta in dual_betas:
@@ -388,29 +389,30 @@ def grid_pbm(n_epochs_fit, seed_n, fair_crit_bound, print_n):
                     for init_dual in init_duals:
                             for mu in mus:
                                     for warm_start in warm_starts:
-                            
-                                            # set the model params
-                                            model_params = {'lr': lr, 'dual_beta': dual_beta, 'mu': mu, 'penalty': penalty, 'init_dual': init_dual, 'warm_start': warm_start}
+                                            for pupdatem in penalty_update_ms:
 
-                                            # train the model on cifar dataset, with constraints based on the given parameters and the method
-                                            S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
-                                            test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
-                                            accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
-                                                    cifar_train(network_arch, n_epochs_fit, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='pbm', model_params=model_params)
+                                                # set the model params
+                                                model_params = {'lr': lr, 'dual_beta': dual_beta, 'mu': mu, 'penalty': penalty, 'init_dual': init_dual, 'warm_start': warm_start, "p_update": pupdatem}
 
-                                            # best fit update based on the current train
-                                            c_mean1 = np.max(test_S_c_log_plotting[-1])
-                                            c_mean2 = np.max(test_S_c_log_plotting[-2])
+                                                # train the model on cifar dataset, with constraints based on the given parameters and the method
+                                                S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
+                                                test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
+                                                accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
+                                                        cifar_train(network_arch, n_epochs_fit, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='pbm', model_params=model_params)
 
-                                            cur_fit = ( test_S_loss_log_plotting[-1] + test_S_loss_log_plotting[-2] + c_mean1 + c_mean2 ) / 4
+                                                # best fit update based on the current train
+                                                c_mean1 = np.max(test_S_c_log_plotting[-1])
+                                                c_mean2 = np.max(test_S_c_log_plotting[-2])
 
-                                            # print the status
-                                            print("Current FIT: ", cur_fit, model_params)
-                                            print("Best FIT: ", best_fit, best_params)
+                                                cur_fit = ( test_S_loss_log_plotting[-1] + test_S_loss_log_plotting[-2] + c_mean1 + c_mean2 ) / 4
 
-                                            if cur_fit < best_fit:
-                                                    best_fit = cur_fit
-                                                    best_params = copy.deepcopy(model_params)
+                                                # print the status
+                                                print("Current FIT: ", cur_fit, model_params)
+                                                print("Best FIT: ", best_fit, best_params)
+
+                                                if cur_fit < best_fit:
+                                                        best_fit = cur_fit
+                                                        best_params = copy.deepcopy(model_params)
 
 
     return best_fit, best_params
@@ -434,11 +436,11 @@ if __name__ == '__main__':
     # define the criterion
     criterion = nn.CrossEntropyLoss()
     
-    print('STARTING ADAM')
-    best_fit_adam, best_params_adam = grid_adam(n_epochs, seed_n, threshold, len(trainloader))
+    # print('STARTING ADAM')
+    # best_fit_adam, best_params_adam = grid_adam(n_epochs, seed_n, threshold, len(trainloader))
 
-    print('STARTING SSW')
-    best_fit_ssw, best_params_ssw = grid_ssw(n_epochs, seed_n, threshold, len(trainloader))
+    # print('STARTING SSW')
+    # best_fit_ssw, best_params_ssw = grid_ssw(n_epochs, seed_n, threshold, len(trainloader))
 
     print('STARTING SSLALM')
     best_fit_sslalm, best_params_sslalm = grid_sslalm(n_epochs, seed_n, threshold, len(trainloader))
@@ -446,15 +448,15 @@ if __name__ == '__main__':
     print('STARTING PBM')
     best_fit_pbm, best_params_pbm = grid_pbm(n_epochs, seed_n, threshold, len(trainloader))
 
-    # print the best params found for the current method
-    print('Best found params for ADAM: ')
-    print(best_fit_adam)
-    print(best_params_adam)
+    # # print the best params found for the current method
+    # print('Best found params for ADAM: ')
+    # print(best_fit_adam)
+    # print(best_params_adam)
     
-    # print the best params found for the current method
-    print('Best found params for SSW: ')
-    print(best_fit_ssw)
-    print(best_params_ssw)
+    # # print the best params found for the current method
+    # print('Best found params for SSW: ')
+    # print(best_fit_ssw)
+    # print(best_params_ssw)
 
 
     # print the best params found for the current method

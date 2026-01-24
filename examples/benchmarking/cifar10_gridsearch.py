@@ -370,6 +370,7 @@ def grid_pbm(n_epochs_fit, seed_n, fair_crit_bound, print_n):
     init_duals = [0.01]
     penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
     warm_starts = [0]
+    penalty_update_ms = ["CONST", "ADAPT"]
 
     # best 
     best_fit = np.inf
@@ -381,29 +382,30 @@ def grid_pbm(n_epochs_fit, seed_n, fair_crit_bound, print_n):
                     for init_dual in init_duals:
                             for mu in mus:
                                     for warm_start in warm_starts:
-                            
-                                            # set the model params
-                                            model_params = {'lr': lr, 'dual_beta': dual_beta, 'mu': mu, 'penalty': penalty, 'init_dual': init_dual, 'warm_start': warm_start}
+                                            for pupdatem in penalty_update_ms:
 
-                                            # train the model on cifar dataset, with constraints based on the given parameters and the method
-                                            S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
-                                            test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
-                                            accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
-                                                    cifar_train(network_arch, n_epochs_fit, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='pbm', model_params=model_params)
+                                                # set the model params
+                                                model_params = {'lr': lr, 'dual_beta': dual_beta, 'mu': mu, 'penalty': penalty, 'init_dual': init_dual, 'warm_start': warm_start, "p_update": pupdatem}
 
-                                            # best fit update based on the current train
-                                            c_mean1 = np.max(test_S_c_log_plotting[-1])
-                                            c_mean2 = np.max(test_S_c_log_plotting[-2])
+                                                # train the model on cifar dataset, with constraints based on the given parameters and the method
+                                                S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
+                                                test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
+                                                accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
+                                                        cifar_train(network_arch, n_epochs_fit, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='pbm', model_params=model_params)
 
-                                            cur_fit = ( test_S_loss_log_plotting[-1] + test_S_loss_log_plotting[-2] + c_mean1 + c_mean2 ) / 4
+                                                # best fit update based on the current train
+                                                c_mean1 = np.max(test_S_c_log_plotting[-1])
+                                                c_mean2 = np.max(test_S_c_log_plotting[-2])
 
-                                            # print the status
-                                            print("Current FIT: ", cur_fit, model_params)
-                                            print("Best FIT: ", best_fit, best_params)
+                                                cur_fit = ( test_S_loss_log_plotting[-1] + test_S_loss_log_plotting[-2] + c_mean1 + c_mean2 ) / 4
 
-                                            if cur_fit < best_fit:
-                                                    best_fit = cur_fit
-                                                    best_params = copy.deepcopy(model_params)
+                                                # print the status
+                                                print("Current FIT: ", cur_fit, model_params)
+                                                print("Best FIT: ", best_fit, best_params)
+
+                                                if cur_fit < best_fit:
+                                                        best_fit = cur_fit
+                                                        best_params = copy.deepcopy(model_params)
 
 
     return best_fit, best_params

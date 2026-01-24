@@ -908,6 +908,7 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     # penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
     penalties = ["quadratic_logarithmic"]
     warm_starts = [2]
+    penalty_update_ms = ["ADAPT"]
 
     for lr in lrs:
         for dual_beta in dual_betas:
@@ -915,8 +916,11 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
                     for init_dual in init_duals:
                             for mu in mus:
                                     for warm_start in warm_starts:
-                                            # set the model params
-                                            best_params  = {'lr': lr, 'dual_beta': dual_beta, 'mu': mu, 'penalty': penalty, 'init_dual': init_dual, 'warm_start': warm_start}
+                                            for pupdatem in penalty_update_ms:
+
+                                                # set the model params
+                                                best_params  = {'lr': lr, 'dual_beta': dual_beta, 'mu': mu, 'penalty': penalty, 'init_dual':
+                                                                 init_dual, 'warm_start': warm_start, "p_update": pupdatem}
 
     # train the model on cifar dataset, with constraints based on the given parameters and the method
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
