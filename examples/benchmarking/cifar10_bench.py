@@ -549,12 +549,12 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
     accuracy += [accuracy_log.mean(axis=0)]
     accuracy_per_group += [accuracy_log_per_group.mean(axis=0)]
     accuracy_t += [accuracy_log_t.mean(axis=0)]
-    accuracy_per_group_t += [accuracy_log_per_group.mean(axis=0)]
+    accuracy_per_group_t += [accuracy_log_per_group_t.mean(axis=0)]
 
     accuracy_std += [accuracy_log.std(axis=0)]
     accuracy_per_group_std += [accuracy_log_per_group.std(axis=0)]
     accuracy_t_std += [accuracy_log_t.std(axis=0)]
-    accuracy_per_group_t_std += [accuracy_log_per_group.std(axis=0)]
+    accuracy_per_group_t_std += [accuracy_log_per_group_t.std(axis=0)]
     
     np.savez(
         log_path,
@@ -939,7 +939,7 @@ if __name__ == '__main__':
     print(device)
 
     # define seeds
-    seeds = [1]
+    seeds = [1, 2, 3]
 
     # log path file
     if bench_mus:

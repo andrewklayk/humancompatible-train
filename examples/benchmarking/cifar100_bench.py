@@ -547,12 +547,12 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
     accuracy += [accuracy_log.mean(axis=0)]
     accuracy_per_group += [accuracy_log_per_group.mean(axis=0)]
     accuracy_t += [accuracy_log_t.mean(axis=0)]
-    accuracy_per_group_t += [accuracy_log_per_group.mean(axis=0)]
+    accuracy_per_group_t += [accuracy_log_per_group_t.mean(axis=0)]
 
     accuracy_std += [accuracy_log.std(axis=0)]
     accuracy_per_group_std += [accuracy_log_per_group.std(axis=0)]
     accuracy_t_std += [accuracy_log_t.std(axis=0)]
-    accuracy_per_group_t_std += [accuracy_log_per_group.std(axis=0)]
+    accuracy_per_group_t_std += [accuracy_log_per_group_t.std(axis=0)]
     
     np.savez(
         log_path,
@@ -838,8 +838,8 @@ def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     print_n = len(trainloader)
 
     # define the params and the number of epochs 
-    lrs =[0.0008]    
-    dual_lrs = [0.0008]
+    lrs =[0.01]    
+    dual_lrs = [0.01]
 
     # best 
     best_params = None
@@ -870,16 +870,19 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     # define the length of the print
     print_n = len(trainloader)
 
-    lrs = [0.0013]
-    dual_lrs = [0.0008]
-    mus = [0.1]
+    lrs = [0.001]
+    dual_lrs = [0.001]
+    mus = [0.0]
+    rhos = [0.0]
 
     for lr in lrs:
         for dual_lr in dual_lrs:
             for mu in mus:
-            
+                for rho in rhos: 
+
                     # set the model params
-                    best_params = {'lr': lr, 'dual_lr': dual_lr, 'mu': mu}
+                    best_params = {'lr': lr, 'dual_lr': dual_lr, 'mu': mu, 'rho': rho}
+
 
     # train the model on cifar dataset, with constraints based on the given parameters and the method
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
@@ -901,14 +904,14 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     # define the length of the print
     print_n = len(trainloader)
 
-    lrs =[0.0018]
+    lrs = [0.001]
     dual_betas = [0.9]
-    mus = [mu]
+    mus = [1.0]
     init_duals = [0.001]
     # penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
-    penalties = ["quadratic_logarithmic"]
-    warm_starts = [2]
-    penalty_update_ms = ["ADAPT"]
+    penalties = ["quadratic_reciprocal"]
+    warm_starts = [0]
+    penalty_update_ms = ["CONST"]
 
     for lr in lrs:
         for dual_beta in dual_betas:
