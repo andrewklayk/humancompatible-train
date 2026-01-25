@@ -872,8 +872,8 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
     lrs = [0.001]
     dual_lrs = [0.001]
-    mus = [0.0]
-    rhos = [0.0]
+    mus = [1.0]
+    rhos = [1.0]
 
     for lr in lrs:
         for dual_lr in dual_lrs:
@@ -904,14 +904,14 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     # define the length of the print
     print_n = len(trainloader)
 
-    lrs = [0.001]
+    lrs = [0.002]
     dual_betas = [0.9]
-    mus = [1.0]
+    mus = [0.1]
     init_duals = [0.001]
     # penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
     penalties = ["quadratic_reciprocal"]
     warm_starts = [0]
-    penalty_update_ms = ["CONST"]
+    penalty_update_ms = ["ADAPT"]
 
     for lr in lrs:
         for dual_beta in dual_betas:
@@ -938,7 +938,7 @@ if __name__ == '__main__':
     # define the torch seed here
     n_epochs = 30
     n_constraints = 9900
-    threshold = 0.5
+    threshold = 0.2
     # device = 'cpu'    
     device = 'cuda:0'
     bench_mus = False  # true to benchmark mus on cifar10 pbm
@@ -947,7 +947,7 @@ if __name__ == '__main__':
     print(device)
 
     # define seeds
-    seeds = [1, 2, 3]
+    seeds = [2]
 
 
     # log path file
@@ -987,16 +987,16 @@ if __name__ == '__main__':
         print('Starting cifar100 benchmark')
 
         # benchmark adam
-        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
-        print('ADAM DONE!!!')
+        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
+        # print('ADAM DONE!!!')
 
-        # benchmark ssw
-        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
-        print('SSW DONE!!!')
+        # # benchmark ssw
+        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
+        # print('SSW DONE!!!')
 
-        # # benchmark sslalm
-        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
-        print('SSLALM DONE!!!')
+        # # # benchmark sslalm
+        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
+        # print('SSLALM DONE!!!')
 
         # #  benchmark pbm
         mu = 1.0

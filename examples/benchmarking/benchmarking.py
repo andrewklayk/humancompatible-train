@@ -62,7 +62,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
         warm_start = model_params['warm_start']
         penalty_update_m = model_params['p_update']
         optimizer = PBM(params=net.parameters(), m=num_constraints, lr=lr, dual_beta=dual_beta, mu=mu, 
-                epoch_len=len(trainloader), init_dual=init_dual, penalty_update_m='CONST', p_lb=0.1, warm_start=warm_start,
+                epoch_len=len(trainloader), init_dual=init_dual, penalty_update_m=penalty_update_m, p_lb=0.1, warm_start=warm_start,
                 barrier=penalty, device=device)
     else: 
         raise ValueError("No such method available!")
@@ -225,6 +225,11 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 optimizer.step(loss)
                 duals_log.append(optimizer._dual_vars.detach().cpu())
 
+            if torch.isnan(loss):
+                print(optimizer._dual_vars)
+                raise ValueError("x is NaN")
+
+            
             # save the logs
             loss_log.append(loss.detach().cpu().numpy())
 
