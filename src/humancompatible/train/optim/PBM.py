@@ -281,7 +281,7 @@ class PBM(Optimizer):
             self.constraints_epoch[i] *= 0
 
             # safeguarding
-            self.p[i] = torch.nan_to_num(self.p[i], nan=self.p_lb)
+            self.p[i] = torch.nan_to_num(self.p[i], nan=self.p_ub)
             self.p[i] = torch.clamp(self.p[i], self.p_lb, self.p_ub)
 
     def update_ps_adapt(self, constraints_cur):
@@ -304,8 +304,7 @@ class PBM(Optimizer):
             # restart the statistics
             self.constraints_epoch*= 0 
 
-            # safeguarding
-            self.p = torch.nan_to_num(self.p, nan=self.p_lb)
+            self.p = torch.nan_to_num(self.p, nan=self.p_ub)
             self.p = torch.clamp(self.p, self.p_lb, self.p_ub)
 
     def update_p_const(self, i, t):
