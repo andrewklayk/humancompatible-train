@@ -643,7 +643,7 @@ def load_data(balanced=False):
 
     # split test / val
     X_test, X_val, targets_test, targets_val, groups_onehot_test, groups_onehot_val = \
-                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5)
+                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=42)
 
     # create a train dataset
     dataset_test = torch.utils.data.TensorDataset(X_test, groups_onehot_test, targets_test)
@@ -806,7 +806,7 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     print_n = len(trainloader)
 
     # define the params and the number of epochs 
-    lrs =[0.001]
+    lrs =[0.01]
 
     # best 
     best_params = None
@@ -938,7 +938,7 @@ if __name__ == '__main__':
     # define the torch seed here
     n_epochs = 30
     n_constraints = 9900
-    threshold = 0.2
+    threshold = 0.5
     # device = 'cpu'    
     device = 'cuda:0'
     bench_mus = False  # true to benchmark mus on cifar10 pbm
@@ -947,7 +947,7 @@ if __name__ == '__main__':
     print(device)
 
     # define seeds
-    seeds = [2]
+    seeds = [1, 2, 3]
 
 
     # log path file
@@ -987,18 +987,18 @@ if __name__ == '__main__':
         print('Starting cifar100 benchmark')
 
         # benchmark adam
-        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
-        # print('ADAM DONE!!!')
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
+        print('ADAM DONE!!!')
 
-        # # benchmark ssw
-        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
-        # print('SSW DONE!!!')
+        # benchmark ssw
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
+        print('SSW DONE!!!')
 
-        # # # benchmark sslalm
-        # benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
-        # print('SSLALM DONE!!!')
+        # # benchmark sslalm
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
+        print('SSLALM DONE!!!')
 
-        # #  benchmark pbm
+        #  benchmark pbm
         mu = 1.0
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
         print('PBM DONE!!!')

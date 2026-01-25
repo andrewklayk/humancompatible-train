@@ -635,7 +635,7 @@ def load_data(balanced=False):
 
     # split test / val
     X_test, X_val, targets_test, targets_val, groups_onehot_test, groups_onehot_val = \
-                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5)
+                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=42)
 
     # create a train dataset
     dataset_test = torch.utils.data.TensorDataset(X_test, groups_onehot_test, targets_test)

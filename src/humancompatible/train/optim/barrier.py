@@ -60,6 +60,7 @@ def quadratic_logarithmic_penalty(t):
     """
     Vectorized version of quadratic_logarithmic_penalty
     """
+
     return torch.where(
         t >= -0.5,
         t + 0.5 * torch.square(t),
@@ -99,7 +100,7 @@ def augmented_lagrangian_derivative_deprecated(t):
         return t*0
 
 def quadratic_logarithmic_penalty_derivative_deprecated(t):
-    
+
     if t >= -0.5:
         return 1 + t
 
@@ -129,6 +130,7 @@ def augmented_lagrangian_derivative(t):
 
 
 def quadratic_logarithmic_penalty_derivative(t):
+
     return torch.where(
         t >= -0.5,
         1 + t,

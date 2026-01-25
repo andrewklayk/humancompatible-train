@@ -224,14 +224,13 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 # backpropagate
                 optimizer.step(loss)
                 duals_log.append(optimizer._dual_vars.detach().cpu())
-
-            if torch.isnan(loss):
-                print(optimizer._dual_vars)
-                raise ValueError("x is NaN")
-
             
             # save the logs
             loss_log.append(loss.detach().cpu().numpy())
+
+            # print(optimizer._dual_vars)
+            # print(constr)
+            # print(optimizer.constraints)
 
             ############################ PRINT ###########
 

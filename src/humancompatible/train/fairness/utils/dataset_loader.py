@@ -65,7 +65,7 @@ def get_data_dutch(seed_n = 42, drop_small_groups=True, print_stats=True):
 
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(df_features, df_labels, groups_onehot, 
                                                                                    test_size=0.2, random_state=seed_n)
-    X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(X_train, y_train, groups_train, test_size=0.25)
+    X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(X_train, y_train, groups_train, test_size=0.25, random_state=seed_n)
     
     # print the statistics
     if print_stats:
