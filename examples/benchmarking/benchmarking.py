@@ -227,10 +227,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
             
             # save the logs
             loss_log.append(loss.detach().cpu().numpy())
-
-            # print(optimizer._dual_vars)
-            # print(constr)
-            # print(optimizer.constraints)
+            
 
             ############################ PRINT ###########
 

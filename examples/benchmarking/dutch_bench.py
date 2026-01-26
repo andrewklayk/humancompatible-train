@@ -845,14 +845,6 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
         test_S_loss_log_plotting.append(np.mean(losses_test))
         test_S_c_log_plotting.append(np.mean(c_test, axis=0))
-        
-        # compute the largest violations
-        argmax = np.argsort(np.abs(np.mean(c_log, axis=0)))[::-1]
-        n_max = 5
-        print(f'argmax constraints ({n_max}): {argmax[:n_max]}')
-        print(f'max constraints ({n_max}): {np.abs(np.mean(c_log, axis=0))[argmax[:n_max]]}')
-        # print(f'duals ({n_max}): {np.mean(duals_log, axis=0)[argmax[:n_max]]}')
-
         print(
             f"Epoch: {epoch}, "
             f"loss ({np.mean(loss_log):.4f}/{np.mean(losses_test):.4f}):"

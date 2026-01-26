@@ -583,7 +583,7 @@ def load_data(balanced=False):
         [transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    batch_size = 400
+    batch_size = 200
 
     trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
                                             download=True, transform=transform)
@@ -630,9 +630,9 @@ def load_data(balanced=False):
         group_onehot=groups_onehot, batch_size=batch_size, drop_last=True
     )
     if balanced:
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler, num_workers=10)
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler, num_workers=1)
     else: 
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, num_workers=10)
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, num_workers=1)
 
     # load all data and create a balanced sampler
     X_test = torch.stack([item[0] for item in testset])
@@ -654,9 +654,9 @@ def load_data(balanced=False):
     )
     global testloader   
     if balanced:
-        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler, num_workers=10)
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler, num_workers=1)
     else:
-        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, num_workers=10)
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, num_workers=1)
 
     # clean the memory of redundant variables
     del X, targets, groups_onehot
@@ -806,7 +806,7 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     print_n = len(trainloader)
 
     # define the params and the number of epochs 
-    lrs =[0.01]
+    lrs =[0.003]
 
     # best 
     best_params = None
@@ -839,7 +839,7 @@ def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
     # define the params and the number of epochs 
     lrs =[0.01]    
-    dual_lrs = [0.01]
+    dual_lrs = [0.1]
 
     # best 
     best_params = None
@@ -909,6 +909,7 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     mus = [0.1]
     init_duals = [0.001]
     # penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
+    penalties = ["quadratic_logarithmic"]
     penalties = ["quadratic_reciprocal"]
     warm_starts = [0]
     penalty_update_ms = ["ADAPT"]
@@ -936,7 +937,7 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
 if __name__ == '__main__':
 
     # define the torch seed here
-    n_epochs = 30
+    n_epochs = 20
     n_constraints = 9900
     threshold = 0.5
     # device = 'cpu'    
@@ -948,7 +949,6 @@ if __name__ == '__main__':
 
     # define seeds
     seeds = [1, 2, 3]
-
 
     # log path file
     if bench_mus:
@@ -1035,7 +1035,6 @@ if __name__ == '__main__':
     accuracy_per_group_std = list(np.load(log_path)["accuracy_per_group_std"])
     accuracy_t_std = list(np.load(log_path)["accuracy_t_std"])
     accuracy_per_group_t_std = list(np.load(log_path)["accuracy_per_group_t_std"])
-
 
     if not bench_mus:
         plot_losses_and_constraints_stochastic(

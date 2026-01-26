@@ -299,7 +299,7 @@ class PBM(Optimizer):
             growth_p = self.barrier_der( self.constraints_epoch )
 
             self.p[ growth_p > 1.0 ] = 0.1 * self.p[ growth_p > 1.0 ] + 0.9 * self.p[ growth_p > 1.0 ] / (self.delta * growth_p[ growth_p > 1.0 ])
-            self.p[ growth_p <= 1.0 ] = 0.1 * self.p[ growth_p <= 1.0 ] + 0.9 * self.p[ growth_p <= 1.0 ] / (growth_p[ growth_p <= 1.0 ])
+            self.p[ growth_p <= 1.0 ] = 0.1 * self.p[ growth_p <= 1.0 ] + 0.9 * self.p[ growth_p <= 1.0 ] / (growth_p[ growth_p <= 1.0 ] + 0.0001)
 
             # restart the statistics
             self.constraints_epoch*= 0 
@@ -462,28 +462,35 @@ class PBM(Optimizer):
 
             # no need to track gradients at this point
             # update the NN params 
-            for i, param in enumerate(params):
+            for i_param, param in enumerate(params):
                 
                 # grads is the sum of gradient of the obj + linear comb. of the constraints + add the smoothing term
                 G_i = torch.zeros_like(param)
 
                 # check for warm start - no condition for n epochs
                 if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start:
-                    G_i.add_(grads[i])     # no ALM - just objective 
+                    G_i.add_(grads[i_param])     # no ALM - just objective 
                 else: 
-                    G_i.add_(grads[i]).add_(param - smoothing[i], alpha=self.mu)
+                    G_i.add_(grads[i_param]).add_(param - smoothing[i_param], alpha=self.mu)
+
+                    if torch.isnan(G_i).any():
+                        print(torch.isnan(grads[i_param]))
+                        print(F_loss)
+                        print(torch.isnan(grads[i_param]).any())
+                        print(torch.isnan(param).any())
+                        print(torch.isnan(smoothing[i_param]).any())
 
                 if self.opt_method == 'ADAM':
 
                     # update the smooting term
-                    smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                    smoothing[i_param].add_(smoothing[i_param], alpha=-self.beta).add_(
                         param, alpha=self.beta
                     )
 
                     # compute the adam moments
-                    exp_avg = exp_avgs[i]
-                    exp_avg_sq = exp_avg_sqs[i]
-                    step_t = state_steps[i]
+                    exp_avg = exp_avgs[i_param]
+                    exp_avg_sq = exp_avg_sqs[i_param]
+                    step_t = state_steps[i_param]
                     step_t += 1
                     beta1, beta2 = self.beta1, self.beta2
                     eps = self.eps
@@ -503,11 +510,11 @@ class PBM(Optimizer):
                     if amsgrad:
                         # Maintains the maximum of all 2nd moment running avg. till now
                         torch.maximum(
-                            max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i]
+                            max_exp_avg_sqs[i_param], exp_avg_sq, out=max_exp_avg_sqs[i_param]
                         )
 
                         # Use the max. for normalizing running avg. of gradient
-                        denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(
+                        denom = (max_exp_avg_sqs[i_param].sqrt() / bias_correction2_sqrt).add_(
                             eps
                         )
                     else:
@@ -519,7 +526,7 @@ class PBM(Optimizer):
                 elif self.opt_method == "SGD":
                     
                     # update the smooting term
-                    smoothing[i].add_(smoothing[i], alpha=-self.beta).add_(
+                    smoothing[i_param].add_(smoothing[i_param], alpha=-self.beta).add_(
                         param, alpha=self.beta
                     )
                     

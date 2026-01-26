@@ -61,22 +61,27 @@ def quadratic_logarithmic_penalty(t):
     Vectorized version of quadratic_logarithmic_penalty
     """
 
-    return torch.where(
-        t >= -0.5,
-        t + 0.5 * torch.square(t),
-        -0.25 * torch.log(-2 * t) - 3/8
-    )
+    out = torch.empty_like(t)
+
+    mask = t >= -0.5
+    out[mask] = t[mask] + 0.5 * t[mask]**2
+    out[~mask] = -0.25 * torch.log(-2 * t[~mask]) - 3/8
+
+    return out
 
 
 def quadratic_reciprocal_penalty(t):
     """
     Vectorized version of quadratic_reciprocal_penalty
     """
-    return torch.where(
-        t >= -1/3,
-        t + 0.5 * torch.square(t),
-        (32/27) * (1 / (1 - t)) - 7/6
-    )
+
+    out = torch.empty_like(t)
+
+    mask = t >= -1/3
+    out[mask] = t[mask] + 0.5 * t[mask]**2
+    out[~mask] = (32/27) * (1 / (1 - t[~mask])) - 7/6
+
+    return out  
 
 # ---------------------------------------------
 
@@ -122,6 +127,7 @@ def quadratic_reciprocal_penalty_derivative_deprecated(t):
 
 
 def augmented_lagrangian_derivative(t):
+
     return torch.where(
         t >= -1,
         1 + t,
@@ -131,16 +137,22 @@ def augmented_lagrangian_derivative(t):
 
 def quadratic_logarithmic_penalty_derivative(t):
 
-    return torch.where(
-        t >= -0.5,
-        1 + t,
-        -1 / (4 * t)
-    )
+    out = torch.empty_like(t)
+
+    mask = t >= -0.5
+    out[mask] = 1 + t[mask]
+    out[~mask] = -1 / (4 * t[~mask])
+
+    return out
+
 
 
 def quadratic_reciprocal_penalty_derivative(t):
-    return torch.where(
-        t >= -1/3,
-        1 + t,
-        (32/27) * (1 / torch.square(1 - t))
-    )
+
+    out = torch.empty_like(t)
+
+    mask = t >= -1/3
+    out[mask] = 1 + t[mask]
+    out[~mask] = (32/27) * (1 / torch.square(1 - t[~mask]))
+
+    return out
