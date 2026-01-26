@@ -177,6 +177,17 @@ class SSLALM_Adam(Optimizer):
             group.setdefault("differentiable", False)
             group.setdefault("decoupled_weight_decay", False)
 
+
+    def dual_steps(self, c_val: Tensor):
+        self._dual_vars.add_(c_val.detach(), alpha=self.dual_lr)
+
+        if c_val.ndim == 0:
+            self._constraints.append(c_val.unsqueeze(0))
+        else:
+            self._constraints.append(c_val)
+
+
+
     def dual_step(self, i: int, c_val: Tensor):
         r"""Perform an update of the dual parameters.
         Also saves constraint gradient for weight update. To be called BEFORE :func:`step` in an iteration!
@@ -186,10 +197,6 @@ class SSLALM_Adam(Optimizer):
             c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
         """
         # update dual multipliers
-        if c_val.numel() != 1:
-            raise ValueError(
-                f"`dual_step` expected a scalar `c_val`, got shape {c_val.shape}"
-            )
         self._dual_vars[i].add_(c_val.detach(), alpha=self.dual_lr)
 
         # check dual bound
