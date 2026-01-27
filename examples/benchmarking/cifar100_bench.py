@@ -495,15 +495,10 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
     times_cur = []
     for idx, seed in enumerate(seeds):
 
-        # time the method
-        start = time.time()
-
-        losses_cur, constraints_cur, losses_cur_t, constraints_cur_t, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t\
+        losses_cur, constraints_cur, losses_cur_t, constraints_cur_t, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time\
                                     = method_f(seed, n_epochs, dataloader_train, dataloader_test, threshold, mu)
 
-        # save the timing per epoch
-        end = time.time()
-        times_cur.append([(end-start)/(n_epochs-1)])
+        times_cur.append([(time)/(n_epochs-1)])
 
         losses_log[idx] = losses_cur
         constraints_log[idx] = constraints_cur
@@ -515,8 +510,6 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
         accuracy_log_t[idx] = accuracy_plotting_t
         accuracy_log_per_group[idx] = dict_to_array_classes_pergroup(accuracy_per_class_plotting, classes)
         accuracy_log_per_group_t[idx] = dict_to_array_classes_pergroup(accuracy_per_class_plotting_t, classes)
-
-    print('Time elapsed: ', np.array(times_cur).mean())
 
     losses = list(np.load(savepath)["losses"])
     constraints = list(np.load(savepath)["constraints"])
@@ -557,6 +550,8 @@ def benchmark(n_epochs, n_constraints, seeds, savepath, dataloader_train, datalo
     accuracy_per_group_std += [accuracy_log_per_group.std(axis=0)]
     accuracy_t_std += [accuracy_log_t.std(axis=0)]
     accuracy_per_group_t_std += [accuracy_log_per_group_t.std(axis=0)]
+
+    print('Time elapsed (mean/std): ', np.array(times_cur).mean(), np.array(times_cur).std())
     
     np.savez(
         log_path,
@@ -824,10 +819,10 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     # train the model on cifar dataset, with the best fit
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
     test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
-    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
+    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time = \
             cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='unconstrained', model_params=best_params)
 
-    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t
+    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time
 
 
 def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
@@ -858,10 +853,10 @@ def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     # train the model on cifar dataset, with constraints based on the given parameters and the method
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
     test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
-    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
+    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time = \
             cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='ssw', model_params=best_params)
 
-    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t
+    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time
 
 def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
@@ -891,10 +886,10 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
     # train the model on cifar dataset, with constraints based on the given parameters and the method
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
     test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
-    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
+    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time = \
             cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='ssl-alm', model_params=best_params)
 
-    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t
+    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time
 
 
 def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
@@ -914,7 +909,6 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     init_duals = [0.001]
     # penalties = ["quadratic_logarithmic", "quadratic_reciprocal"]
     penalties = ["quadratic_logarithmic"]
-    penalties = ["quadratic_reciprocal"]
     warm_starts = [0]
     penalty_update_ms = ["ADAPT"]
 
@@ -933,17 +927,17 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
     # train the model on cifar dataset, with constraints based on the given parameters and the method
     S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting,\
     test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
-    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t = \
+    accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time = \
             cifar_train(network_arch, n_epochs, seed_n, trainloader, loss_per_class_f, test_network, device, classes, fair_crit_bound, print_n, method='pbm', model_params=best_params)
 
-    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t
+    return S_loss_log_plotting, S_c_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, accuracy_plotting, accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time
 
 if __name__ == '__main__':
 
     # define the torch seed here
     n_epochs = 20
     n_constraints = 9900
-    threshold = 0.1
+    threshold = 0.5
     # device = 'cpu'    
     device = 'cuda:0'
     bench_mus = False  # true to benchmark mus on cifar10 pbm
@@ -952,7 +946,7 @@ if __name__ == '__main__':
     print(device)
 
     # define seeds
-    seeds = [1, 2, 3]
+    seeds = [1, 2, 3, 4, 5]
 
     # log path file
     if bench_mus:
@@ -994,11 +988,11 @@ if __name__ == '__main__':
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
         print('ADAM DONE!!!')
 
-        # benchmark ssw
+        # # benchmark ssw
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
         print('SSW DONE!!!')
 
-        # # benchmark sslalm
+        # # # benchmark sslalm
         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
         print('SSLALM DONE!!!')
 

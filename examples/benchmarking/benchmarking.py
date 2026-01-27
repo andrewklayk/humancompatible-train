@@ -9,10 +9,247 @@ import numpy as np
 from humancompatible.train.optim.ssw import SSG
 from humancompatible.train.optim.PBM import PBM
 from humancompatible.train.optim.ssl_alm_adam import SSLALM_Adam
+import timeit
 
 """
 Helper functions for benchmarking notebook
 """
+
+from matplotlib import pyplot as plt
+import numpy as np
+
+
+def plot_losses_and_constraints_stochastic(
+    train_losses_list,
+    train_losses_std_list,
+    train_constraints_list,
+    train_constraints_std_list,
+    constraint_thresholds,
+    test_losses_list=None,
+    test_losses_std_list=None,
+    test_constraints_list=None,
+    test_constraints_std_list=None,
+    titles=None,
+    eval_points=1,
+    std_multiplier=2,
+    log_constraints=False,
+    mode="train",  # "train" or "train_test"
+    times=[], # second per epoch
+    plot_time_instead_epochs=False,
+    save_path=None,
+    abs_constraints=False
+):
+    """
+    mode:
+        "train"       -> only training plots
+        "train_test"  -> training + test side by side
+    """
+
+    # --- Color palette (Tableau 10) ---
+    colors = [
+        "#4E79A7",
+        "#F28E2B",
+        "#E15759",
+        "#76B7B2",
+        "#59A14F",
+        "#EDC948",
+        "#B07AA1",
+        "#FF9DA7",
+        "#9C755F",
+        "#BAB0AB",
+    ]
+
+    marker_styles = ["o", "s", "D", "^", "v", "<", ">", "P", "X", "*"]
+
+    num_algos = len(train_losses_list)
+    if titles is None:
+        titles = [f"Algorithm {i + 1}" for i in range(num_algos)]
+
+    constraint_thresholds = np.atleast_1d(constraint_thresholds)
+
+    # --- Layout ---
+    ncols = 1 if mode == "train" else 2
+
+    join_bottom_plot = not test_constraints_list and mode == "train_test"
+
+    if join_bottom_plot:
+        fig, axes = plt.subplot_mosaic([[0, 1], [2, 2]], figsize=(9 * ncols, 10))
+    else:
+        fig, axes = plt.subplots(2, ncols, figsize=(9 * ncols, 10), sharex="col", sharey="row")
+
+    if ncols == 1:
+        axes = np.array([[axes[0]], [axes[1]]])
+
+    # ======================================================
+    # Helper plotting functions
+    # ======================================================
+
+    def plot_loss(ax, losses_list, losses_std_list, title_suffix):
+        for j, (loss, loss_std) in enumerate(zip(losses_list, losses_std_list)):
+            x = np.arange(len(loss))
+            color = colors[j % len(colors)]
+            upper = loss + std_multiplier * loss_std
+            lower = loss - std_multiplier * loss_std
+
+            if plot_time_instead_epochs:
+                x *= round(times[j])
+
+            # ax.plot(x, loss, lw=2.2, color=color, label=titles[j] + f"; TPE: {minutes}m:{seconds}s")
+            ax.plot(x, loss, lw=2.2, color=color, label=titles[j])
+            ax.fill_between(x, lower, upper, color=color, alpha=0.15)
+
+            if eval_points is not None:
+                idx = (
+                    np.arange(0, len(loss), eval_points)
+                    if isinstance(eval_points, int)
+                    else np.array(eval_points)
+                )
+                idx = idx[idx < len(loss)]
+                ax.plot(
+                    x[idx],
+                    loss[idx],
+                    marker_styles[j % len(marker_styles)],
+                    color=color,
+                    markersize=6,
+                    alpha=0.8,
+                )
+
+        ax.set_title(f"Loss ({title_suffix})")
+        ax.set_ylabel("Mean Loss")
+        ax.grid(True, linestyle="--", alpha=0.35)
+        ax.legend(fontsize=9)
+    
+    
+    def plot_constraints(ax, constraints_list, constraints_std_list, title_suffix):
+        for j, (constraints, constraints_std) in enumerate(
+            zip(constraints_list, constraints_std_list)
+        ):
+            color = colors[j % len(colors)]
+            constraints = np.asarray(constraints)
+            constraints_std = np.asarray(constraints_std)
+
+            x = np.arange(constraints.shape[1])
+
+
+            # c_min = np.min(constraints - std_multiplier * constraints_std, axis=0)
+            # c_max = np.max(constraints + std_multiplier * constraints_std, axis=0)
+            # ax.fill_between(x, c_min, c_max, color=color, alpha=0.1)
+
+            print(np.array(constraints).shape)
+            c_max = np.max(constraints, axis=0)
+            c_max_std = np.std(c_max)
+
+            c_lower = c_max - std_multiplier * c_max_std
+            c_upper = c_max + std_multiplier * c_max_std
+            ax.fill_between(x, c_lower, c_upper, color=color, alpha=0.1)
+
+            if plot_time_instead_epochs:
+                x *= round(times[j])
+
+            label = titles[j]
+            ax.plot(x, c_max, lw=1.8, color=color, alpha=0.3, label=label)
+
+            if eval_points is not None:
+                idx = (
+                    np.arange(0, len(c_max), eval_points)
+                    if isinstance(eval_points, int)
+                    else np.array(eval_points)
+                )
+                idx = idx[idx < len(c_max)]
+                ax.plot(
+                    x[idx],
+                    c_max[idx],
+                    marker_styles[j % len(marker_styles)],
+                    color=color,
+                    markersize=5,
+                    alpha=0.3,
+                )
+                
+
+            # for c_idx, c_mean in enumerate(constraints):
+
+                # if plot_time_instead_epochs:
+                #     x *= round(times[j])
+
+                # if c_idx == 0:
+                #     label = titles[j]
+                # else: 
+                #     label = None
+
+                # ax.plot(x, c_mean, lw=1.8, color=color, alpha=0.3, label=label)
+
+                # if eval_points is not None:
+                #     idx = (
+                #         np.arange(0, len(c_mean), eval_points)
+                #         if isinstance(eval_points, int)
+                #         else np.array(eval_points)
+                #     )
+                #     idx = idx[idx < len(c_mean)]
+                #     ax.plot(
+                #         x[idx],
+                #         c_mean[idx],
+                #         marker_styles[j % len(marker_styles)],
+                #         color=color,
+                #         markersize=5,
+                #         alpha=0.3,
+                #     )
+
+        for th in constraint_thresholds:
+            y = np.log(th) if log_constraints else th
+            ax.axhline(y, color="red", linestyle="--", lw=1.4, label="Threshold")
+
+        ax.set_title(f"Constraint ({title_suffix})")
+        ax.set_ylabel("Log Constraint" if log_constraints else "Constraint")
+
+        if plot_time_instead_epochs:
+            ax.set_xlabel("Time (m)")
+        else: 
+            ax.set_xlabel("Epoch")
+        ax.grid(True, linestyle="--", alpha=0.35)
+        ax.legend(fontsize=9)
+
+    # ======================================================
+    # TRAIN PLOTS
+    # ======================================================
+
+    plot_loss(
+        axes[0] if join_bottom_plot else axes[0, 0],
+        train_losses_list,
+        train_losses_std_list,
+        "Train"
+    )
+    plot_constraints(
+        axes[2] if join_bottom_plot else axes[1, 0],
+        train_constraints_list,
+        train_constraints_std_list,
+        "Train",
+    )
+
+    # ======================================================
+    # TEST PLOTS
+    # ======================================================
+
+    if mode == "train_test":
+        plot_loss(
+            axes[1] if join_bottom_plot else axes[0, 1],
+            test_losses_list,
+            test_losses_std_list,
+            "Test"
+        )
+        if join_bottom_plot:
+            axes[0].set_yticks(axes[1].get_yticks())
+        if test_constraints_list:
+            plot_constraints(
+                axes[1, 1],
+                test_constraints_list,
+                test_constraints_std_list,
+                "Test",
+            )
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
+
 
 def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_class_f, test_network_f, device, classes_arr, fair_crit_bound, print_n, method='unconstrained',
                         model_params=None, init_weights=None):
@@ -84,6 +321,8 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
     accuracy_plotting_t = []
     accuracy_per_class_plotting_t = []
 
+    time = 0
+
     for epoch in range(n_epochs):  # loop over the dataset multiple times
 
         # predictions + predictions per group stats
@@ -108,11 +347,81 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
             optimizer.zero_grad()
 
             # forward
+            time_start = timeit.default_timer()
             outputs = net(inputs)
+            time += timeit.default_timer() - time_start
             
             _, predicted = torch.max(outputs, 1) # compute the classes predictions
 
             ############################ CONSTRAINTS + STATISTICS ###########
+            
+            # compute loss
+            time_start = timeit.default_timer()                        
+            loss = criterion(outputs, labels)
+            time += timeit.default_timer() - time_start
+            
+            # loss per class
+            time_start = timeit.default_timer()
+            loss_per_class = loss_per_class_f(outputs, labels, net, criterion)
+            if method != "unconstrained":
+                time += timeit.default_timer() - time_start
+
+            ## CONSTRAINT COMPUTATION
+            if method != 'unconstrained':
+                
+                time_start = timeit.default_timer()
+                
+                N = loss_per_class.shape[0]
+                diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
+                mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
+                constr = (diff - fair_crit_bound)[mask]   # shape: (N*(N-1),)
+                if method == 'pbm':
+                    optimizer.dual_steps(constr)
+                elif method == 'ssl-alm':
+                    constr = torch.max(constr, torch.zeros_like(constr, device=device))
+                elif method == 'ssw':
+                    constr = torch.max(constr)
+                
+                time += timeit.default_timer() - time_start
+                
+                c_log.append(diff[mask].detach().cpu().numpy())
+
+            else: # unsconstrained - just log the constraint 
+                with torch.no_grad():
+                    N = loss_per_class.shape[0]
+                    diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
+                    mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
+                    c_log.append(diff[mask].cpu().numpy())
+
+            ## PARAM UPDATE
+            time_start = timeit.default_timer()
+
+            if method == "unconstrained":
+                loss.backward()
+                optimizer.step()
+            
+            elif method == 'ssw':
+                if constr > 0: # don't need constraint grad if not using it
+                    constr.backward()
+                    optimizer.dual_step(0)
+                    optimizer.zero_grad()
+                else:        
+                    loss.backward()
+                optimizer.step(constr)
+                optimizer.zero_grad()
+
+            elif method == 'pbm' or method == 'ssl-alm':
+                optimizer.dual_steps(constr)
+                optimizer.step(loss)
+                duals_log.append(optimizer._dual_vars.detach().cpu())
+            
+            time += timeit.default_timer() - time_start
+
+            # save the logs
+            loss_log.append(loss.detach().cpu().numpy())
+            
+
+            ############################ PRINT ###########
 
             # compute the accuracy overall
             total_epoch += labels.size(0)
@@ -126,112 +435,6 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                     
                 # save the number of samples per that group in the batch
                 total_pred_epoch[classes_arr[label]] += 1   
-
-            ############################ BACKPROPAGATION ###########
-
-            # compute the loss
-            loss = criterion(outputs, labels)
-
-            # compute a loss of each class in this batch
-            loss_per_class = loss_per_class_f(outputs, labels, net, criterion)
-
-            if method == 'ssw':
-                max_c = torch.zeros(1, device=device)
-
-            if method == 'ssl-alm':
-                constraints = torch.zeros(num_constraints, device=device)
-
-
-            # if method == 'ssl-alm' or method == 'ssw':
-            if method == 'ssw':
-                # compute the demographic parity
-                c_log.append([])
-                constraint_k = 0
-                for group_i in range(0, len(classes_arr)):
-                    for group_j in range(0, len(classes_arr)):
-
-                        if group_i != group_j:
-                            
-                            # demographic parity between i,j
-                            g = loss_per_class[group_i] - loss_per_class[group_j]
-                            constr = g - fair_crit_bound
-
-                            if method == 'ssw':
-                                max_c = torch.max(constr, max_c)
-                            
-                            if method == 'ssl-alm':
-                                constr = torch.max( g - fair_crit_bound, torch.zeros(1, device=device) )[0]
-                                optimizer.dual_step(constraint_k, constr)
-                                constraints[constraint_k] = constr 
-
-                            c_log[-1].append(g.detach().cpu().numpy())
-                            constraint_k += 1
-
-            # for unconstrained and pbm do vectorized version
-            elif method == 'pbm' or method == 'ssl-alm':
-
-                # loss_per_class: shape (N,)
-                N = loss_per_class.shape[0]
-
-                # pairwise differences: shape (N, N)
-                diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
-                
-                # remove diagonal (i == j)
-                mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
-
-                # apply fairness bound and flatten
-                constr = (diff - fair_crit_bound)[mask]   # shape: (N*(N-1),)
-
-                optimizer.dual_steps(constr)
-
-                c_log.append(diff[mask].detach().cpu().numpy())
-
-            else: # unsconstrained - just save the constraint 
-
-                # loss_per_class: shape (N,)
-                N = loss_per_class.shape[0]
-
-                # pairwise differences: shape (N, N)
-                diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
-                
-                # remove diagonal (i == j)
-                mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
-
-                c_log.append(diff[mask].detach().cpu().numpy())
-
-            if method == "unconstrained":
-
-                # backpropagate
-                loss.backward()
-                optimizer.step()
-        
-            if method == 'ssw':
-                # calculate the Jacobian of the max-violating norm constraint
-                max_c.backward(retain_graph=True)
-
-                # save the gradient of the constraint
-                optimizer.dual_step(0)
-                optimizer.zero_grad()
-                
-                loss.backward()
-                optimizer.step(max_c)
-                optimizer.zero_grad()
-
-            if method == 'ssl-alm':
-                # optimizer.step(loss, constraints)
-                optimizer.step(loss)
-                duals_log.append(optimizer._dual_vars.detach().cpu())
-
-            if method == 'pbm':
-                # backpropagate
-                optimizer.step(loss)
-                duals_log.append(optimizer._dual_vars.detach().cpu())
-            
-            # save the logs
-            loss_log.append(loss.detach().cpu().numpy())
-            
-
-            ############################ PRINT ###########
 
             # print the statistics
             if i % print_n == print_n-1:    # print every 2000 mini-batches
@@ -284,4 +487,4 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
 
     # return the statistics
     return S_loss_log_plotting, S_c_log_plotting, S_loss_std_log_plotting, S_c_std_log_plotting, test_S_loss_log_plotting, test_S_c_log_plotting, test_S_loss_std_log_plotting, test_S_c_std_log_plotting,\
-            accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t
+            accuracy_plotting,  accuracy_per_class_plotting, accuracy_plotting_t, accuracy_per_class_plotting_t, time
