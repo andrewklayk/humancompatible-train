@@ -943,7 +943,7 @@ if __name__ == '__main__':
     # define the torch seed here
     n_epochs = 20
     n_constraints = 9900
-    threshold = 0.5
+    threshold = 0.1
     # device = 'cpu'    
     device = 'cuda:0'
     bench_mus = False  # true to benchmark mus on cifar10 pbm
@@ -965,60 +965,60 @@ if __name__ == '__main__':
     trainloader, testloader, classes, class_ind = load_data(balanced=True)
 
     # resave to empty file
-    # np.savez(
-    # log_path,
-    #     losses=[],
-    #     constraints=[],
-    #     losses_std=[],
-    #     constraints_std=[],
-    #     losses_t=[],
-    #     constraints_t=[],
-    #     losses_std_t=[],
-    #     constraints_std_t=[],
-    #     times=[],
-    #     accuracy=[],
-    #     accuracy_per_group=[],
-    #     accuracy_t=[],
-    #     accuracy_per_group_t=[],
-    #     accuracy_std=[],
-    #     accuracy_per_group_std=[],
-    #     accuracy_t_std=[],
-    #     accuracy_per_group_t_std=[]
-    # )
+    np.savez(
+    log_path,
+        losses=[],
+        constraints=[],
+        losses_std=[],
+        constraints_std=[],
+        losses_t=[],
+        constraints_t=[],
+        losses_std_t=[],
+        constraints_std_t=[],
+        times=[],
+        accuracy=[],
+        accuracy_per_group=[],
+        accuracy_t=[],
+        accuracy_per_group_t=[],
+        accuracy_std=[],
+        accuracy_per_group_std=[],
+        accuracy_t_std=[],
+        accuracy_per_group_t_std=[]
+    )
 
-    # if not bench_mus:
+    if not bench_mus:
 
-    #     print('Starting cifar100 benchmark')
+        print('Starting cifar100 benchmark')
 
-    #     # benchmark adam
-    #     benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
-    #     print('ADAM DONE!!!')
+        # benchmark adam
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, adam)
+        print('ADAM DONE!!!')
 
-    #     # benchmark ssw
-    #     benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
-    #     print('SSW DONE!!!')
+        # benchmark ssw
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, ssw)
+        print('SSW DONE!!!')
 
-    #     # # benchmark sslalm
-    #     benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
-    #     print('SSLALM DONE!!!')
+        # # benchmark sslalm
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, 0, sslalm)
+        print('SSLALM DONE!!!')
 
-    #     #  benchmark pbm
-    #     mu = 1.0
-    #     benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
-    #     print('PBM DONE!!!')
+        #  benchmark pbm
+        mu = 1.0
+        benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
+        print('PBM DONE!!!')
 
-    # else: 
+    else: 
 
-    #     print('Starting cifar100 mus benchmark')
+        print('Starting cifar100 mus benchmark')
 
-    #     titles = []
-    #     seeds = [1, 2, 3]
-    #     mus = [0.0, 0.1, 0.5, 1.0]
+        titles = []
+        seeds = [1, 2, 3]
+        mus = [0.0, 0.1, 0.5, 1.0]
 
-    #     for mu in mus: 
-    #         benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
-    #         print(f'PBM {mu} DONE!!!')
-    #         titles.append( f"SPBM_mu={mu}")
+        for mu in mus: 
+            benchmark(n_epochs, n_constraints, seeds, log_path, trainloader, testloader, threshold, classes, class_ind, mu, pbm)
+            print(f'PBM {mu} DONE!!!')
+            titles.append( f"SPBM_mu={mu}")
 
 
     # PLOT 

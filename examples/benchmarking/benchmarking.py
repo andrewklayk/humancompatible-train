@@ -142,7 +142,8 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 constraints = torch.zeros(num_constraints, device=device)
 
 
-            if method == 'ssl-alm' or method == 'ssw':
+            # if method == 'ssl-alm' or method == 'ssw':
+            if method == 'ssw':
                 # compute the demographic parity
                 c_log.append([])
                 constraint_k = 0
@@ -167,7 +168,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                             constraint_k += 1
 
             # for unconstrained and pbm do vectorized version
-            elif method == 'pbm':
+            elif method == 'pbm' or method == 'ssl-alm':
 
                 # loss_per_class: shape (N,)
                 N = loss_per_class.shape[0]
@@ -217,7 +218,8 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 optimizer.zero_grad()
 
             if method == 'ssl-alm':
-                optimizer.step(loss, constraints)
+                # optimizer.step(loss, constraints)
+                optimizer.step(loss)
                 duals_log.append(optimizer._dual_vars.detach().cpu())
 
             if method == 'pbm':

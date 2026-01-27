@@ -866,8 +866,8 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
     lrs = [0.001]
     dual_lrs = [0.001]
-    mus = [0.0]
-    rhos = [0.0]
+    mus = [0.1]
+    rhos = [0.1]
 
     for lr in lrs:
         for dual_lr in dual_lrs:
