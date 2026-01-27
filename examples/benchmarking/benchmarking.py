@@ -267,6 +267,10 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
     # define number of constraints of the demographic parity
     num_constraints = len(classes_arr) * (len(classes_arr)-1)
 
+    # create a mask for later
+    N = len(classes_arr)
+    mask = ~torch.eye(N, dtype=torch.bool, device=device)
+
     # set the model parameters based on the optimizer
     if method == "unconstrained":
         lr = model_params['lr']
@@ -372,13 +376,9 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 
                 time_start = timeit.default_timer()
                 
-                N = loss_per_class.shape[0]
                 diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
-                mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
                 constr = (diff - fair_crit_bound)[mask]   # shape: (N*(N-1),)
-                if method == 'pbm':
-                    pass
-                elif method == 'ssl-alm':
+                if method == 'ssl-alm':
                     constr = torch.max(constr, torch.zeros_like(constr, device=device))
                 elif method == 'ssw':
                     constr = torch.max(constr)
@@ -389,9 +389,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
 
             else: # unsconstrained - just log the constraint 
                 with torch.no_grad():
-                    N = loss_per_class.shape[0]
                     diff = loss_per_class.unsqueeze(1) - loss_per_class.unsqueeze(0)
-                    mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
                     c_log.append(diff[mask].cpu().numpy())
 
             ## PARAM UPDATE
