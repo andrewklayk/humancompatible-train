@@ -262,7 +262,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
     net.to(device)
 
     # define the loss function and the 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(reduction="none")
 
     # define number of constraints of the demographic parity
     num_constraints = len(classes_arr) * (len(classes_arr)-1)
@@ -357,12 +357,13 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
             
             # compute loss
             time_start = timeit.default_timer()                        
-            loss = criterion(outputs, labels)
+            loss_per_sample = criterion(outputs, labels)
+            loss = loss_per_sample.mean()
             time += timeit.default_timer() - time_start
-            
+
             # loss per class
             time_start = timeit.default_timer()
-            loss_per_class = loss_per_class_f(outputs, labels, net, criterion)
+            loss_per_class = loss_per_class_f(loss_per_sample, labels)
             if method != "unconstrained":
                 time += timeit.default_timer() - time_start
 
@@ -376,7 +377,7 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
                 mask = ~torch.eye(N, dtype=torch.bool, device=loss_per_class.device)
                 constr = (diff - fair_crit_bound)[mask]   # shape: (N*(N-1),)
                 if method == 'pbm':
-                    optimizer.dual_steps(constr)
+                    pass
                 elif method == 'ssl-alm':
                     constr = torch.max(constr, torch.zeros_like(constr, device=device))
                 elif method == 'ssw':
@@ -413,13 +414,14 @@ def cifar_train(network_achitecture, n_epochs, seed_n, trainloader, loss_per_cla
             elif method == 'pbm' or method == 'ssl-alm':
                 optimizer.dual_steps(constr)
                 optimizer.step(loss)
-                duals_log.append(optimizer._dual_vars.detach().cpu())
             
             time += timeit.default_timer() - time_start
 
             # save the logs
             loss_log.append(loss.detach().cpu().numpy())
             
+            if method == 'pbm' or method == 'ssl-alm':
+                duals_log.append(optimizer._dual_vars.detach().cpu())
 
             ############################ PRINT ###########
 

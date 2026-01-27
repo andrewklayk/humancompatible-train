@@ -770,7 +770,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
 
     optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
-                    epoch_len=len(dataloader_train), penalty_update_m='ADAPT',
+                    epoch_len=len(dataloader_train), penalty_update_m='ADAPT', p_lb=0.001,
                     barrier="quadratic_reciprocal", device=device)
 
     # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=1.0, 
@@ -845,6 +845,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
         test_S_loss_log_plotting.append(np.mean(losses_test))
         test_S_c_log_plotting.append(np.mean(c_test, axis=0))
+        print(optimizer.p)
         print(
             f"Epoch: {epoch}, "
             f"loss ({np.mean(loss_log):.4f}/{np.mean(losses_test):.4f}):"
@@ -888,16 +889,16 @@ if __name__ == '__main__':
     )
 
     # benchmark adam
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, adam)
-    print('ADAM DONE!!!')
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, adam)
+    # print('ADAM DONE!!!')
 
-    # benchmark ssw
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
-    print('SSW DONE!!!')
+    # # benchmark ssw
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, ssw)
+    # print('SSW DONE!!!')
 
-    # benchmark sslalm
-    benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
-    print('SSLALM DONE!!!')
+    # # benchmark sslalm
+    # benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, sslalm)
+    # print('SSLALM DONE!!!')
 
     # benchmark pbm
     benchmark(n_epochs, n_constraints, seeds, log_path, dataloader_train, dataloader_test, features_train, threshold, pbm)

@@ -654,27 +654,24 @@ def load_data(balanced=False):
 
     return trainloader, testloader, classes, class_ind
 
-def loss_per_class_f(batch_outputs, batch_targets, network, criterion, num_classes=10):
+def loss_per_class_f(per_sample_loss, batch_targets, num_classes=10):
     """
     Computes the constraint of a demographic parity - that is a loss between all groups
     """
 
     losses_per_class = torch.zeros(10, device=device)
 
-    # for each class compute a loss
-    for class_number in range(0, num_classes):
+    # add up the loss
+    losses_per_class.index_add_(
+        0,
+        batch_targets,
+        per_sample_loss
+    )
 
-        # get data of that class
-        class_args_i = torch.where(batch_targets == class_number)
-        batch_outputs_class_i = batch_outputs[class_args_i]
-        batch_targets_class_i = batch_targets[class_args_i]
-        
-        # compute loss for a given class
-        batch_loss_class_i = criterion(batch_outputs_class_i, batch_targets_class_i)
-
-        # save the loss
-        losses_per_class[class_number] = batch_loss_class_i
-
+    # mean the loss
+    counts = torch.bincount(batch_targets, minlength=num_classes)
+    losses_per_class = losses_per_class / counts.clamp_min(1)
+    
     return losses_per_class
 
 def test_network(network):
@@ -700,11 +697,12 @@ def test_network(network):
             # calculate outputs by running images through the network
             outputs = network(images)
 
-            # compute loss per class
-            loss_per_class = loss_per_class_f(outputs, labels, network, criterion)
-
             # compute the loss
-            loss = criterion(outputs, labels)   
+            loss_per_sample = criterion(outputs, labels)
+            loss = loss_per_sample.mean() 
+
+            # compute loss per class
+            loss_per_class = loss_per_class_f(loss_per_sample, labels)
 
             # save the logs
             loss_log.append(loss.detach().cpu().numpy())
@@ -789,7 +787,7 @@ def adam(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
     # define the criterion
     global criterion
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(reduction="none")
 
     # define the length of the print
     print_n = len(trainloader)
@@ -822,7 +820,7 @@ def ssw(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
     # define the criterion
     global criterion
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(reduction="none")
     
     # define the length of the print
     print_n = len(trainloader)
@@ -855,7 +853,7 @@ def sslalm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, _):
 
     # define the criterion
     global criterion
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(reduction="none")
     
     # define the length of the print
     print_n = len(trainloader)
@@ -888,7 +886,7 @@ def pbm(seed_n, n_epochs, trainloader, dataloader_test, fair_crit_bound, mu):
 
     # define the criterion
     global criterion
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(reduction="none")
     
     # define the length of the print
     print_n = len(trainloader)
@@ -952,7 +950,7 @@ if __name__ == '__main__':
     log_path,
         losses=[],
         constraints=[],
-        losses_std=[],
+        losses_std=[],  
         constraints_std=[],
         losses_t=[],
         constraints_t=[],
