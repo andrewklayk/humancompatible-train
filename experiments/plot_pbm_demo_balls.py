@@ -3,6 +3,7 @@ import torch
 from humancompatible.train.optim.PBM import PBM
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 torch.manual_seed(1)
 np.random.seed(1)
@@ -25,8 +26,6 @@ def plot_balls_trajectory(trajectories, names):
     X, Y = np.meshgrid(x, y)
     Z = X**2 + Y**2
 
-    contour = ax.contourf(X, Y, Z, levels=100, cmap='viridis', alpha=0.5, zorder=0)
-    plt.colorbar(contour, ax=ax, label=r'$x^2 + y^2$')
 
     for center, label in zip(ball_centers, labels):
         ball = Circle(
@@ -96,15 +95,16 @@ def plot_balls_trajectory(trajectories, names):
             xy=(x0[0], x0[1]),
             xytext=(6, 8),
             textcoords="offset points",
-            fontsize=15,
+            fontsize=22,
             zorder=5,
         )
         ax.annotate(
             x_n[i],
             xy=(xn[0], xn[1]),
-            xytext=(8 if i==1 or i == 3 else -36, -12),
+            # xytext=(8 if i==1 or i == 3 else -36, -12),
+            xytext=(8 if i==1 or i == 3 else -45, -15),
             textcoords="offset points",
-            fontsize=15,
+            fontsize=22,
             zorder=5,
         )
 
@@ -113,12 +113,23 @@ def plot_balls_trajectory(trajectories, names):
     ax.set_xlabel(r"$x$", fontsize=12)
     ax.set_ylabel(r"$y$", fontsize=12)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.7)
+    ax.set_xlim(-3.2, 3.2)
+    ax.set_ylim(-1.8, 1.8)
 
-    ax.set_xlim(-4, 4)
-    ax.set_ylim(-2.5, 2.5)
 
-    plt.tight_layout()
-    fig.savefig("./demo_balls_pbm.pdf")
+    contour = ax.contourf(X, Y, Z, levels=100, cmap='viridis', alpha=0.5, zorder=0)
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="3%", pad=0.08)
+
+    cbar = fig.colorbar(contour, cax=cax)
+    cbar.set_label(r"$x^2 + y^2$", fontsize=14)
+
+    fig.savefig(
+        "./demo_balls_pbm.pdf",
+        bbox_inches="tight",
+        pad_inches=0.05
+    )
+
 
 
 def balls(x, sample):
