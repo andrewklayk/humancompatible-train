@@ -424,6 +424,8 @@ class PBM(Optimizer):
 
         Args:
             loss_v (Tensor): Loss funciton value
+
+        NOTE: This function is deprecated. Use the forward function instead.
         """
 
         with torch.enable_grad():
@@ -538,5 +540,26 @@ class PBM(Optimizer):
         # clean the gradients
         self.zero_grad()
         self.constraints = torch.zeros(self.m, device=self.device)
+
+
+def forward(self, loss, constraints):
+    """
+    The forward step where we update both the dual variables, the p variables and return the loss of the augmented lagrangian. 
+    """
+
+    # update the dual variables + penalty parameter
+    self.dual_steps(constraints)
+
+    if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start: # warmstart - just the objective
+        F_loss = loss
+    else: 
+        # define the augmented F and backpropagate
+        F_loss = loss + self._dual_vars @ self.constraints
+
+    # clean the gradients
+    self.zero_grad()
+    self.constraints = torch.zeros(self.m, device=self.device)
+
+    return F_loss
 
 
