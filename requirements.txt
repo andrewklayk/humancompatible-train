@@ -5,3 +5,4 @@ folktables
 numpy
 torchvision
 fairml-datasets
+scikit-learn

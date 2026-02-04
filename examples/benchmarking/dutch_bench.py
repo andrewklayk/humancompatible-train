@@ -769,14 +769,15 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
     #                 barrier="quadratic_reciprocal", device=device)
 
 
-    optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.1, 
-                    epoch_len=len(dataloader_train), penalty_update_m='ADAPT', p_lb=0.001,
+    constraints_model = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=0.0, 
+                    epoch_len=len(dataloader_train), penalty_update_m='CONST', p_lb=0.001,
                     barrier="quadratic_reciprocal", device=device)
 
     # optimizer = PBM(params=model_con.parameters(), m=number_of_constraints, lr=0.001, dual_beta=0.9, mu=1.0, 
     #                 epoch_len=len(dataloader_train), penalty_update_m='CONST',
     #                 barrier="quadratic_reciprocal", device=device)
 
+    optimizer_primal = torch.optim.Adam(model_con.parameters(), lr=0.001)
 
         # alloc arrays for plotting
     pbm_S_loss_log_plotting = []  # mean
@@ -826,16 +827,22 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
             # apply fairness bound and flatten
             constr = (diff - threshold)[mask]   # shape: (N*(N-1),)
 
-            optimizer.dual_steps(constr)
+            # constraints_model.dual_steps(constr)
 
             c_log.append(diff[mask].detach().cpu().numpy())
 
             loss = criterion(out, batch_label)
-            optimizer.step(loss)
+            
+            ALM_loss = constraints_model.forward(loss, constr)
+            
+            ALM_loss.backward()
+            optimizer_primal.step()
+            optimizer_primal.zero_grad()
+            # constraints_model.step(loss)
 
             # save the logs
             loss_log.append(loss.detach().cpu().numpy())
-            duals_log.append(optimizer._dual_vars.detach().cpu())
+            duals_log.append(constraints_model._dual_vars.detach().cpu())
 
         pbm_S_loss_log_plotting.append(np.mean(loss_log))
         pbm_S_c_log_plotting.append(np.mean(c_log, axis=0))
@@ -845,7 +852,7 @@ def pbm(seed_n, n_epochs, dataloader_train, dataloader_test, features_train, thr
 
         test_S_loss_log_plotting.append(np.mean(losses_test))
         test_S_c_log_plotting.append(np.mean(c_test, axis=0))
-        print(optimizer.p)
+        print(constraints_model.p)
         print(
             f"Epoch: {epoch}, "
             f"loss ({np.mean(loss_log):.4f}/{np.mean(losses_test):.4f}):"
@@ -862,8 +869,8 @@ if __name__ == '__main__':
     n_epochs = 30
     n_constraints = 306
     threshold = 0.1
-    # device = "cpu"
-    device = "cuda:0"
+    device = "cpu"
+    # device = "cuda:0"
 
     # define seeds
     seeds = [1, 2, 3]
