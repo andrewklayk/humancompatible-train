@@ -83,7 +83,6 @@ class ALM(Optimizer):
             param_group_dict["lr"] = lr
         self.add_param_group(param_group_dict)
 
-
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
         lagrangian = torch.zeros_like(loss)
