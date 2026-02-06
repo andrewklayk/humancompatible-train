@@ -7,8 +7,8 @@ from torch.optim.optimizer import _use_grad_for_differentiable
 from .barrier import (
     quad_log,
     quad_log_der,
-    quad_rec,
-    quad_rec_der
+    quad_recipr,
+    quad_recipr_der
 )
 
 
@@ -22,10 +22,11 @@ class PBM(Optimizer):
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
         mu: float = 0.9,
-        penalty_update_rule: str = 'dimin',
+        penalty_update: str = 'dimin',
         pbf: str | Callable[..., Tensor] = 'quadratic_logarithmic',
         *,
-        dual_range: Tuple[float, float] = (0.0, 100.0),
+        dual_range: Tuple[float, float] = (1e-6, 100.),
+        penalty_range: Tuple[float, float] = (1e-6, 100.)
     ) -> None:
         """
         A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables.
@@ -51,17 +52,22 @@ class PBM(Optimizer):
         m = m if m is not None else len(init_duals)
         if isinstance(lr, Iterable) and len(lr) != m:
             raise ValueError("`lr`should be the same length as`init_duals`or`m`")
+        
+        if penalty_update == 'dimin':
+            penalty_update_f = _update_penalties_dimin
+        elif penalty_update == 'dimin_dual':
+            penalty_update_f = _update_penalties_dimin_dual
 
         self.dual_range = dual_range
-
-        defaults = {"lr": lr, "mu": mu, "penalty_update_rule": penalty_update_rule, "pbf": pbf}
+        self.penalty_range = penalty_range
+        defaults = {"lr": lr, "mu": mu, "penalty_update": penalty_update_f, "pbf": pbf}
         self.defaults = defaults
 
-        if init_duals is None: # initialize duals to 1e-6 if not set
-            init_duals = torch.zeros(m, requires_grad=False) + 1e-6
+        if init_duals is None: # initialize duals if not set
+            init_duals = torch.zeros(m, requires_grad=False) + dual_range[0]
         
-        if init_penalties is None: # initialize penalties to 10 if not set
-            init_penalties = torch.zeros(m, requires_grad=False) + 10
+        if init_penalties is None: # initialize penalties if not set
+            init_penalties = torch.zeros(m, requires_grad=False) + penalty_range[1]
 
         duals = Parameter(init_duals, requires_grad=False)
         penalties = Parameter(init_penalties, requires_grad=False)
@@ -113,6 +119,29 @@ class PBM(Optimizer):
     #         param_group_dict["lr"] = lr
     #     self.add_param_group(param_group_dict)
 
+    def update(self, constraints: Tensor) -> Tensor:
+        for i, group in enumerate(self.param_groups):
+            duals, penalties, mu, penalty_update, pbf = group["params"][0], group["params"][1], group["mu"], group["penalty_update"], group["pbf"]
+            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            cdivp = group_constraints.div(penalties)
+            with torch.no_grad():
+                _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]['d'], mu)
+                clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+                _update_penalties(penalties, mu, penalty_update, duals)
+                clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
+
+    def forward(self, loss: Tensor, constraints: Tensor) -> Tensor:
+        lagrangian = torch.zeros_like(loss)
+        lagrangian.add_(loss)
+        for i, group in enumerate(self.param_groups):
+            duals, penalties, pbf = group["params"][0], group["params"][1], group["pbf"]
+            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            # calculate lagrangian
+            cdivp = group_constraints.div(penalties)
+            pbf_val = penalty_barrier_funcs[pbf]['f'](cdivp)
+            lagrangian.add_(duals.mul(penalties) @ pbf_val)
+
+        return lagrangian
 
     # evaluate the Lagrangian and update the dual variables
     # TODO: choice of update methods, optimize e.g. c/p
@@ -120,14 +149,18 @@ class PBM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals, penalties, mu, penalty_update_rule, pbf = group["params"][0], group["params"][1], group["mu"], group["penalty_update_rule"], group["pbf"]
+            duals, penalties, mu, penalty_update, pbf = group["params"][0], group["params"][1], group["mu"], group["penalty_update"], group["pbf"]
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            # calculate lagrangian
             cdivp = group_constraints.div(penalties)
+            # update duals and penalties
             with torch.no_grad():
                 _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]['d'], mu)
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                _update_penalties_dimin(penalties, mu)
+                _update_penalties(penalties, mu, penalty_update, duals)
+                clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
+            cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]['f'](cdivp)
             lagrangian.add_(duals.mul(penalties) @ pbf_val)
 
@@ -152,26 +185,24 @@ class PBM(Optimizer):
 
 penalty_barrier_funcs = {
     'quadratic_logarithmic': {'f': quad_log, 'd': quad_log_der},
-    'quadratic_reciprocal': {'f': quad_rec, 'd': quad_rec_der}
+    'quadratic_reciprocal': {'f': quad_recipr, 'd': quad_recipr_der}
 }
 
-# TODO: safeguarding (7.2)
+#TODO: add dual smoothing?
 def _update_duals(duals: Tensor, cdivp: Tensor, pbf_der: Callable, mu: float) -> None:
     pbf_der_val = pbf_der(cdivp)
-    duals.mul_(pbf_der_val)
-    # if pbf_der_val < mu:
-    #     duals.mul_(mu)
-    # elif pbf_der_val > 1/mu:
-    #     duals.mul_(1/mu)
+    mult = clamp_(pbf_der_val, mu, 1/mu)
+    duals.mul_(mult)
 
+#TODO: add penalty smoothing?
+def _update_penalties(penalties: Tensor, mu: Tensor, rule: str, duals: Tensor):
+    if rule == 'dimin':
+        penalties.mul_(mu)
+    elif rule == 'dimin_dual':
+        penalties.mul_(mu).mul_(duals)
 
-def _update_penalties_adapt(penalties: Tensor):
-    raise NotImplementedError
-
-
-def _update_penalties_dimin(penalties: Tensor, mu: Tensor):
+def _update_penalties_dimin(penalties: Tensor, mu: Tensor, _):
     penalties.mul_(mu)
-
 
 def _update_penalties_dimin_dual(penalties: Tensor, mu: Tensor, duals: Tensor):
     penalties.mul_(mu).mul_(duals)
