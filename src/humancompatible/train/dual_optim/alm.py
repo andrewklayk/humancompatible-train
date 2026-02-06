@@ -83,6 +83,32 @@ class ALM(Optimizer):
             param_group_dict["lr"] = lr
         self.add_param_group(param_group_dict)
 
+
+    def forward(self, loss: Tensor, constraints: Tensor) -> Tensor:
+        lagrangian = torch.zeros_like(loss)
+        lagrangian.add_(loss)
+        for i, group in enumerate(self.param_groups):
+            duals = group["params"][0]
+            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            lagrangian.add_(duals @ group_constraints)
+
+        if self.penalty > 0:
+            lagrangian.add_(
+                0.5 * self.penalty * torch.square(torch.linalg.norm(constraints, ord=2))
+            )
+
+        return lagrangian
+
+
+    def update(self, constraints: Tensor) -> Tensor:
+        for i, group in enumerate(self.param_groups):
+            duals, lr = group["params"][0], group["lr"]
+            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            with torch.no_grad():
+                _update_duals(duals, group_constraints, lr)
+                clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+
+
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
         lagrangian = torch.zeros_like(loss)

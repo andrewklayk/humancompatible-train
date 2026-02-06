@@ -38,10 +38,10 @@ class MoreauEnvelope(Optimizer):
     def step(self) -> None:
         with torch.no_grad():
             # add smoothing term gradient to the gradient w.r.t. primal params, and update smoothing params before optimizer step
-            for param_group, smoothing_buffer_group in zip(self.optimizer.param_groups, self.param_groups):
+            for param_group, smoothing_buffer_group in zip(self.optimizer.param_groups, self.smoothing_buffer):
                 for param, smoothing_buffer in zip(param_group["params"], smoothing_buffer_group['params']):
-                    param.grad.add_(param - smoothing_buffer, alpha=self.mu)
-                    smoothing_buffer.add_(param).add_(smoothing_buffer, alpha=-self.beta)# - smoothing_buffer, alpha=self.beta)
+                    param.grad.add_(param, alpha=self.mu).add_(smoothing_buffer, alpha=-self.mu)
+                    smoothing_buffer.add_(smoothing_buffer, alpha=-self.beta).add_(param, alpha=self.beta)
         
         self.optimizer.step()
 
