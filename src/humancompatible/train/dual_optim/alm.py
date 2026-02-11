@@ -15,6 +15,8 @@ class ALM(Optimizer):
         penalty: float = 1.0,
         *,
         dual_range: Tuple[float, float] = (0.0, 100.0),
+        momentum: float = 0,
+        dampening: float = 0
     ) -> None:
         """
         A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables.
@@ -29,6 +31,10 @@ class ALM(Optimizer):
         :type penalty: float
         :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
         :type dual_range: Tuple[float, float]
+        :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+        :type momentum: float
+        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+        :type dampening: float
         """
 
         ## checks ##
@@ -36,17 +42,27 @@ class ALM(Optimizer):
             raise ValueError("At least one of`m`,`init_duals` must be set")
         m = m if m is not None else len(init_duals)
         if isinstance(lr, Iterable) and len(lr) != m:
-            raise ValueError("`lr`should be the same length as`init_duals`or`m`")
+            raise ValueError("`lr`must be the same length as`init_duals`or`m`")
+        if penalty < 0:
+            raise ValueError(f"`penalty`must be non-negative, got {penalty}")
+        if momentum < 0 or momentum > 1:
+            raise ValueError(f"`momentum`must be within [0,1]; got {momentum}")
 
         self.penalty = penalty
         self.dual_range = dual_range
-
-        defaults = {"lr": lr}
-        self.defaults = defaults
+        self.momentum = momentum
 
         if init_duals is None:
             init_duals = torch.zeros(m, requires_grad=False)
 
+        defaults = {
+            "lr": lr,
+            "momentum": momentum,
+            "dampening": dampening,
+            "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False)
+        }
+
+        self.defaults = defaults
         duals = Parameter(init_duals, requires_grad=False)
         super().__init__([duals], defaults)
 
@@ -60,7 +76,7 @@ class ALM(Optimizer):
         return torch.cat([group["params"][0] for group in self.param_groups])
 
     def add_constraint_group(
-        self, m: int = None, lr: float = None, init_duals: Tensor = None
+        self, m: int = None, lr: float = None, momentum: float = None, init_duals: Tensor = None
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
@@ -81,6 +97,9 @@ class ALM(Optimizer):
         param_group_dict = {"params": [init_duals]}
         if lr is not None:
             param_group_dict["lr"] = lr
+            param_group_dict["momentum"] = momentum
+            param_group_dict["momentum_buffer"] = torch.zeros_like(init_duals, requires_grad = False)
+
         self.add_param_group(param_group_dict)
 
 
@@ -102,10 +121,10 @@ class ALM(Optimizer):
 
     def update(self, constraints: Tensor) -> Tensor:
         for i, group in enumerate(self.param_groups):
-            duals, lr = group["params"][0], group["lr"]
+            duals, lr, momentum, dampening, momentum_buffer = group["params"][0], group["lr"], group["momentum"], group["dampening"], group["momentum_buffer"]
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             with torch.no_grad():
-                _update_duals(duals, group_constraints, lr)
+                _update_duals(duals, group_constraints, lr, momentum, dampening, momentum_buffer)
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
 
 
@@ -114,10 +133,10 @@ class ALM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals, lr = group["params"][0], group["lr"]
+            duals, lr, momentum, dampening, momentum_buffer = group["params"][0], group["lr"], group["momentum"], group["dampening"], group["momentum_buffer"]
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             with torch.no_grad():
-                _update_duals(duals, group_constraints, lr)
+                _update_duals(duals, group_constraints, lr, momentum, dampening, momentum_buffer)
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
 
             lagrangian.add_(duals @ group_constraints)
@@ -145,5 +164,9 @@ class ALM(Optimizer):
             self.param_groups.append(param)
 
 
-def _update_duals(duals: Tensor, constraints: Tensor, lr: float) -> None:
-    duals.add_(constraints, alpha=lr)
+def _update_duals(duals: Tensor, constraints: Tensor, lr: float, momentum: float, dampening: float, buffer: Tensor) -> None:
+    if momentum == 0:
+        buffer = constraints
+    else:
+        buffer.mul_(momentum).add_(constraints, alpha = 1 - dampening)
+    duals.add_(buffer, alpha = lr)
