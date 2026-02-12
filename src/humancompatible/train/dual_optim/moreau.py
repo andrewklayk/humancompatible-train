@@ -1,7 +1,6 @@
 import torch
 from torch.optim import Optimizer
 from torch.optim.optimizer import _use_grad_for_differentiable
-from torch import no_grad
 
 
 class MoreauEnvelope(Optimizer):
@@ -13,7 +12,7 @@ class MoreauEnvelope(Optimizer):
         beta: float = 0.5,
     ) -> None:
         """
-        A wrapper over a PyTorch`Optimizer` that allows for quick calculation of the Moreau envelope.
+        A wrapper over a PyTorch`Optimizer` that allows for quick calculation of the Moreau envelope gradient.
 
         :param optimizer: Optimizer.
         :type torch.optim.Optimizer: int

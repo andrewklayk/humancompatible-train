@@ -18,16 +18,16 @@ class PBM(Optimizer):
     def __init__(
         self,
         m: int = None,
-        mu: float = 0.9,
+        mu: float = 0.3,
         penalty_update: str = 'dimin',
-        pbf: str | Callable[..., Tensor] = 'quadratic_logarithmic',
+        pbf: str = 'quadratic_logarithmic',
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
         *,
         dual_range: Tuple[float, float] = (1e-6, 100.),
         dual_momentum: float = 0.,
         dual_dampening: float = 0.,
-        penalty_range: Tuple[float, float] = (1e-6, 100.),
+        penalty_range: Tuple[float, float] = (1e-1, 1000.),
     ) -> None:
         """
         A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables.
@@ -36,13 +36,20 @@ class PBM(Optimizer):
         :type m: int
         :param mu: Multiplier for penalty update. 
         :type mu: float
-        :param pbf: Penalty-Barrier Function to use. Can be one of `"quadratic_logarithmic", "quadratic_reciprocal"`
+        :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`const`. Defaults to`dimin`.
+        :type penalty_update: str
+        :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`,`quadratic_reciprocal`
+        :type pbf: str
         :param init_duals: Initial values for the dual variables. Defaults to 1e-6 for all.
         :type init_duals: float | Tensor
         :param init_penalties: Initial values for the penalty variables. Defaults to 1e-6 for all.
         :type init_penalties: float | Tensor
         :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
         :type dual_range: Tuple[float, float]
+        :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+        :type momentum: float
+        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+        :type dampening: float
         """
 
         ## checks ##
@@ -102,32 +109,39 @@ class PBM(Optimizer):
     # TODO: this, add save state
     def add_constraint_group(
         self,
-        mu: float = 0.9,
-        penalty_update: str = 'dimin',
-        pbf: str | Callable[..., Tensor] = 'quadratic_logarithmic',
+        m: int,
+        mu: float = None,
+        penalty_update: str = None,
+        pbf: str = None,
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
         *,
-        dual_momentum: float = 0.,
-        dual_dampening: float = 0.,
+        dual_momentum: float = None,
+        dual_dampening: float = None,
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
 
         :param m: Size of group (number of dual variables to add)
         :type m: int
-        :param lr: Dual variable update rate
-        :type lr: float
-        :param init_duals: Initial values for the new dual variables
-        :type init_duals: Tensor
+        :param mu: Multiplier for penalty update. 
+        :type mu: float
+        :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`const`. Defaults to`dimin`.
+        :type penalty_update: str
+        :param pbf: Penalty-Barrier Function to use. Can be one of `"quadratic_logarithmic", "quadratic_reciprocal"`
+        :type pbf: str
+        :param init_duals: Initial values for the dual variables. Defaults to 1e-6 for all.
+        :type init_duals: float | Tensor
+        :param init_penalties: Initial values for the penalty variables. Defaults to 1e-6 for all.
+        :type init_penalties: float | Tensor
         """
         if init_duals is None and m is None:
             raise ValueError("At least one of`size`,`init_duals` must be set")
         
         if init_duals is None: # initialize duals if not set
-            init_duals = torch.zeros(m, requires_grad=False) + dual_range[0]        
+            init_duals = torch.zeros(m, requires_grad=False) + self.dual_range[0]        
         if init_penalties is None: # initialize penalties if not set
-            init_penalties = torch.zeros(m, requires_grad=False) + penalty_range[1]
+            init_penalties = torch.zeros(m, requires_grad=False) + self.penalty_range[1]
 
         duals = Parameter(init_duals, requires_grad=False)
         penalties = Parameter(init_penalties, requires_grad=False)
@@ -138,6 +152,8 @@ class PBM(Optimizer):
             penalty_update_f = _update_penalties_dimin_dual
         elif penalty_update == 'const':
             penalty_update_f = _update_penalties_const
+        else:
+            penalty_update_f = None
         
         settings_dict = {
             "mu": mu,
@@ -147,12 +163,22 @@ class PBM(Optimizer):
             "dual_dampening": dual_dampening,
             "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
         }
+        settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
 
         param_group_dict = {"params": [duals, penalties], **settings_dict}
         
         self.add_param_group(param_group_dict)
 
     def update(self, constraints: Tensor) -> Tensor:
+        """
+        Updates the dual variables and penalties based on the current constraint violations.
+
+        :param constraints: Tensor of constraint violations.
+        :type constraints: torch.Tensor
+        :return: None
+        :rtype: None
+        """
+
         for i, group in enumerate(self.param_groups):
             duals, penalties, mu, penalty_update, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["mu"], group["penalty_update"], group["pbf"], group['dual_momentum'], group['dual_dampening'], group['dual_momentum_buffer']
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
@@ -164,6 +190,17 @@ class PBM(Optimizer):
                 clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
     def forward(self, loss: Tensor, constraints: Tensor) -> Tensor:
+        """
+        Computes the Penalty-Barrier Lagrangian value for the given loss and constraints.
+
+        :param loss: Loss (objective function) value.
+        :type loss: torch.Tensor
+        :param constraints: Tensor of constraint violations.
+        :type constraints: torch.Tensor
+        :return: Penalty-Barrier Lagrangian value.
+        :rtype: torch.Tensor
+        """
+
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
@@ -179,6 +216,20 @@ class PBM(Optimizer):
     # evaluate the Lagrangian and update the dual variables
     # TODO: optimize e.g. c/p
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
+        """
+        Evaluates the Penalty-Barrier Lagrangian and updates the dual variables and penalties.
+
+        Combines the computation of the Lagrangian and the update of dual variables and penalties
+        in a single step, which can be more efficient than calling `forward` and `update` separately.
+
+        :param loss: Loss (objective function) value.
+        :type loss: torch.Tensor
+        :param constraints: Tensor of constraint violations.
+        :type constraints: torch.Tensor
+        :return: Penalty-Barrier Lagrangian value.
+        :rtype: torch.Tensor
+        """
+
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
@@ -221,7 +272,6 @@ penalty_barrier_funcs = {
     'quadratic_reciprocal': {'f': quad_recipr, 'd': quad_recipr_der}
 }
 
-#TODO: add dual smoothing?
 def _update_duals(duals: Tensor, cdivp: Tensor, pbf_der: Callable, mu: float, momentum: float, dampening: float, buffer: Tensor) -> None:
     pbf_der_val = pbf_der(cdivp)
     if momentum == 0:

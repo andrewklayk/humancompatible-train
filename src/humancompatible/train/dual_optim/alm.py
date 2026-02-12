@@ -10,7 +10,7 @@ class ALM(Optimizer):
     def __init__(
         self,
         m: int = None,
-        lr: float = 0.01,  # | Iterable[float] = 0.01 , TODO: individual LRs for each constraint
+        lr: float = 0.01,
         init_duals: float | Tensor = None,
         penalty: float = 1.0,
         *,
@@ -104,6 +104,16 @@ class ALM(Optimizer):
 
 
     def forward(self, loss: Tensor, constraints: Tensor) -> Tensor:
+        """
+        Calculates and returns the Augmented Lagrangian.
+        
+        :param loss: Loss (objective function) value
+        :type loss: Tensor
+        :param constraints: Tensor of constraint values
+        :type constraints: Tensor
+        :return: Lagrangian
+        :rtype: Tensor
+        """
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
@@ -113,13 +123,20 @@ class ALM(Optimizer):
 
         if self.penalty > 0:
             lagrangian.add_(
-                0.5 * self.penalty * torch.square(torch.linalg.norm(constraints, ord=2))
+                0.5 * self.penalty * torch.square(torch.dot(constraints, constraints))
             )
 
         return lagrangian
 
 
-    def update(self, constraints: Tensor) -> Tensor:
+    def update(self, constraints: Tensor) -> None:
+        """"""
+        """
+        Updates the dual variables
+        
+        :param constraints: Tensor of constraint values
+        :type constraints: Tensor
+        """
         for i, group in enumerate(self.param_groups):
             duals, lr, momentum, dampening, momentum_buffer = group["params"][0], group["lr"], group["momentum"], group["dampening"], group["momentum_buffer"]
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
@@ -130,6 +147,16 @@ class ALM(Optimizer):
 
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
+        """
+        Combines `forward` and `update`; slightly faster.
+        
+        :param loss: Loss (objective function) value
+        :type loss: Tensor
+        :param constraints: Tensor of constraint values
+        :type constraints: Tensor
+        :return: Lagrangian
+        :rtype: Tensor
+        """
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
