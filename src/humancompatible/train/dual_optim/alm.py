@@ -123,7 +123,7 @@ class ALM(Optimizer):
 
         if self.penalty > 0:
             lagrangian.add_(
-                0.5 * self.penalty * torch.square(torch.dot(constraints, constraints))
+                0.5 * self.penalty * torch.dot(constraints, constraints)
             )
 
         return lagrangian
