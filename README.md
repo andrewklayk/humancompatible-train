@@ -10,9 +10,8 @@ The toolkit implements algorithms for constrained training of neural networks ba
 1. [Basic installation instructions](#basic-installation-instructions)
 2. [Using the toolkit](#using-the-toolkit)
 3. [Extending the toolkit](#extending-the-toolkit)
-4. [Reproducing the Benchmark](#reproducing-the-benchmark)
-5. [License and terms of use](#license-and-terms-of-use)
-6. [References](#references)
+4. [License and terms of use](#license-and-terms-of-use)
+5. [References](#references)
 
 humancompatible-train is still under active development! If you find bugs or have feature
 requests, please file a
@@ -32,27 +31,31 @@ The only dependencies of this package are `numpy` and `torch`.
 
 The toolkit implements algorithms for constrained training of neural networks based on PyTorch.
 
-The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `dual_step()` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters.
+The algorithms are intended for use in tandem with classic PyTorch optimizers, calculating the Lagrangian and keeping track of the dual variables.
+
+<!-- The algorithms follow the `dual_step()` - `step()` framework: taking inspiration from PyTorch, the `dual_step()` does updates related to the dual parameters and prepares for the primal update (by, e.g., saving constraint gradients), and `step()` updates the primal parameters. -->
 
 In general, your code using `humancompatible-train` would look something like this:
 
 ```python
+optimizer = torch.optim.Adam(model.parameters(), ...)
+dual_optimizer = humancompatible.train.dual_optim.ALM(...)
+
 for inputs, labels in dataloader:
-  # inference
+  # evaluate objective
   outputs = model(inputs)
-  # calculate constraints and grads
-  for constraint in constraints:
-      c_eval = constraint(outputs, labels)
-      c_eval.backwards(retain_grad=True)
-      # depending on optimizer, update dual parameters / save constraint gradient / both
-      optimizer.dual_step(c_eval)
-      optimizer.zero_grad()
-  # calculate objective
-  loss = criterion(outputs,labels)
-  loss.backwards()
+  loss = criterion(outputs, labels)
+  # evaluate tensor of constraints
+  constraints = <eval_your_constraints>(inputs, labels) 
+  # evaluate lagrangian and update dual variables
+  lgr = dual_optimizer.forward_update(loss, constraints)
+  # backward pass and step
+  lgr.backward()
   optimizer.step()
   optimizer.zero_grad()
 ```
+
+The key difference is calculating the lagrangian using **`lgr = forward_update(loss, constraints)`**, and then running **`lgr.backward()`** instead of `loss.backward()`.
 
 Our idea is to
 
@@ -63,20 +66,16 @@ Our idea is to
 
 You are invited to check out our new API presented in notebooks in the `examples` folder.
 
-The example notebooks have additional dependencies, such as `fairret`. To install those, run
+The example notebooks have additional dependencies for data and plotting, such as `fairret`. To install those, run
 
 ```
 pip install humancompatible-train[examples]
 ```
 
-*The legacy API used for the benchmark is presented in `examples/_old_/algorithm_demo.ipynb` and `examples/_old_/constraint_demo.ipynb`.*
-
 ## Extending the toolkit
 
-### Adding new code
-
 **To add a new algorithm**, you can subclass the PyTorch ```Optimizer``` class and proceed following the API guideline presented above.
-
+<!-- 
 ## Reproducing the Benchmark
 
 The code used in [our benchmark paper](https://arxiv.org/abs/2507.04033) is not migrated to the new API yet (WIP).
@@ -122,11 +121,6 @@ pip install -e .
 
 after installing requirements.txt; otherwise, the algorithm will run slower. However, this is not supported on MacOS and may fail on some Windows devices.
 
-<!-- Install via pip -->
-<!-- ``` -->
-<!-- pip install folktables -->
-<!-- ``` -->
-
 ### Running the algorithms
 
 The benchmark comprises the following algorithms:
@@ -149,19 +143,6 @@ python run_folktables.py data=folktables alg=fairret # baseline, fairness with r
 
 Each command will start 10 runs of the `alg`, 30 seconds each.
 The results will be saved to `experiments/utils/saved_models` and `experiments/utils/exp_results`.
-<!-- In the repository, we include the configuration needed to reproduce the experiments in the paper. To do so, go to `experiments` and run `python run_folktables.py data=folktables alg=sslalm`. -->
-<!-- Repeat for the other algorithms by changing the `alg` parameter. -->
-
-This repository uses [Hydra](https://hydra.cc/) to manage parameters; see `experiments/conf` for configuration files.
-
-- To change the parameters of the experiment, such as the number of runs for each algorithm, run time, the dataset used (*note: for now supports only Folktables*) - use `experiment.yaml`.
-- To change the dataset settings - such as file location - or do dataset-specific adjustments - such as the configuration of the protected attributes - use `data/{dataset_name}.yaml`
-- To change algorithm hyperparameters, use `alg/{algorithm_name}.yaml`.
-- To change constraint hyperparameters, use `constraint/{constraint_name}.yaml`
-
-<!-- ; it is installed as one of the dependencies. -->
-<!-- To learn more about using Hydra, please check out the [official tutorial](https://hydra.cc/docs/tutorials/basic/your_first_app). -->
-
 ### Producing plots
 
 The plots and tables like the ones in the paper can be produced using the two notebooks. `experiments/algo_plots.ipynb` houses the convergence plots, and `experiments/model_plots.ipynb` - all the others.
@@ -176,19 +157,9 @@ It provides code to download data from the American Community Survey
 The data itself is governed by the terms of use provided by the Census Bureau.
 For more information, see <https://www.census.gov/data/developers/about/terms-of-service.html>
 
-<!-- ## Cite this work -->
+-->
 
-<!-- If you use this work, we encourage you to cite our paper, and the folktables dataset [[1]](#1). -->
 
-<!-- ``` -->
-<!-- @article{ding2021retiring, -->
-<!--   title={Retiring Adult: New Datasets for Fair Machine Learning}, -->
-<!--   author={Ding, Frances and Hardt, Moritz and Miller, John and Schmidt, Ludwig}, -->
-<!--   journal={Advances in Neural Information Processing Systems}, -->
-<!--   volume={34}, -->
-<!--   year={2021} -->
-<!-- } -->
-<!-- ``` -->
 
 ## Future work
 
