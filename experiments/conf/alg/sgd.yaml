@@ -1,9 +1,0 @@
-# name of the algorithm class to import form src.algorithms
-import_name: SGD
-
-params:
-  lr: 0.005
-  batch_size: 32
-  epochs: null
-  penalty_mults: 0
-  save_state_interval: 100

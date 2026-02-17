@@ -1,6 +1,0 @@
-import_name: abs_loss_equality
-
-c_batch_size: 64
-bound: 0.05
-add_negative: False
-type: "one_vs_each"
