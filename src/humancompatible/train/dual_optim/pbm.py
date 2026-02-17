@@ -116,6 +116,7 @@ class PBM(Optimizer):
         self,
         m: int,
         mu: float = None,
+        lr: float = None,
         penalty_update: str = None,
         pbf: str = None,
         init_duals: float | Tensor = None,
@@ -159,7 +160,7 @@ class PBM(Optimizer):
             penalty_update_f = _update_penalties_const
         else:
             penalty_update_f = None
-        
+
         settings_dict = {
             "mu": mu,
             "penalty_update": penalty_update_f,
