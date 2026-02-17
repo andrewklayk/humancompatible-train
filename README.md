@@ -208,6 +208,13 @@ If you use this work, we encourage you to cite [our paper](https://arxiv.org/abs
   url={https://arxiv.org/abs/2507.04033},
   year={2026}
 }
+
+@inproceedings{kliachkin2025humancompatible,
+  title={humancompatible.train: Implementing Optimization Algorithms for Stochastically-Constrained Stochastic Optimization Problems},
+  author={Kliachkin, Andrii and Lep{\v{s}}ov{\'a}, Jana and Bareilles, Gilles and Mare{\v{c}}ek, Jakub},
+  booktitle={NeurIPS Workshop on Constrained Optimization for Machine Learning},
+  year={2025}
+}
 ```
 
 <a id="1">[1]</a>
