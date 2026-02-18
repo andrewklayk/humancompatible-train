@@ -29,6 +29,7 @@ class PBM(Optimizer):
         dual_momentum: float = 0.,
         dual_dampening: float = 0.,
         penalty_range: Tuple[float, float] = (1e-2, 100.),
+        device = None
     ) -> None:
         """
         A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables.
@@ -74,8 +75,8 @@ class PBM(Optimizer):
         # if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
         #     init_penalties = torch.zeros(m, requires_grad=False) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
 
-        # if lr is None:
-        #     lr = mu
+        if lr is None:
+            lr = mu
 
         # defaults = {
         #     "mu": mu,
@@ -92,7 +93,7 @@ class PBM(Optimizer):
         # duals = Parameter(init_duals, requires_grad=False)
         # penalties = Parameter(init_penalties, requires_grad=False)
 
-        params, defaults = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, dual_range, penalty_range)
+        params, defaults = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, dual_range, penalty_range, device)
 
         super().__init__(params, defaults)
 
@@ -108,15 +109,16 @@ class PBM(Optimizer):
         dual_momentum: float = None,
         dual_dampening: float = None,
         dual_range: Tuple[float, float] = None,
-        penalty_range: Tuple[float, float] = None
+        penalty_range: Tuple[float, float] = None,
+        device = None
     ):
         if init_duals is None and m is None:
             raise ValueError("At least one of`size`,`init_duals` must be set")
         
         if init_duals is None or isinstance(init_duals, (int, float)): # initialize duals if not set or set to scalar
-            init_duals = torch.zeros(m, requires_grad=False) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
+            init_duals = torch.zeros(m, requires_grad=False, device=device) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
         if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
-            init_penalties = torch.zeros(m, requires_grad=False) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
+            init_penalties = torch.zeros(m, requires_grad=False, device=device) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
 
         duals = Parameter(init_duals, requires_grad=False)
         penalties = Parameter(init_penalties, requires_grad=False)
@@ -137,7 +139,7 @@ class PBM(Optimizer):
             "pbf": pbf,
             "dual_momentum": dual_momentum,
             "dual_dampening": dual_dampening,
-            "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
+            "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False, device=device),
         }
         settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
 
@@ -287,7 +289,6 @@ class PBM(Optimizer):
             _update_penalties(penalties, lr, duals)
             clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
-    # TODO: redo state dict to save the params (dual variables) themselves and not their IDs
     def state_dict(self) -> dict[str, Any]:
         
         state_dict = super().state_dict()

@@ -16,7 +16,8 @@ class ALM(Optimizer):
         *,
         dual_range: Tuple[float, float] = (0.0, 100.0),
         momentum: float = 0,
-        dampening: float = 0
+        dampening: float = 0,
+        device = None
     ) -> None:
         """
         A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables.
@@ -58,7 +59,7 @@ class ALM(Optimizer):
         # }
 
         self.penalty = penalty
-        duals, defaults = self._init_constraint_group(m, lr, momentum, dampening, init_duals, dual_range)
+        duals, defaults = self._init_constraint_group(m, lr, momentum, dampening, init_duals, dual_range, device)
         
         # duals = Parameter(init_duals, requires_grad=False)
         # TODO: add penalty as parameter?
@@ -66,7 +67,7 @@ class ALM(Optimizer):
 
     @staticmethod
     def _init_constraint_group(
-        m: int = None, lr: float = None, momentum: float = None, dampening: float = None, init_duals: float | Tensor = None, dual_range: Tuple[float, float] = None
+        m: int = None, lr: float = None, momentum: float = None, dampening: float = None, init_duals: float | Tensor = None, dual_range: Tuple[float, float] = None, device = None
     ):
         ## checks ##
         if init_duals is None and m is None:
@@ -78,9 +79,9 @@ class ALM(Optimizer):
         m = m if m is not None else len(init_duals)
         
         if init_duals is None: # initialize duals if not set or set to scalar
-            init_duals = torch.zeros(m, requires_grad=False) + dual_range[0]
+            init_duals = torch.zeros(m, requires_grad=False, device=device) + dual_range[0]
         elif isinstance(init_duals, float):
-            init_duals = torch.zeros(m, requires_grad=False) + init_duals
+            init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
         
         duals = Parameter(init_duals, requires_grad=False)
 
@@ -88,7 +89,7 @@ class ALM(Optimizer):
             "lr": lr,
             "momentum": momentum,
             "dampening": dampening,
-            "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
+            "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False, device=device),
         }
         settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
 
@@ -205,7 +206,6 @@ class ALM(Optimizer):
 
         return lagrangian
 
-    # TODO: redo state dict to save the params (dual variables) themselves and not their IDs
     def state_dict(self) -> dict[str, Any]:
         
         state_dict = super().state_dict()
