@@ -37,35 +37,63 @@ class ALM(Optimizer):
         :type dampening: float
         """
 
-        ## checks ##
-        if m is None and not isinstance(init_duals, Tensor):
-            raise ValueError("At least one of`m`,`init_duals` must be set")
-        m = m if m is not None else len(init_duals)
-        if isinstance(lr, Iterable) and len(lr) != m:
-            raise ValueError("`lr`must be the same length as`init_duals`or`m`")
-        if penalty < 0:
-            raise ValueError(f"`penalty`must be non-negative, got {penalty}")
-        if momentum < 0 or momentum > 1:
-            raise ValueError(f"`momentum`must be within [0,1]; got {momentum}")
+        # ## checks ##
+        # if m is None and not isinstance(init_duals, Tensor):
+        #     raise ValueError("At least one of`m`,`init_duals` must be set")
+        # m = m if m is not None else len(init_duals)
+        # # if isinstance(lr, Iterable) and len(lr) != m:
+        # #     raise ValueError("`lr`must be the same length as`init_duals`or`m`")
+
+        self.dual_range = dual_range
+        # self.momentum = momentum
+
+        # if init_duals is None:
+        #     init_duals = torch.zeros(m, requires_grad=False)
+
+        # defaults = {
+        #     "lr": lr,
+        #     "momentum": momentum,
+        #     "dampening": dampening,
+        #     "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False)
+        # }
 
         self.penalty = penalty
-        self.dual_range = dual_range
-        self.momentum = momentum
+        duals, defaults = self._init_constraint_group(m, lr, momentum, dampening, init_duals, dual_range)
+        
+        # duals = Parameter(init_duals, requires_grad=False)
+        # TODO: add penalty as parameter?
+        super().__init__(duals, defaults)
 
-        if init_duals is None:
-            init_duals = torch.zeros(m, requires_grad=False)
+    @staticmethod
+    def _init_constraint_group(
+        m: int = None, lr: float = None, momentum: float = None, dampening: float = None, init_duals: float | Tensor = None, dual_range: Tuple[float, float] = None
+    ):
+        ## checks ##
+        if init_duals is None and m is None:
+            raise ValueError("At least one of`m`,`init_duals` must be set")
 
-        defaults = {
+        if momentum is not None and (momentum < 0 or momentum > 1):
+            raise ValueError(f"`momentum`must be within [0,1]; got {momentum}")
+        
+        m = m if m is not None else len(init_duals)
+        
+        if init_duals is None: # initialize duals if not set or set to scalar
+            init_duals = torch.zeros(m, requires_grad=False) + dual_range[0]
+        elif isinstance(init_duals, float):
+            init_duals = torch.zeros(m, requires_grad=False) + init_duals
+        
+        duals = Parameter(init_duals, requires_grad=False)
+
+        settings_dict = {
             "lr": lr,
             "momentum": momentum,
             "dampening": dampening,
-            "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False)
+            "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
         }
+        settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
 
-        self.defaults = defaults
-        duals = Parameter(init_duals, requires_grad=False)
-        super().__init__([duals], defaults)
-
+        param_group = ([duals], settings_dict)
+        return param_group
 
     @property
     def duals(self) -> Tensor:
@@ -76,7 +104,7 @@ class ALM(Optimizer):
         return torch.cat([group["params"][0] for group in self.param_groups])
 
     def add_constraint_group(
-        self, m: int = None, lr: float = None, momentum: float = None, init_duals: Tensor = None
+        self, m: int = None, lr: float = None, momentum: float = None, dampening: float = None, init_duals: Tensor = None
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
@@ -88,18 +116,20 @@ class ALM(Optimizer):
         :param init_duals: Initial values for the new dual variables
         :type init_duals: Tensor
         """
-        if init_duals is None and m is None:
-            raise ValueError("At least one of`size`,`init_duals` must be set")
-        if isinstance(lr, Iterable) and len(lr) != m:
-            raise ValueError("`lr`should be the same length as`init_duals`or`m`")
-        if init_duals is None:
-            init_duals = Parameter(torch.zeros(m))
-        param_group_dict = {"params": [init_duals]}
-        if lr is not None:
-            param_group_dict["lr"] = lr
-            param_group_dict["momentum"] = momentum
-            param_group_dict["momentum_buffer"] = torch.zeros_like(init_duals, requires_grad = False)
-
+        # if init_duals is None and m is None:
+        #     raise ValueError("At least one of`size`,`init_duals` must be set")
+        # if isinstance(lr, Iterable) and len(lr) != m:
+        #     raise ValueError("`lr`should be the same length as`init_duals`or`m`")
+        # if init_duals is None:
+        #     init_duals = Parameter(torch.zeros(m))
+        # param_group_dict = {"params": [init_duals]}
+        # if lr is not None:
+        #     param_group_dict["lr"] = lr
+        #     param_group_dict["momentum"] = momentum
+        #     param_group_dict["momentum_buffer"] = torch.zeros_like(init_duals, requires_grad = False)
+        
+        duals, settings_dict = self._init_constraint_group(m, lr, momentum, dampening, init_duals, self.dual_range)
+        param_group_dict = {"params": duals, **settings_dict}
         self.add_param_group(param_group_dict)
 
 
@@ -175,11 +205,15 @@ class ALM(Optimizer):
 
         return lagrangian
 
+    # TODO: redo state dict to save the params (dual variables) themselves and not their IDs
     def state_dict(self) -> dict[str, Any]:
-
-        packed_state = {"penalty": self.penalty, "dual_range": self.dual_range}
-        state_dict = {"state": packed_state, "param_groups": self.param_groups}
-
+        
+        state_dict = super().state_dict()
+        state_dict["state"]["penalty"] = self.penalty
+        state_dict["state"]["dual_range"] = self.dual_range
+        # save params themselves in state_dict instead of param ID in default PyTorch
+        for id_pg, pg in enumerate(state_dict['param_groups']):
+            pg['params'] = [self.param_groups[id_pg]['params'][param_id] for param_id in pg['params'] ]
         return state_dict
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:

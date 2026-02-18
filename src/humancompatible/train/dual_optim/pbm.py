@@ -53,10 +53,73 @@ class PBM(Optimizer):
         :type dampening: float
         """
 
-        ## checks ##
-        if m is None and not isinstance(init_duals, Tensor):
-            raise ValueError("At least one of`m`,`init_duals` must be set")
-        m = m if m is not None else len(init_duals)
+        # ## checks ##
+        # if m is None and not isinstance(init_duals, Tensor):
+        #     raise ValueError("At least one of`m`,`init_duals` must be set")
+        # m = m if m is not None else len(init_duals)
+        
+        # if penalty_update == 'dimin':
+        #     penalty_update_f = _update_penalties_dimin
+        # elif penalty_update == 'dimin_dual':
+        #     penalty_update_f = _update_penalties_dimin_dual
+        # elif penalty_update == 'const':
+        #     penalty_update_f = _update_penalties_const
+
+        self.dual_range = dual_range
+        self.penalty_range = penalty_range
+
+        # if init_duals is None or isinstance(init_duals, (int, float)): # initialize duals if not set or set to scalar
+        #     init_duals = torch.zeros(m, requires_grad=False) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
+        
+        # if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
+        #     init_penalties = torch.zeros(m, requires_grad=False) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
+
+        # if lr is None:
+        #     lr = mu
+
+        # defaults = {
+        #     "mu": mu,
+        #     "lr": lr,
+        #     "penalty_update": penalty_update_f,
+        #     "pbf": pbf,
+        #     "dual_momentum": dual_momentum,
+        #     "dual_dampening": dual_dampening,
+        #     "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
+        # }
+
+        # self.defaults = defaults
+
+        # duals = Parameter(init_duals, requires_grad=False)
+        # penalties = Parameter(init_penalties, requires_grad=False)
+
+        params, defaults = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, dual_range, penalty_range)
+
+        super().__init__(params, defaults)
+
+    @staticmethod
+    def _init_constraint_group(
+        m: int,
+        mu: float = None,
+        lr: float = None,
+        penalty_update: str = None,
+        pbf: str = None,
+        init_duals: float | Tensor = None,
+        init_penalties: float | Tensor = None,
+        dual_momentum: float = None,
+        dual_dampening: float = None,
+        dual_range: Tuple[float, float] = None,
+        penalty_range: Tuple[float, float] = None
+    ):
+        if init_duals is None and m is None:
+            raise ValueError("At least one of`size`,`init_duals` must be set")
+        
+        if init_duals is None or isinstance(init_duals, (int, float)): # initialize duals if not set or set to scalar
+            init_duals = torch.zeros(m, requires_grad=False) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
+        if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
+            init_penalties = torch.zeros(m, requires_grad=False) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
+
+        duals = Parameter(init_duals, requires_grad=False)
+        penalties = Parameter(init_penalties, requires_grad=False)
         
         if penalty_update == 'dimin':
             penalty_update_f = _update_penalties_dimin
@@ -64,20 +127,10 @@ class PBM(Optimizer):
             penalty_update_f = _update_penalties_dimin_dual
         elif penalty_update == 'const':
             penalty_update_f = _update_penalties_const
+        else:
+            penalty_update_f = None
 
-        self.dual_range = dual_range
-        self.penalty_range = penalty_range
-
-        if init_duals is None or isinstance(init_duals, (int, float)): # initialize duals if not set or set to scalar
-            init_duals = torch.zeros(m, requires_grad=False) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
-        
-        if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
-            init_penalties = torch.zeros(m, requires_grad=False) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
-
-        if lr is None:
-            lr = mu
-
-        defaults = {
+        settings_dict = {
             "mu": mu,
             "lr": lr,
             "penalty_update": penalty_update_f,
@@ -86,14 +139,11 @@ class PBM(Optimizer):
             "dual_dampening": dual_dampening,
             "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
         }
+        settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
 
-        self.defaults = defaults
+        param_group = ([duals, penalties], settings_dict)
 
-        duals = Parameter(init_duals, requires_grad=False)
-        penalties = Parameter(init_penalties, requires_grad=False)
-
-        super().__init__([duals, penalties], defaults)
-
+        return param_group
 
     @property
     def duals(self) -> Tensor:
@@ -111,7 +161,6 @@ class PBM(Optimizer):
         """
         return torch.cat([group["params"][1] for group in self.param_groups])
 
-    # TODO: this, add save state
     def add_constraint_group(
         self,
         m: int,
@@ -141,38 +190,10 @@ class PBM(Optimizer):
         :param init_penalties: Initial values for the penalty variables. Defaults to min(10, lower_bound) for all.
         :type init_penalties: float | Tensor
         """
-        if init_duals is None and m is None:
-            raise ValueError("At least one of`size`,`init_duals` must be set")
         
-        if init_duals is None: # initialize duals if not set
-            init_duals = torch.zeros(m, requires_grad=False) + self.dual_range[0]        
-        if init_penalties is None: # initialize penalties if not set
-            init_penalties = torch.zeros(m, requires_grad=False) + 10
-
-        duals = Parameter(init_duals, requires_grad=False)
-        penalties = Parameter(init_penalties, requires_grad=False)
         
-        if penalty_update == 'dimin':
-            penalty_update_f = _update_penalties_dimin
-        elif penalty_update == 'dimin_dual':
-            penalty_update_f = _update_penalties_dimin_dual
-        elif penalty_update == 'const':
-            penalty_update_f = _update_penalties_const
-        else:
-            penalty_update_f = None
-
-        settings_dict = {
-            "mu": mu,
-            "penalty_update": penalty_update_f,
-            "pbf": pbf,
-            "dual_momentum": dual_momentum,
-            "dual_dampening": dual_dampening,
-            "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
-        }
-        settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
-
-        param_group_dict = {"params": [duals, penalties], **settings_dict}
-        
+        params, settings_dict = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, self.dual_range, self.penalty_range)
+        param_group_dict = {"params": params, **settings_dict}
         self.add_param_group(param_group_dict)
 
     def update(self, constraints: Tensor) -> None:
@@ -266,20 +287,24 @@ class PBM(Optimizer):
             _update_penalties(penalties, lr, duals)
             clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
-    # def state_dict(self) -> dict[str, Any]:
+    # TODO: redo state dict to save the params (dual variables) themselves and not their IDs
+    def state_dict(self) -> dict[str, Any]:
+        
+        state_dict = super().state_dict()
+        state_dict["state"]["penalty_range"] = self.penalty_range
+        state_dict["state"]["dual_range"] = self.dual_range
+        # save params themselves in state_dict instead of param ID in default PyTorch
+        for id_pg, pg in enumerate(state_dict['param_groups']):
+            pg['params'] = [self.param_groups[id_pg]['params'][param_id] for param_id in pg['params'] ]
+        return state_dict
 
-    #     packed_state = {"penalty": self.penalty, "dual_range": self.dual_range}
-    #     state_dict = {"state": packed_state, "param_groups": self.param_groups}
-
-    #     return state_dict
-
-    # def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-    #     self.penalty = state_dict["state"]["penalty"]
-    #     self.dual_range = state_dict["state"]["dual_range"]
-    #     params = state_dict["param_groups"]
-    #     self.param_groups = []
-    #     for param in params:
-    #         self.param_groups.append(param)
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        self.penalty_range = state_dict["state"]["penalty_range"]
+        self.dual_range = state_dict["state"]["dual_range"]
+        params = state_dict["param_groups"]
+        self.param_groups = []
+        for param in params:
+            self.param_groups.append(param)
 
 
 
