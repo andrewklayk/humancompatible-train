@@ -25,10 +25,10 @@ class PBM(Optimizer):
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
         *,
-        dual_range: Tuple[float, float] = (1e-6, 100.),
+        dual_range: Tuple[float, float] = (1e-4, 100.),
         dual_momentum: float = 0.,
         dual_dampening: float = 0.,
-        penalty_range: Tuple[float, float] = (1e-2, 100.),
+        penalty_range: Tuple[float, float] = (1e-1, 100.),
         device = None
     ) -> None:
         """
@@ -116,7 +116,7 @@ class PBM(Optimizer):
             raise ValueError("At least one of`size`,`init_duals` must be set")
         
         if init_duals is None or isinstance(init_duals, (int, float)): # initialize duals if not set or set to scalar
-            init_duals = torch.zeros(m, requires_grad=False, device=device) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
+            init_duals = torch.zeros(m, requires_grad=False, device=device) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0] + 0.01)
         if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
             init_penalties = torch.zeros(m, requires_grad=False, device=device) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
 
