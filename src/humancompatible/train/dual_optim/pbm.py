@@ -22,12 +22,12 @@ class PBM(Optimizer):
         lr: float = None,
         penalty_update: str = 'dimin',
         pbf: str = 'quadratic_logarithmic',
-        init_duals: float | Tensor = None,
-        init_penalties: float | Tensor = None,
+        init_duals: float | Tensor = 0.01,
+        init_penalties: float | Tensor = 10,
         *,
         dual_range: Tuple[float, float] = (1e-4, 100.),
-        dual_momentum: float = 0.,
-        dual_dampening: float = 0.,
+        momentum: float = 0.,
+        dampening: float = 0.,
         penalty_range: Tuple[float, float] = (1e-1, 100.),
         device = None
     ) -> None:
@@ -48,52 +48,24 @@ class PBM(Optimizer):
         :type init_penalties: float | Tensor
         :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
         :type dual_range: Tuple[float, float]
-        :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+        :param momentum: Momentum/Smoothing factor for dual variables. Set to `0` to disable.
         :type momentum: float
-        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+        :param dampening: Dampening for momentum. Defaults to 1 - momentum if momentum is not 0 and 0 otherwise. Set to `0` to disable.
         :type dampening: float
         """
 
         # ## checks ##
-        # if m is None and not isinstance(init_duals, Tensor):
-        #     raise ValueError("At least one of`m`,`init_duals` must be set")
-        # m = m if m is not None else len(init_duals)
-        
-        # if penalty_update == 'dimin':
-        #     penalty_update_f = _update_penalties_dimin
-        # elif penalty_update == 'dimin_dual':
-        #     penalty_update_f = _update_penalties_dimin_dual
-        # elif penalty_update == 'const':
-        #     penalty_update_f = _update_penalties_const
 
         self.dual_range = dual_range
         self.penalty_range = penalty_range
 
-        # if init_duals is None or isinstance(init_duals, (int, float)): # initialize duals if not set or set to scalar
-        #     init_duals = torch.zeros(m, requires_grad=False) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
-        
-        # if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
-        #     init_penalties = torch.zeros(m, requires_grad=False) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
-
         if lr is None:
             lr = mu
 
-        # defaults = {
-        #     "mu": mu,
-        #     "lr": lr,
-        #     "penalty_update": penalty_update_f,
-        #     "pbf": pbf,
-        #     "dual_momentum": dual_momentum,
-        #     "dual_dampening": dual_dampening,
-        #     "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False),
-        # }
+        if momentum > 0 and dampening == 0:
+            dampening = momentum
 
-        # self.defaults = defaults
-
-        # duals = Parameter(init_duals, requires_grad=False)
-        # penalties = Parameter(init_penalties, requires_grad=False)
-
-        params, defaults = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, dual_range, penalty_range, device)
+        params, defaults = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, momentum, dampening, dual_range, penalty_range, device)
 
         super().__init__(params, defaults)
 
@@ -106,8 +78,8 @@ class PBM(Optimizer):
         pbf: str = None,
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
-        dual_momentum: float = None,
-        dual_dampening: float = None,
+        momentum: float = None,
+        dampening: float = None,
         dual_range: Tuple[float, float] = None,
         penalty_range: Tuple[float, float] = None,
         device = None
@@ -116,7 +88,7 @@ class PBM(Optimizer):
             raise ValueError("At least one of`size`,`init_duals` must be set")
         
         if init_duals is None or isinstance(init_duals, (int, float)): # initialize duals if not set or set to scalar
-            init_duals = torch.zeros(m, requires_grad=False, device=device) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0] + 0.01)
+            init_duals = torch.zeros(m, requires_grad=False, device=device) + (init_duals if isinstance(init_duals, (int, float)) else dual_range[0])
         if init_penalties is None or isinstance(init_penalties, (int, float)): # initialize penalties if not set or set to scalar
             init_penalties = torch.zeros(m, requires_grad=False, device=device) + (init_penalties if isinstance(init_penalties, (int, float)) else penalty_range[1])
 
@@ -137,9 +109,9 @@ class PBM(Optimizer):
             "lr": lr,
             "penalty_update": penalty_update_f,
             "pbf": pbf,
-            "dual_momentum": dual_momentum,
-            "dual_dampening": dual_dampening,
-            "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False, device=device),
+            "momentum": momentum,
+            "dampening": dampening,
+            "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False, device=device),
         }
         settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
 
@@ -173,8 +145,8 @@ class PBM(Optimizer):
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
         *,
-        dual_momentum: float = None,
-        dual_dampening: float = None,
+        momentum: float = None,
+        dampening: float = None,
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
@@ -194,7 +166,7 @@ class PBM(Optimizer):
         """
         
         
-        params, settings_dict = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, self.dual_range, self.penalty_range)
+        params, settings_dict = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, momentum, dampening, self.dual_range, self.penalty_range)
         param_group_dict = {"params": params, **settings_dict}
         self.add_param_group(param_group_dict)
 
@@ -209,7 +181,7 @@ class PBM(Optimizer):
         """
 
         for i, group in enumerate(self.param_groups):
-            duals, penalties, mu, lr, penalty_update, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["mu"], group["lr"], group["penalty_update"], group["pbf"], group['dual_momentum'], group['dual_dampening'], group['dual_momentum_buffer']
+            duals, penalties, mu, lr, penalty_update, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["mu"], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group['momentum_buffer']
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             cdivp = group_constraints.div(penalties)
             with torch.no_grad():
@@ -262,7 +234,7 @@ class PBM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals, penalties, mu, lr, _update_penalties, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["mu"], group["lr"], group["penalty_update"], group["pbf"], group['dual_momentum'], group['dual_dampening'], group['dual_momentum_buffer']
+            duals, penalties, mu, lr, _update_penalties, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["mu"], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group['momentum_buffer']
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             # calculate lagrangian
             cdivp = group_constraints.div(penalties)

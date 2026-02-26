@@ -25,8 +25,8 @@ class MoreauEnvelope(Optimizer):
         self.optimizer = optimizer
         self.mu, self.beta = mu, beta
 
-        if mu <= 0:
-            raise ValueError(f"The smoothing parameter`mu`should be positive, got {mu}.")
+        if mu < 0:
+            raise ValueError(f"The smoothing parameter`mu`must be non-negative, got {mu}.")
         else:
             self.smoothing_buffer = []
             for param_group in optimizer.param_groups:
