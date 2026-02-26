@@ -172,14 +172,19 @@ For more information, see <https://www.census.gov/data/developers/about/terms-of
 If you use this work, we encourage you to cite [our paper](https://arxiv.org/abs/2509.21254),
 
 ```bibtex
-@misc{kliachkin2025benchmarkingstochasticapproximationalgorithms,
-      title={Benchmarking Stochastic Approximation Algorithms for Fairness-Constrained Training of Deep Neural Networks}, 
-      author={Andrii Kliachkin and Jana Lepšová and Gilles Bareilles and Jakub Mareček},
-      year={2025},
-      eprint={2507.04033},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2507.04033}, 
+@inproceedings{kliachkin2026benchmarking,
+  title={Benchmarking Stochastic Approximation Algorithms for Fairness-Constrained Training of Deep Neural Networks},
+  author={Kliachkin, Andrii and Lep{\v{s}}ov{\'a}, Jana and Bareilles, Gilles and Mare{\v{c}}ek, Jakub},
+  booktitle={14th International Conference on Learning Representations},
+  url={https://arxiv.org/abs/2507.04033},
+  year={2026}
+}
+
+@inproceedings{kliachkin2025humancompatible,
+  title={humancompatible.train: Implementing Optimization Algorithms for Stochastically-Constrained Stochastic Optimization Problems},
+  author={Kliachkin, Andrii and Lep{\v{s}}ov{\'a}, Jana and Bareilles, Gilles and Mare{\v{c}}ek, Jakub},
+  booktitle={NeurIPS Workshop on Constrained Optimization for Machine Learning},
+  year={2025}
 }
 ```
 
