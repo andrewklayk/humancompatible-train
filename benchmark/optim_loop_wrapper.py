@@ -6,18 +6,28 @@ from torch import Tensor
 from typing import Iterable, Callable, Dict, Tuple
 
 class TrainTracker:
-    def __init__(self, max_time, max_iters):
+    def __init__(self, max_time, max_iters, stopping_patience = None, stopping_ctol = None):
         self.max_time = max_time
         self.max_iters = max_iters
         self.start()
         self.best_feasible_val_loss = np.inf
         self.no_feasible_improvement = 0
+        self.patience = stopping_patience
+        self.ctol = stopping_ctol
 
     # TODO: add early stopping to wrapper
-    # def check_model_performance(self, loss, constraints, c_tol):
-    #     if max(constraints) < c_tol and loss < self.best_feasible_val_loss:
-    #         self.best_feasible_val_loss = loss
-    #     elif 
+    def check_model_performance(self, loss, constraints):
+        if max(constraints) < self.c_tol and loss < self.best_feasible_val_loss:
+            self.best_feasible_val_loss = loss
+            self.no_feasible_improvement = 0
+        else:
+            self.no_feasible_improvement += 1
+        
+        if self.no_feasible_improvement > self.patience:
+            return True
+        else:
+            return False
+
 
     def start(self):
         self.start_time = timeit.default_timer()
@@ -156,6 +166,16 @@ class OptimLoopWrapper:
         for epoch in range(epochs):
             epoch_iters = 0
             i = tracker.total_iters
+            
+            if tracker.patience is not None:
+                tracker.pause()
+                loss, constraints, *other_stats = self.eval(self.model, self.eval_data)
+                stop = tracker.check_model_performance(loss, constraints)
+                if stop:
+                    with np.printoptions(precision=4, suppress=True):
+                        print(f'Feasible Early Stopping triggered at epoch {epoch} with loss {loss}, constraints {constraints}')
+                    return
+                tracker.resume()
 
             for batch in self.train_data:
                 epoch_iters += 1
@@ -173,6 +193,7 @@ class OptimLoopWrapper:
                             print("TRAIN " + " ".join([(f"{k} {v:.4f}"  if isinstance(v, float) else f"{k} {v:5}") for k, v in self.train_history[-1].items()]))
                             print("VAL " + " ".join([(f"{k} {v:.4f}"  if isinstance(v, float) else f"{k} {v:5}") for k, v in self.val_history[-1].items()]))
                     tracker.resume()
+                
                 
                 if self.mode == 'unconstrained':
                     # log constraints at iteration without timing them

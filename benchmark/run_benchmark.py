@@ -13,68 +13,7 @@ from fairret.loss import NormLoss
 from plotting import plot_losses_and_constraints_stochastic
 from humancompatible.train.dual_optim import ALM, PBM
 
-
-def bce_loss_per_group(batch_logits, batch_sens, batch_labels):
-    # Ensure shapes are compatible
-    batch_logits = batch_logits.view(-1)
-    batch_labels = batch_labels.view(-1)
-    
-    # Compute BCE loss for each sample
-    loss = F.binary_cross_entropy_with_logits(
-        batch_logits, batch_labels, reduction='none'
-    )
-
-    # Weight loss by group membership and sum per group
-    group_loss = torch.matmul(batch_sens.T, loss)
-
-    # Divide by the number of samples in each group
-    group_counts = batch_sens.sum(dim=0)
-    group_loss /= group_counts
-
-    # Compute mean-reduced loss
-    mean_loss = loss.mean()
-
-    return group_loss - mean_loss
-
-def loss_per_group_constraint(model, out, batch_sens, batch_labels):
-    return bce_loss_per_group(out, batch_sens, batch_labels)
-
-def positive_rate_per_group(out_batch, batch_sens, prob_f=torch.nn.functional.sigmoid):
-    """
-    Calculates the positive rate vector based on the given outputs of the model for the given groups. 
-    
-    """
-    if prob_f is None: 
-        preds = out_batch
-    else: 
-        preds = prob_f( out_batch )
-    pr = PositiveRate()
-    probs_per_group = pr(preds, batch_sens)
-
-    return probs_per_group
-
-def posrate_per_group_constraint(model, out, batch_sens, batch_labels):
-    pos_rate_pergroup = positive_rate_per_group(out, batch_sens)
-    constraints = ((pos_rate_pergroup.unsqueeze(1) - pos_rate_pergroup.unsqueeze(0)).to(torch.float))
-    mask = ~torch.eye(batch_sens.shape[-1], dtype=torch.bool)
-    constraints = constraints[mask]
-
-    return constraints
-
-def posrate_fairret_constraint(model, out, batch_sens, batch_labels):
-    statistic = PositiveRate()
-    fair_criterion = NormLoss(statistic=statistic)
-    
-    return fair_criterion(out, batch_sens).unsqueeze(0)
-
-def weight_constraint(model, out, batch_sens, batch_labels):
-    norms = []
-    for param in model.parameters():
-        norm = torch.linalg.norm(param, ord=2)
-        norms.append(norm.unsqueeze(0))
-    
-    return torch.concat(norms)
-
+from constraints import loss_per_group, posrate_per_group, weight_constraint, posrate_fairret_constraint
 
 def runs_to_df(runs):
     
@@ -108,20 +47,20 @@ def main(dataset, task, n_runs, n_epochs):
     (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val) = data_source(batch_size)
 
     pbm_params = {
-            "primal__lr": 0.05,
-            "dual__lr": 0.99, "dual__mu": 0.1, "dual__penalty_update": "dimin", "dual__pbf": "quadratic_logarithmic", "dual__momentum": 0.0,
-            "moreau__mu": 0.
+            "primal__lr": 0.01,
+            "dual__lr": 0.99, "dual__mu": 0.3, "dual__penalty_update": "dimin", "dual__pbf": "quadratic_logarithmic", "dual__momentum": 0.9,
+            "moreau__mu": 4.0
         }
     
     alm_params = {
-            "primal__lr": 0.05, 
-            "dual__lr": 0.05, "dual__penalty": 1.0, "dual__momentum": 0.0,
-            "moreau__mu": 0.
+            "primal__lr": 0.001, 
+            "dual__lr": 0.05, "dual__penalty": 1.0, "dual__momentum": 0.3,
+            "moreau__mu": 2.0
         }
     
     ssg_params = {
-            "primal__lr": 0.005, 
-            "dual__lr": 0.001,
+            "primal__lr": 0.01, 
+            "dual__lr": 0.005,
             "moreau__mu": 0.
         }
 
@@ -130,13 +69,13 @@ def main(dataset, task, n_runs, n_epochs):
     }
 
     if task == 'eqop':
-        constraint_fn = posrate_per_group_constraint
+        constraint_fn = posrate_per_group
     elif task == 'vec':
         constraint_fn = posrate_fairret_constraint
     elif task == 'weight_norm':
         constraint_fn = weight_constraint
     elif task == 'loss':
-        constraint_fn = loss_per_group_constraint
+        constraint_fn = loss_per_group
     else:
         raise ValueError(f'Unknown task: {task}')
 
@@ -152,17 +91,21 @@ def main(dataset, task, n_runs, n_epochs):
             m == 18
         elif dataset == 'folktables':
             m = 5
-    else:
+    elif task == 'weight_norm':
         m = 6
+    else:
+        raise ValueError("Unknown task")
 
     if task == 'vec':
         constraint_bound = 0.2
     elif task == 'eqop':
         constraint_bound = 0.1
     elif task == 'loss':
-        constraint_bound = 0.01
-    else:
+        constraint_bound = 0.05
+    elif task == "weight_norm":
         constraint_bound = 2.0
+    else:
+        raise ValueError("Unknown task")
 
     #################################################################
     adam_history_train = []
