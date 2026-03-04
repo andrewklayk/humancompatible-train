@@ -1,7 +1,7 @@
 from benchmark_utils import *
 from itertools import product
 import torch
-from _data_sources import load_data_FT_vec, load_data_FT_prod, load_data_DUTCH, load_data_norm
+from _data_sources import load_data_FT_vec, load_data_FT, load_data_DUTCH, load_data_norm
 import pandas as pd
 import argparse
 import os
@@ -28,17 +28,26 @@ def main(dataset, task, n_runs, n_epochs):
     os.makedirs(result_dir, exist_ok=True)
 
     if dataset == 'folktables':
+        # drop small groups
+        group_defs = [
+            {'SEX': 2, 'MAR': 3},
+            {'SEX': 2, 'MAR': 1},
+            {'SEX': 2, 'MAR': 5},
+            {'SEX': 1, 'MAR': 3},
+            {'SEX': 1, 'MAR': 1},
+            {'SEX': 1, 'MAR': 5},
+        ]
         if task == 'eqop':
-            data_source = load_data_FT_prod
+            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['MAR', 'SEX'], states=['VA'], sens_groups=group_defs)
             batch_size = 30
         elif task == 'vec':
-            data_source = lambda batch_size: load_data_FT_vec(batch_size, attr = 'SEX')
+            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['SEX'], states=['VA'])
             batch_size = 64
         elif task == 'weight_norm':
             data_source = load_data_norm
             batch_size = 64
         elif task == 'loss':
-            data_source = lambda batch_size: load_data_FT_vec(batch_size, attr = 'MAR')
+            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['MAR'], states=['VA'])
             batch_size = 80
     elif dataset == 'dutch':
         batch_size = 72
