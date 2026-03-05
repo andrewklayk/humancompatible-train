@@ -75,6 +75,58 @@ pip install humancompatible-train[examples]
 ## Extending the toolkit
 
 **To add a new algorithm**, you can subclass the PyTorch ```Optimizer``` class and proceed following the API guideline presented above.
+
+## Reproducing the Benchmark
+
+The code for benchmarking constrained regularization algorithms is available in the `benchmark` directory.
+
+### Installation instructions
+
+1. Create a virtual environment
+
+**bash** (Linux)
+
+```
+python3.11 -m venv fairbenchenv
+source fairbenchenv/bin/activate
+```
+
+**cmd** (Windows)
+
+```
+python -m venv fairbenchenv
+fairbenchenv\Scripts\activate.bat
+```
+
+2. Install from source.
+
+```
+git clone https://github.com/humancompatible/train.git
+cd train
+pip install -r requirements.txt
+pip install .
+```
+
+### Usage instructions
+
+The benchmark offers two families of datasets: Folktables and Dutch, several pre-defined constraints, and several constrained optimization algorithms: `ALM` (smoothed and non-smoothed), `SPBM`, and Switching Subgradient; we are currently working to add Stochastic Ghost within the new framework as well.
+
+To run an experiment, run:
+
+```
+python run_benchmark.py --dataset <DATASET> [folktables, dutch] --task <TYPE OF CONSTRAINT> [loss, equalized_odds_pairwise, equalized_odds_vec, weight_norm] --n_runs <NUMBER OF RUNS OF EACH METHOD> --n_epochs <NUMBER OF EPOCHS PER RUN>
+```
+
+The constraint options are:
+
+- `loss`: constraint(s) on the absolute difference between the classification loss on each group and the overall classification loss;
+- `equalized_odds_pairwise`: constraint(s) on the absolute difference between the positive rate between each group;
+- `equalized_odds_vec`: constraint on the Positive Rate of each group as defined by `fairret.NormLoss`;
+- `weight_norm`: constraint on the Frobenius norm of the weights and biases of each layer of the neural network.
+
+The benchmarking code (all of which is contained in the `benchmark` directory) is easy to parse and extend with other datasets and constraints.
+
+
 <!-- 
 ## Reproducing the Benchmark
 
@@ -165,7 +217,6 @@ For more information, see <https://www.census.gov/data/developers/about/terms-of
 
 - Add more algorithms
 - Add more examples from different fields where constrained training of DNNs is employed
-- Migrate the benchmark to the new API
 
 ## References
 

@@ -12,6 +12,10 @@ plots/
 outputs/
 rci_jupyter_setup.txt
 requirements_rci.txt
+*.csv
+benchmark/results
+benchmark/cache
+benchmark/data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

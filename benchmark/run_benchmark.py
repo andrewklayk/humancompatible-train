@@ -28,19 +28,10 @@ def main(dataset, task, n_runs, n_epochs):
     os.makedirs(result_dir, exist_ok=True)
 
     if dataset == 'folktables':
-        # drop small groups
-        group_defs = [
-            {'SEX': 2, 'MAR': 3},
-            {'SEX': 2, 'MAR': 1},
-            {'SEX': 2, 'MAR': 5},
-            {'SEX': 1, 'MAR': 3},
-            {'SEX': 1, 'MAR': 1},
-            {'SEX': 1, 'MAR': 5},
-        ]
-        if task == 'eqop':
-            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['MAR', 'SEX'], states=['VA'], sens_groups=group_defs)
+        if task == 'equalized_odds_pairwise':
+            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['MAR', 'SEX'], states=['VA'])
             batch_size = 30
-        elif task == 'vec':
+        elif task == 'equalized_odds_vec':
             data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['SEX'], states=['VA'])
             batch_size = 64
         elif task == 'weight_norm':
@@ -77,9 +68,9 @@ def main(dataset, task, n_runs, n_epochs):
         "lr": 0.01
     }
 
-    if task == 'eqop':
+    if task == 'equalized_odds_pairwise':
         constraint_fn = posrate_per_group
-    elif task == 'vec':
+    elif task == 'equalized_odds_vec':
         constraint_fn = posrate_fairret_constraint
     elif task == 'weight_norm':
         constraint_fn = weight_constraint
@@ -88,12 +79,12 @@ def main(dataset, task, n_runs, n_epochs):
     else:
         raise ValueError(f'Unknown task: {task}')
 
-    if task == 'eqop':
+    if task == 'equalized_odds_pairwise':
         if dataset == 'dutch':
             m = 306
         elif dataset == 'folktables':
             m = 30
-    elif task == 'vec':
+    elif task == 'equalized_odds_vec':
         m = 1
     elif task == 'loss':
         if dataset == 'dutch':
@@ -105,9 +96,9 @@ def main(dataset, task, n_runs, n_epochs):
     else:
         raise ValueError("Unknown task")
 
-    if task == 'vec':
+    if task == 'equalized_odds_vec':
         constraint_bound = 0.2
-    elif task == 'eqop':
+    elif task == 'equalized_odds_pairwise':
         constraint_bound = 0.1
     elif task == 'loss':
         constraint_bound = 0.05

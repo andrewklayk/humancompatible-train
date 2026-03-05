@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "humancompatible-train"
-version = "0.1.8.5"
+version = "0.3.0"
 dependencies = [
     "torch",
     "numpy",
@@ -13,6 +13,7 @@ requires-python = ">= 3.11, <3.14"
 authors = [
     {name = "Andrii Kliachkin", email = "kliachkin.andrii@gmail.com"},
     {name = "Gilles Bareilles"},
+    {name = "Adam Bosak"},
     {name = "Jana Lepsova"},
     {name = "Jakub Marecek"},
 ]

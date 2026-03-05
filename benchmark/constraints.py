@@ -73,7 +73,7 @@ def posrate_fairret_constraint(model, out, batch_sens, batch_labels):
 def weight_constraint(model, out, batch_sens, batch_labels):
     norms = []
     for param in model.parameters():
-        norm = torch.linalg.norm(param, ord=2)
+        norm = torch.linalg.norm(param)
         norms.append(norm.unsqueeze(0))
     
     return torch.concat(norms)
