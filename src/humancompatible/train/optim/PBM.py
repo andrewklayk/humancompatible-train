@@ -556,7 +556,7 @@ class PBM(Optimizer):
             # define the augmented F and backpropagate
             F_loss = loss + self._dual_vars @ self.constraints
 
-        # TODO: implement smoothing here
+        # TODO: implement smoothing herew
 
         # clean the gradients
         # self.constraints = torch.zeros(self.m, device=self.device)
