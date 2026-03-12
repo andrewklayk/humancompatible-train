@@ -11,14 +11,14 @@ dependencies = [
 ]
 requires-python = ">= 3.11, <3.14"
 authors = [
-    {name = "Andrii Kliachkin", email = "kliachkin.andrii@gmail.com"},
+    {name = "Andrii Kliachkin", email = "kliacand@fel.cvut.cz"},
     {name = "Gilles Bareilles"},
     {name = "Adam Bosak"},
     {name = "Jana Lepsova"},
     {name = "Jakub Marecek"},
 ]
 maintainers = [
-    {name = "Andrii Kliachkin", email = "kliachkin.andrii@gmail.com"}
+    {name = "Andrii Kliachkin", email = "kliacand@fel.cvut.cz"}
 ]
 description = "PyTorch-based package for constrained training of neural networks"
 readme = "README.md"

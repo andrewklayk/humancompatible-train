@@ -80,11 +80,11 @@ class TestBalancedBatchSampler(unittest.TestCase):
             extend_groups=[0, 1],
         )
         # Check that each extended group is sampled without replacement within a batch
-        batch = next(iter(sampler))
-        self.assertEqual(len(set(batch)), len(batch))
-        # Sample and check again (just in case)
-        batch = next(iter(sampler))
-        self.assertEqual(len(set(batch)), len(batch))
+        batches = []
+        for i, batch in enumerate(sampler):
+            self.assertEqual(len(set(batch)), len(batch))
+            batches.extend(batch)
+
 
     def test_extend_num_batches(self):
         sampler = BalancedBatchSampler(
@@ -102,7 +102,7 @@ class TestBalancedBatchSampler(unittest.TestCase):
     def test_extend_large_batchsize(self):
         # check AssertionError on batch_size / n_groups > size of one of the groups
         with self.assertRaises(AssertionError):
-            sampler = BalancedBatchSampler(
+            BalancedBatchSampler(
                 group_indices=self.subset_indices,
                 batch_size=9,
                 drop_last=True,
