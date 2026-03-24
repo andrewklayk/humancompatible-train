@@ -271,8 +271,8 @@ class PBM(Optimizer):
         Performs the penalty update according to`penalty_update`.
         """
         for group in self.param_groups:
-            duals, penalties, lr, _update_penalties = group["params"][0], group["params"][1], group["lr"], group["penalty_update"]
-            _update_penalties(penalties, lr, duals)
+            duals, penalties, lr, _update_penalties, pbf = group["params"][0], group["params"][1], group["lr"], group["penalty_update"], group['pbf']
+            _update_penalties(penalties, lr, duals, penalty_barrier_funcs[pbf]['d'])
             clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
     def state_dict(self) -> dict[str, Any]:
