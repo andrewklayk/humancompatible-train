@@ -243,7 +243,7 @@ class PBM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals, penalties, mu, lr, _update_penalties, pbf, momentum, dampening, buffer, primal_update_process_length  = group["params"][0], group["params"][1], group["mu"], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group['momentum_buffer'], group["primal_update_process_length"]
+            duals, penalties, lr, _update_penalties, pbf, momentum, dampening, primal_update_process_length  = group["params"][0], group["params"][1], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group["primal_update_process_length"]
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             # calculate lagrangian
             
@@ -251,7 +251,7 @@ class PBM(Optimizer):
                 # update duals and penalties
                 cdivp = group_constraints.div(penalties)
                 with torch.no_grad():
-                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]['d'], mu, momentum, dampening, buffer, mode=self.lambda_upd_mode)
+                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]['d'], momentum, dampening)
                     clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
                     _update_penalties(penalties, lr, duals, penalty_barrier_funcs[pbf]['d'](group_constraints))
                     clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
@@ -301,20 +301,11 @@ penalty_barrier_funcs = {
 }
 
 
-def _update_duals(duals: Tensor, cdivp: Tensor, pbf_der: Callable, mu: float, momentum: float, dampening: float, buffer: Tensor, mode: str) -> None:
+def _update_duals(duals: Tensor, cdivp: Tensor, pbf_der: Callable, momentum: float, dampening: float) -> None:
     pbf_der_val = pbf_der(cdivp)
     
-    if mode == 'buffer':
-        if momentum == 0 or not buffer.any():
-            buffer = pbf_der_val
-        else:
-            buffer.mul_(momentum).add_(pbf_der_val, alpha = 1 - dampening)
-
-        buffer.clamp_(mu, 1/mu)
-        duals.mul_(buffer)
-    else:
-        upd = pbf_der_val.mul(duals)
-        duals.mul_(momentum).add_(upd, alpha=1-dampening)
+    upd = pbf_der_val.mul(duals)
+    duals.mul_(momentum).add_(upd, alpha=1-dampening)
 
 def _update_penalties_const(penalties: Tensor, mu: Tensor = None, duals: Tensor = None, phi_der: Tensor = None):
     pass
