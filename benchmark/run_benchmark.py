@@ -1,72 +1,49 @@
-from benchmark_utils import *
-from itertools import product
-import torch
-from _data_sources import load_data_FT_vec, load_data_FT, load_data_DUTCH, load_data_norm
-import pandas as pd
-import argparse
 import os
-import torch.nn.functional as F
+from itertools import product
 
+import torch
+import pandas as pd
+import hydra
+from omegaconf import DictConfig, OmegaConf
+
+from _data_sources import load_data_FT_vec, load_data_FT, load_data_DUTCH, load_data_norm
+from benchmark_utils import *
 from fairret.statistic import PositiveRate
 from fairret.loss import NormLoss
-
 from plotting import plot_losses_and_constraints_stochastic
 from humancompatible.train.dual_optim import ALM, PBM
-
 from constraints import loss_per_group, posrate_per_group, weight_constraint, posrate_fairret_constraint
 
-def runs_to_df(runs):
-    
-    return pd.concat([pd.DataFrame(h).set_index('epoch') for h in runs], keys=range(len(runs)))
 
-
-def main(dataset, task, n_runs, n_epochs):
+def run_benchmark(dataset, task, n_runs, n_epochs, pbm_params, alm_params, ssg_params, adam_params):
     seed = 0
     torch.manual_seed(seed)
     result_dir = "results/" + dataset + '_' + task
-    
+
     os.makedirs(result_dir, exist_ok=True)
 
     if dataset == 'folktables':
         if task == 'equalized_odds_pairwise':
-            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['MAR', 'SEX'], states=['VA'])
+            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=['MAR', 'SEX'], states=['VA'])
             batch_size = 30
         elif task == 'equalized_odds_vec':
-            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['SEX'], states=['VA'])
+            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=['SEX'], states=['VA'])
             batch_size = 64
         elif task == 'weight_norm':
             data_source = load_data_norm
             batch_size = 64
         elif task == 'loss':
-            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs = ['MAR'], states=['VA'])
+            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=['MAR'], states=['VA'])
             batch_size = 80
+        else:
+            raise ValueError(f'Unknown task: {task}')
     elif dataset == 'dutch':
         batch_size = 72
         data_source = load_data_DUTCH
-    
+    else:
+        raise ValueError(f'Unknown dataset: {dataset}')
+
     (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val) = data_source(batch_size)
-
-    pbm_params = {
-            "primal__lr": 0.01,
-            "dual__lr": 0.99, "dual__mu": 0.3, "dual__penalty_update": "dimin", "dual__pbf": "quadratic_logarithmic", "dual__momentum": 0.9,
-            "moreau__mu": 4.0
-        }
-    
-    alm_params = {
-            "primal__lr": 0.001, 
-            "dual__lr": 0.05, "dual__penalty": 1.0, "dual__momentum": 0.3,
-            "moreau__mu": 2.0
-        }
-    
-    ssg_params = {
-            "primal__lr": 0.01, 
-            "dual__lr": 0.005,
-            "moreau__mu": 0.
-        }
-
-    adam_params = {
-        "lr": 0.01
-    }
 
     if task == 'equalized_odds_pairwise':
         constraint_fn = posrate_per_group
@@ -88,7 +65,7 @@ def main(dataset, task, n_runs, n_epochs):
         m = 1
     elif task == 'loss':
         if dataset == 'dutch':
-            m == 18
+            m = 18
         elif dataset == 'folktables':
             m = 5
     elif task == 'weight_norm':
@@ -140,7 +117,7 @@ def main(dataset, task, n_runs, n_epochs):
     for i, model in enumerate(models):
         torch.save(model.state_dict(), f'{result_dir}/adam/models/{i}.pt')
         del model
-    grid_adam = pd.DataFrame.from_dict([adam_params])
+    grid_adam = pd.DataFrame.from_dict([dict(adam_params)])
     runs_adam_train = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in adam_history_train], keys=range(n_runs))
     runs_adam_train.to_csv(f'{result_dir}/runs_adam_train.csv')
     runs_adam_val = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in adam_history_val], keys=range(n_runs))
@@ -178,7 +155,7 @@ def main(dataset, task, n_runs, n_epochs):
     for i, model in enumerate(models):
         torch.save(model.state_dict(), f'{result_dir}/pbm/models/{i}.pt')
         del model
-    grid_pbm = pd.DataFrame.from_dict([pbm_params])
+    grid_pbm = pd.DataFrame.from_dict([dict(pbm_params)])
     runs_pbm_train = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in pbm_history_train], keys=range(n_runs))
     runs_pbm_train.to_csv(f'{result_dir}/runs_pbm_train.csv')
     runs_pbm_val = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in pbm_history_val], keys=range(n_runs))
@@ -216,7 +193,7 @@ def main(dataset, task, n_runs, n_epochs):
     for i, model in enumerate(models):
         torch.save(model.state_dict(), f'{result_dir}/alm/models/{i}.pt')
         del model
-    grid_alm = pd.DataFrame.from_dict([alm_params])
+    grid_alm = pd.DataFrame.from_dict([dict(alm_params)])
     runs_alm_train = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in alm_history_train], keys=range(n_runs))
     runs_alm_train.to_csv(f'{result_dir}/runs_alm_train.csv')
     runs_alm_val = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in alm_history_val], keys=range(n_runs))
@@ -254,14 +231,13 @@ def main(dataset, task, n_runs, n_epochs):
     for i, model in enumerate(models):
         torch.save(model.state_dict(), f'{result_dir}/ssg/models/{i}.pt')
         del model
-    grid_ssg = pd.DataFrame.from_dict([ssg_params])
+    grid_ssg = pd.DataFrame.from_dict([dict(ssg_params)])
     runs_ssg_train = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in ssg_history_train], keys=range(n_runs))
     runs_ssg_train.to_csv(f'{result_dir}/runs_ssg_train.csv')
     runs_ssg_val = pd.concat([pd.DataFrame.from_dict(run_history) for run_history in ssg_history_val], keys=range(n_runs))
     runs_ssg_val.to_csv(f'{result_dir}/runs_ssg_val.csv')
     grid_ssg.to_csv(f'{result_dir}/grid_ssg.csv')
     del ssg_history_train, ssg_history_val, runs_ssg_train, runs_ssg_val, grid_ssg
-    
 
     ###### PLOT ######
 
@@ -276,7 +252,7 @@ def main(dataset, task, n_runs, n_epochs):
         cs_std = std[c_cols].to_numpy()
 
         return mean, loss_mean, loss_std, cs_mean, cs_std
-    
+
     alg_names = []
 
     _, adam_loss_mean_train, adam_loss_std_train, adam_cs_mean_train, adam_cs_std_train = read_prepare_data(f'{result_dir}/runs_adam_train.csv')
@@ -295,7 +271,6 @@ def main(dataset, task, n_runs, n_epochs):
     _, ssg_loss_mean_val, ssg_loss_std_val, ssg_cs_mean_val, ssg_cs_std_val = read_prepare_data(f'{result_dir}/runs_ssg_val.csv')
     alg_names.append('SSG')
 
-
     plot_losses_and_constraints_stochastic(
         [adam_loss_mean_train, pbm_loss_mean_train, alm_loss_mean_train, ssg_loss_mean_train],
         [adam_loss_std_train, pbm_loss_std_train, alm_loss_std_train, ssg_loss_std_train],
@@ -307,17 +282,29 @@ def main(dataset, task, n_runs, n_epochs):
         [adam_cs_mean_val.T, pbm_cs_mean_val.T, alm_cs_mean_val.T, ssg_cs_mean_val.T],
         [adam_cs_std_val.T, pbm_cs_std_val.T, alm_cs_std_val.T, ssg_cs_std_val.T],
         titles=['Adam', 'PBM', 'ALM', 'SSg'],
-        plot_max_constraint = m > 5,
+        plot_max_constraint=m > 5,
         save_path=result_dir + '/plot.png'
-)
+    )
+
+
+@hydra.main(version_base=None, config_path="conf", config_name="benchmark")
+def hydra_main(cfg: DictConfig):
+    pbm_params = OmegaConf.to_container(cfg.pbm_params, resolve=True)
+    alm_params = OmegaConf.to_container(cfg.alm_params, resolve=True)
+    ssg_params = OmegaConf.to_container(cfg.ssg_params, resolve=True)
+    adam_params = OmegaConf.to_container(cfg.adam_params, resolve=True)
+
+    run_benchmark(
+        cfg.dataset,
+        cfg.task,
+        cfg.n_runs,
+        cfg.n_epochs,
+        pbm_params,
+        alm_params,
+        ssg_params,
+        adam_params,
+    )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="")
-    parser.add_argument("--dataset", type=str, required=True, help="Name of the dataset to use.")
-    parser.add_argument("--task", type=str, required=True, help="Name of the constraint to use.")
-    parser.add_argument("--n_runs", type=int, required=True, help="number of runs to perform.")
-    parser.add_argument("--n_epochs", type=int, required=True, help="number of epochs to run.")
-
-    args = parser.parse_args()
-    main(args.dataset, args.task, args.n_runs, args.n_epochs)
+    hydra_main()
