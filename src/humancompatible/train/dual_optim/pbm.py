@@ -15,29 +15,27 @@ class PBM(Optimizer):
     def __init__(
         self,
         m: int = None,
-        mu: float = 0.3,
-        lr: float = None,
+        p_lr: float = 0.1,
         penalty_update: str = 'dimin',
         pbf: str = 'quadratic_logarithmic',
         init_duals: float | Tensor = 0.01,
         init_penalties: float | Tensor = 10,
         *,
         dual_range: Tuple[float, float] = (1e-4, 100.),
-        momentum: float = 0.,
-        dampening: float = 0.,
+        dual_momentum: float = 0.,
+        dual_dampening: float = 0.,
         penalty_range: Tuple[float, float] = (1e-1, 100.),
         device = None,
         primal_update_process_length=1, # length of the primal update process - if =1, is the original algorithm
-        lambda_upd_mode = 'buffer'
     ) -> None:
         """
         A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables.
 
         :param m: Number of constraints (determines the number of dual variables to create)
         :type m: int
-        :param mu: Multiplier for penalty update. 
-        :type mu: float
-        :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`const`. Defaults to`dimin`.
+        :param p_lr: Multiplier for penalty update. 
+        :type p_lr: float
+        :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`dimin_adapt`,`const`. Defaults to`dimin`.
         :type penalty_update: str
         :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`,`quadratic_reciprocal`
         :type pbf: str
@@ -53,20 +51,18 @@ class PBM(Optimizer):
         :type dampening: float
         """
 
-        # ## checks ##
+        ## checks ##
 
         self.dual_range = dual_range
         self.penalty_range = penalty_range
 
-        if lr is None:
-            lr = mu
+        if p_lr is None:
+            p_lr = p_lr
 
-        self.lambda_upd_mode = lambda_upd_mode
+        if dual_momentum > 0 and dual_dampening == 0:
+            dual_dampening = dual_momentum
 
-        if momentum > 0 and dampening == 0:
-            dampening = momentum
-
-        params, defaults = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, momentum, dampening, dual_range, penalty_range, primal_update_process_length, device)
+        params, defaults = self._init_constraint_group(m, mu, p_lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, dual_range, penalty_range, primal_update_process_length, device)
         self.iter = 0
         super().__init__(params, defaults)
 
@@ -74,13 +70,13 @@ class PBM(Optimizer):
     def _init_constraint_group(
         m: int,
         mu: float = None,
-        lr: float = None,
+        p_lr: float = None,
         penalty_update: str = None,
         pbf: str = None,
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
-        momentum: float = None,
-        dampening: float = None,
+        dual_momentum: float = None,
+        dual_dampening: float = None,
         dual_range: Tuple[float, float] = None,
         penalty_range: Tuple[float, float] = None,
         primal_update_process_length: int = 1,
@@ -112,13 +108,13 @@ class PBM(Optimizer):
 
         settings_dict = {
             "mu": mu,
-            "lr": lr,
+            "p_lr": p_lr,
             "penalty_update": penalty_update_f,
             "pbf": pbf,
-            "momentum": momentum,
-            "dampening": dampening,
+            "dual_momentum": dual_momentum,
+            "dual_dampening": dual_dampening,
             "primal_update_process_length": primal_update_process_length,
-            "momentum_buffer": torch.zeros_like(init_duals, requires_grad = False, device=device),
+            "dual_momentum_buffer": torch.zeros_like(init_duals, requires_grad = False, device=device),
         }
         settings_dict = {k:v for k,v in settings_dict.items() if v is not None}
 
@@ -190,11 +186,11 @@ class PBM(Optimizer):
         """
 
         for i, group in enumerate(self.param_groups):
-            duals, penalties, mu, lr, penalty_update, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["mu"], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group['momentum_buffer']
+            duals, penalties, lr, penalty_update, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group['momentum_buffer']
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             cdivp = group_constraints.div(penalties)
             with torch.no_grad():
-                _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]['d'], mu, momentum, dampening, buffer)
+                _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]['d'], momentum, dampening, buffer)
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
                 # penalty_update(penalties, lr, duals)
                 # clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
@@ -303,20 +299,19 @@ penalty_barrier_funcs = {
 
 def _update_duals(duals: Tensor, cdivp: Tensor, pbf_der: Callable, momentum: float, dampening: float) -> None:
     pbf_der_val = pbf_der(cdivp)
-    
     upd = pbf_der_val.mul(duals)
     duals.mul_(momentum).add_(upd, alpha=1-dampening)
 
-def _update_penalties_const(penalties: Tensor, mu: Tensor = None, duals: Tensor = None, phi_der: Tensor = None):
+def _update_penalties_const(penalties: Tensor, p_lr: Tensor = None, duals: Tensor = None, phi_der: Tensor = None):
     pass
 
-def _update_penalties_dimin(penalties: Tensor, mu: Tensor, duals: Tensor = None, phi_der: Tensor = None):
-    penalties.mul_(mu)
+def _update_penalties_dimin(penalties: Tensor, p_lr: Tensor, duals: Tensor = None, phi_der: Tensor = None):
+    penalties.mul_(p_lr)
 
-def _update_penalties_dimin_adapt(penalties: Tensor, mu: Tensor, duals: Tensor, phi_der: Tensor):
-    a = mu * penalties
-    b = (1-mu)*penalties/(phi_der + 1e-8)
+def _update_penalties_dimin_adapt(penalties: Tensor, p_lr: Tensor, duals: Tensor, phi_der: Tensor):
+    a = p_lr * penalties
+    b = (1-p_lr)*penalties/(phi_der + 1e-8)
     penalties.add_(a).add_(b)
 
-def _update_penalties_dimin_dual(penalties: Tensor, mu: Tensor, duals: Tensor, phi_der: Tensor = None):
-    penalties.mul_(mu).mul_(duals)
+def _update_penalties_dimin_dual(penalties: Tensor, p_lr: Tensor, duals: Tensor, phi_der: Tensor = None):
+    penalties.mul_(p_lr).mul_(duals)
