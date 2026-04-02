@@ -62,14 +62,13 @@ class PBM(Optimizer):
         if dual_momentum > 0 and dual_dampening == 0:
             dual_dampening = dual_momentum
 
-        params, defaults = self._init_constraint_group(m, mu, p_lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, dual_range, penalty_range, primal_update_process_length, device)
+        params, defaults = self._init_constraint_group(m, p_lr, penalty_update, pbf, init_duals, init_penalties, dual_momentum, dual_dampening, dual_range, penalty_range, primal_update_process_length, device)
         self.iter = 0
         super().__init__(params, defaults)
 
     @staticmethod
     def _init_constraint_group(
         m: int,
-        mu: float = None,
         p_lr: float = None,
         penalty_update: str = None,
         pbf: str = None,
@@ -107,7 +106,6 @@ class PBM(Optimizer):
             raise ValueError(f'Unknown penalty update function: {penalty_update}!')
 
         settings_dict = {
-            "mu": mu,
             "p_lr": p_lr,
             "penalty_update": penalty_update_f,
             "pbf": pbf,
@@ -141,8 +139,7 @@ class PBM(Optimizer):
     def add_constraint_group(
         self,
         m: int,
-        mu: float = None,
-        lr: float = None,
+        p_lr: float = None,
         penalty_update: str = None,
         pbf: str = None,
         init_duals: float | Tensor = None,
@@ -171,7 +168,7 @@ class PBM(Optimizer):
         """
         
         
-        params, settings_dict = self._init_constraint_group(m, mu, lr, penalty_update, pbf, init_duals, init_penalties, momentum, dampening, self.dual_range, self.penalty_range, primal_update_process_length)
+        params, settings_dict = self._init_constraint_group(m, p_lr, penalty_update, pbf, init_duals, init_penalties, momentum, dampening, self.dual_range, self.penalty_range, primal_update_process_length)
         param_group_dict = {"params": params, **settings_dict}
         self.add_param_group(param_group_dict)
 
@@ -186,7 +183,7 @@ class PBM(Optimizer):
         """
 
         for i, group in enumerate(self.param_groups):
-            duals, penalties, lr, penalty_update, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group['momentum_buffer']
+            duals, penalties, lr, penalty_update, pbf, momentum, dampening, buffer = group["params"][0], group["params"][1], group["p_lr"], group["penalty_update"], group["pbf"], group['dual_momentum'], group['dual_dampening'], group['dual_momentum_buffer']
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             cdivp = group_constraints.div(penalties)
             with torch.no_grad():
@@ -239,7 +236,7 @@ class PBM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals, penalties, lr, _update_penalties, pbf, momentum, dampening, primal_update_process_length  = group["params"][0], group["params"][1], group["lr"], group["penalty_update"], group["pbf"], group['momentum'], group['dampening'], group["primal_update_process_length"]
+            duals, penalties, lr, _update_penalties, pbf, momentum, dampening, primal_update_process_length  = group["params"][0], group["params"][1], group["p_lr"], group["penalty_update"], group["pbf"], group['dual_momentum'], group['dual_dampening'], group["primal_update_process_length"]
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
             # calculate lagrangian
             
@@ -267,7 +264,7 @@ class PBM(Optimizer):
         Performs the penalty update according to`penalty_update`.
         """
         for group in self.param_groups:
-            duals, penalties, lr, _update_penalties, pbf = group["params"][0], group["params"][1], group["lr"], group["penalty_update"], group['pbf']
+            duals, penalties, lr, _update_penalties, pbf = group["params"][0], group["params"][1], group["p_lr"], group["penalty_update"], group['pbf']
             _update_penalties(penalties, lr, duals, penalty_barrier_funcs[pbf]['d'])
             clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
