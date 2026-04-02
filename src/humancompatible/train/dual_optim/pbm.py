@@ -19,12 +19,12 @@ class PBM(Optimizer):
         penalty_update: str = 'dimin',
         pbf: str = 'quadratic_logarithmic',
         init_duals: float | Tensor = 0.01,
-        init_penalties: float | Tensor = 10,
+        init_penalties: float | Tensor = 1.,
         *,
         dual_range: Tuple[float, float] = (1e-4, 100.),
         dual_momentum: float = 0.,
         dual_dampening: float = 0.,
-        penalty_range: Tuple[float, float] = (1e-1, 100.),
+        penalty_range: Tuple[float, float] = (1e-1, 1.),
         device = None,
         primal_update_process_length=1, # length of the primal update process - if =1, is the original algorithm
     ) -> None:
