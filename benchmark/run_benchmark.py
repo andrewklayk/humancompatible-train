@@ -20,6 +20,8 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
 
     os.makedirs(result_dir, exist_ok=True)
 
+    ### load data ###
+
     if dataset == 'folktables':
         data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=data_cfg['sens_attrs'], states=data_cfg['states'])
     elif dataset == 'dutch':
@@ -34,12 +36,21 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
 
     (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val) = data_source(batch_size)
     
+    ### construct the constraint ###
+
     c = importlib.import_module("constraint_meta").__dict__.get(constraint_cfg['name'])
     if constraint_cfg['name'].startswith('Fairret'):
+        # if fairret-based, load statistic
         statistic = importlib.import_module("fairret.statistic").__dict__.get(constraint_cfg['statistic'])
         statistic = statistic()
-        c = c(statistic=statistic, **constraint_cfg.get('constraint_kwargs', {}))
+        # load fairret loss if needed
+        if constraint_cfg['name'] == 'FairretLoss':
+            fair_loss = importlib.import_module("fairret.loss").__dict__.get(constraint_cfg['loss'])()
+            c = c(loss=fair_loss(statistic), **constraint_cfg.get('constraint_kwargs', {}))
+        else:
+            c = c(statistic=statistic, **constraint_cfg.get('constraint_kwargs', {}))
     else:
+        # not fairret-based, just initialize constraint
         c = c(**constraint_cfg.get('constraint_kwargs', {}))
 
     m = c.m_fn(sens_train.shape[-1])
@@ -255,15 +266,17 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
 
 @hydra.main(version_base=None, config_path="conf", config_name="benchmark")
 def hydra_main(cfg: DictConfig):
-    pbm_params = OmegaConf.to_container(cfg.pbm_params, resolve=True)
-    alm_params = OmegaConf.to_container(cfg.alm_params, resolve=True)
-    ssg_params = OmegaConf.to_container(cfg.ssg_params, resolve=True)
-    adam_params = OmegaConf.to_container(cfg.adam_params, resolve=True)
-    constraint_cfg = OmegaConf.to_container(cfg.constraint, resolve=True)
+    task_cfg = cfg.task
+    # task_cfg = OmegaConf.to_container(cfg.task, resolve=True)
+    pbm_params = OmegaConf.to_container(task_cfg.pbm_params, resolve=True)
+    alm_params = OmegaConf.to_container(task_cfg.alm_params, resolve=True)
+    ssg_params = OmegaConf.to_container(task_cfg.ssg_params, resolve=True)
+    adam_params = OmegaConf.to_container(task_cfg.adam_params, resolve=True)
+    constraint_cfg = OmegaConf.to_container(task_cfg.constraint, resolve=True)
 
     run_benchmark(
-        cfg.data,
-        cfg.task,
+        task_cfg.data,
+        task_cfg.task,
         cfg.n_runs,
         cfg.n_epochs,
         constraint_cfg,
@@ -271,7 +284,7 @@ def hydra_main(cfg: DictConfig):
         alm_params,
         ssg_params,
         adam_params,
-        cfg
+        task_cfg
     )
 
 

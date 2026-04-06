@@ -1,0 +1,47 @@
+task: equalized_odds_pairwise
+
+batch_size: 72
+
+data:
+  name: dutch
+  sens_attrs: ['MAR', 'SEX']
+  states: ['VA']
+  
+
+
+# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
+constraint:
+  name: FairretPairwise
+  bound: 0.1
+  statistic: PositiveRate
+  constraint_kwargs:
+    uses_labels: false
+
+pbm_params:
+  primal__lr: 0.01
+  dual__p_lr: 0.99
+  dual__penalty_update: dimin
+  dual__pbf: quadratic_logarithmic
+  dual__dual_momentum: 0.9
+  moreau__mu: 4.0
+
+alm_params:
+  primal__lr: 0.001
+  dual__lr: 0.05
+  dual__penalty: 1.0
+  dual__momentum: 0.3
+  moreau__mu: 2.0
+
+ssg_params:
+  primal__lr: 0.01
+  dual__lr: 0.005
+  moreau__mu: 0.0
+
+adam_params:
+  lr: 0.01
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
