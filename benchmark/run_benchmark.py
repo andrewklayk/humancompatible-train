@@ -1,88 +1,54 @@
+import importlib
 import os
-from itertools import product
 
 import torch
 import pandas as pd
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from _data_sources import load_data_FT_vec, load_data_FT, load_data_DUTCH, load_data_norm
+from _data_sources import load_data_FT, load_data_DUTCH, load_data_norm
 from benchmark_utils import *
-from fairret.statistic import PositiveRate
-from fairret.loss import NormLoss
 from plotting import plot_losses_and_constraints_stochastic
 from humancompatible.train.dual_optim import ALM, PBM
-from constraints import loss_per_group, posrate_per_group, weight_constraint, posrate_fairret_constraint
+from constraints import weight_constraint
 
-
-def run_benchmark(dataset, task, n_runs, n_epochs, pbm_params, alm_params, ssg_params, adam_params):
+def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, alm_params, ssg_params, adam_params, cfg):
     seed = 0
     torch.manual_seed(seed)
+    dataset = data_cfg['name']
     result_dir = "results/" + dataset + '_' + task
 
     os.makedirs(result_dir, exist_ok=True)
 
     if dataset == 'folktables':
-        if task == 'equalized_odds_pairwise':
-            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=['MAR', 'SEX'], states=['VA'])
-            batch_size = 30
-        elif task == 'equalized_odds_vec':
-            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=['SEX'], states=['VA'])
-            batch_size = 64
-        elif task == 'weight_norm':
-            data_source = load_data_norm
-            batch_size = 64
-        elif task == 'loss':
-            data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=['MAR'], states=['VA'])
-            batch_size = 80
-        else:
-            raise ValueError(f'Unknown task: {task}')
+        data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=data_cfg['sens_attrs'], states=data_cfg['states'])
     elif dataset == 'dutch':
-        batch_size = 72
         data_source = load_data_DUTCH
     else:
         raise ValueError(f'Unknown dataset: {dataset}')
+    
+    if task == 'weight_norm':
+        data_source = load_data_norm
+
+    batch_size = cfg.batch_size
 
     (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val) = data_source(batch_size)
+    
+    c = importlib.import_module("constraint_meta").__dict__.get(constraint_cfg['name'])
+    if constraint_cfg['name'].startswith('Fairret'):
+        statistic = importlib.import_module("fairret.statistic").__dict__.get(constraint_cfg['statistic'])
+        statistic = statistic()
+        c = c(statistic=statistic, **constraint_cfg.get('constraint_kwargs', {}))
+    else:
+        c = c(**constraint_cfg.get('constraint_kwargs', {}))
 
-    if task == 'equalized_odds_pairwise':
-        constraint_fn = posrate_per_group
-    elif task == 'equalized_odds_vec':
-        constraint_fn = posrate_fairret_constraint
-    elif task == 'weight_norm':
+    m = c.m_fn(sens_train.shape[-1])
+    constraint_fn = c.compute_constraints
+    constraint_bound = constraint_cfg['bound']
+
+    if task == 'weight_norm':
         constraint_fn = weight_constraint
-    elif task == 'loss':
-        constraint_fn = loss_per_group
-    else:
-        raise ValueError(f'Unknown task: {task}')
-
-    if task == 'equalized_odds_pairwise':
-        if dataset == 'dutch':
-            m = 306
-        elif dataset == 'folktables':
-            m = 30
-    elif task == 'equalized_odds_vec':
-        m = 1
-    elif task == 'loss':
-        if dataset == 'dutch':
-            m = 18
-        elif dataset == 'folktables':
-            m = 5
-    elif task == 'weight_norm':
-        m = 6
-    else:
-        raise ValueError("Unknown task")
-
-    if task == 'equalized_odds_vec':
-        constraint_bound = 0.2
-    elif task == 'equalized_odds_pairwise':
-        constraint_bound = 0.1
-    elif task == 'loss':
-        constraint_bound = 0.05
-    elif task == "weight_norm":
         constraint_bound = 2.0
-    else:
-        raise ValueError("Unknown task")
 
     #################################################################
     adam_history_train = []
@@ -293,16 +259,19 @@ def hydra_main(cfg: DictConfig):
     alm_params = OmegaConf.to_container(cfg.alm_params, resolve=True)
     ssg_params = OmegaConf.to_container(cfg.ssg_params, resolve=True)
     adam_params = OmegaConf.to_container(cfg.adam_params, resolve=True)
+    constraint_cfg = OmegaConf.to_container(cfg.constraint, resolve=True)
 
     run_benchmark(
-        cfg.dataset,
+        cfg.data,
         cfg.task,
         cfg.n_runs,
         cfg.n_epochs,
+        constraint_cfg,
         pbm_params,
         alm_params,
         ssg_params,
         adam_params,
+        cfg
     )
 
 
