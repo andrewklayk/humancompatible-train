@@ -1,11 +1,11 @@
 task: equalized_odds_vec
 
 
-batch_size: 35
+batch_size: 32
 
 data:
   name: folktables
-  sens_attrs: ['MAR', 'SEX']
+  sens_attrs: ['SEX']
   states: ['VA']
   
 
