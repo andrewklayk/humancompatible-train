@@ -1,15 +1,30 @@
-dataset: folktables
 task: equalized_odds_pairwise
 n_runs: 5
 n_epochs: 50
 
+batch_size: 35
+
+data:
+  name: folktables
+  sens_attrs: ['MAR', 'SEX']
+  states: ['VA']
+  
+
+
+# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
+constraint:
+  name: FairretPairwise
+  bound: 0.1
+  statistic: PositiveRate
+  constraint_kwargs:
+    uses_labels: false
+
 pbm_params:
   primal__lr: 0.01
-  dual__lr: 0.99
-  dual__mu: 0.3
+  dual__p_lr: 0.99
   dual__penalty_update: dimin
   dual__pbf: quadratic_logarithmic
-  dual__momentum: 0.9
+  dual__dual_momentum: 0.9
   moreau__mu: 4.0
 
 alm_params:

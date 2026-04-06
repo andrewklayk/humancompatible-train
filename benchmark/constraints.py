@@ -6,10 +6,8 @@ import pandas as pd
 import argparse
 import os
 import torch.nn.functional as F
-
 from fairret.statistic import PositiveRate
 from fairret.loss import NormLoss
-
 from plotting import plot_losses_and_constraints_stochastic
 from humancompatible.train.dual_optim import ALM, PBM
 
