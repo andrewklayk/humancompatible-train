@@ -45,7 +45,7 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
         statistic = statistic()
         # load fairret loss if needed
         if constraint_cfg['name'] == 'FairretLoss':
-            fair_loss = importlib.import_module("fairret.loss").__dict__.get(constraint_cfg['loss'])()
+            fair_loss = importlib.import_module("fairret.loss").__dict__.get(constraint_cfg['loss'])
             c = c(loss=fair_loss(statistic), **constraint_cfg.get('constraint_kwargs', {}))
         else:
             c = c(statistic=statistic, **constraint_cfg.get('constraint_kwargs', {}))
