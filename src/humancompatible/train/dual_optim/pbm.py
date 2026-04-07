@@ -22,7 +22,7 @@ class PBM(Optimizer):
         init_penalties: float | Tensor = 1.,
         *,
         dual_range: Tuple[float, float] = (1e-4, 100.),
-        gamma: float = 0.,
+        gamma: float = 0.9,
         penalty_range: Tuple[float, float] = (1e-1, 1.),
         device = None,
         primal_update_process_length=1, # length of the primal update process - if =1, is the original algorithm
