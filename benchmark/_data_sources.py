@@ -124,7 +124,8 @@ def load_data_FT(batch_size, sens_attrs, states, group_size_threshold = 0, sens_
         acs_data, categories=categories, dummies=True
     )
 
-    df_sens_onehot = comb_cat_dummies(df_sens) if sens_groups else df_sens
+    # df_sens_onehot = comb_cat_dummies(df_sens) if sens_groups else df_sens
+    df_sens_onehot = comb_cat_dummies(df_sens)
 
     features = df_feat.drop(columns=[col for col in df_feat.columns if col.startswith(tuple(sens_attrs))]).to_numpy()
     groups = df_sens_onehot.to_numpy(dtype='float')
@@ -263,7 +264,7 @@ def load_data_FT_prod(batch_size):
 
     # set the same seed for fair comparisons
     torch.manual_seed(0)
-
+    breakpoint()
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
         features, labels, groups_onehot, test_size=0.2, random_state=42

@@ -1,21 +1,18 @@
 task: equalized_odds_pairwise
-
-batch_size: 72
+batch_size: 35
 
 # TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
 constraint:
-  name: FairretPairwise
-  bound: 0.1
-  statistic: PositiveRate
-  kwargs:
-    uses_labels: false
+  name: LossMean
+  bound: 0.05
+  loss: BCEWithLogitsLoss
 
 pbm_params:
   primal__lr: 0.01
-  dual__p_lr: 0.99
+  dual__p_mult: 0.99
   dual__penalty_update: dimin
   dual__pbf: quadratic_logarithmic
-  dual__dual_momentum: 0.9
+  dual__gamma: 0.9
   moreau__mu: 4.0
 
 alm_params:
@@ -32,7 +29,7 @@ ssg_params:
 
 adam_params:
   lr: 0.01
-  penalty: 0.5
+  penalty: 0.1
 
 hydra:
   run:

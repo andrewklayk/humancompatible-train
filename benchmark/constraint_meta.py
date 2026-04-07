@@ -136,7 +136,7 @@ class LossPairwise(ConstraintMetadata):
     def compute_constraints(self, model, batch_out, batch_sens, batch_labels, loss = None):
         if loss is None:
             loss = self.loss(batch_out, batch_labels)
-        per_group_losses = loss @ batch_sens / batch_sens.sum(dim=0)
+        per_group_losses = _get_normalized_per_group_losses(loss, batch_sens)
         constraints = ((per_group_losses.unsqueeze(1) - per_group_losses.unsqueeze(0)).to(torch.float))    
         mask = ~torch.eye(batch_sens.shape[-1], dtype=torch.bool)
         constraints = constraints[mask]
@@ -163,11 +163,13 @@ class LossMean(ConstraintMetadata):
     def compute_constraints(self, model, batch_out, batch_sens, batch_labels, loss = None):
         if loss is None:
             loss = self.loss(batch_out, batch_labels)
-        per_group_losses = loss @ batch_sens / batch_sens.sum(dim=0)
+        per_group_losses = _get_normalized_per_group_losses(loss, batch_sens)
         mean_loss = loss.mean()
-        return torch.abs(per_group_losses - mean_loss)
+        return torch.abs(per_group_losses - mean_loss).squeeze()
 
 
+def _get_normalized_per_group_losses(loss, sens_onehot):
+    return loss.T @ sens_onehot / sens_onehot.sum(dim=0)
 
 
 def weight_constraint(model, out, batch_sens, batch_labels):

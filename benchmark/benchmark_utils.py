@@ -23,7 +23,7 @@ def separation(preds, sens, labels):
     return abs(tpr[0] - tpr[1]) + abs(fpr[0] - fpr[1])
 
 
-def create_model(input_shape, latent_size1=128, latent_size2=64):
+def create_model(input_shape, latent_size1=64, latent_size2=32):
     model = Sequential(
         torch.nn.Linear(input_shape, latent_size1),
         torch.nn.ReLU(),
@@ -53,7 +53,7 @@ def fwd_constrained(model, batch, constraint_fn, bounds, eq = True, slack_vars =
     logits = model(batch_inputs)
     if loss_constraint:
         loss = criterion(logits, batch_labels, reduction='none')
-        constraints = constraint_fn(model, batch_sens, loss)
+        constraints = constraint_fn(model, logits, batch_sens, batch_labels, loss)
         loss = torch.mean(loss)
     else:
         loss = criterion(logits, batch_labels)
@@ -72,20 +72,31 @@ def fwd_constrained(model, batch, constraint_fn, bounds, eq = True, slack_vars =
     return loss, constraints_bounded_eq
 
 # one iteration of unconstrained optimization
-def train_iter_unc(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *, constraint_fn):
+def train_iter_torch(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *, c_fn, p=None, fuse_loss_constraint = False):
 
+    is_reg = not (p is None or torch.all(p == 0))
     batch_inputs, batch_sens, batch_labels = batch
     logits = model(batch_inputs)
+    
+    if fuse_loss_constraint:
+        loss = criterion(logits, batch_labels, reduction="none")
+        constraints = c_fn(model, logits, batch_sens, batch_labels, loss)
+        loss = torch.mean(loss)
+    else:
+        loss = criterion(logits, batch_labels)
+        if is_reg:
+            constraints = c_fn(model, logits, batch_sens, batch_labels)
+        else:
+            ###### do NOT time constraints, calculate only for logging ######
+            tracker.pause()
+            with torch.inference_mode():
+                constraints = c_fn(model, logits, batch_sens, batch_labels)
+            tracker.resume()
 
-    ###### do NOT time constraints, calculate only for logging ######
-    tracker.pause()
-    with torch.inference_mode():
-        constraints = constraint_fn(model, logits, batch_sens, batch_labels)
-    tracker.resume()
-    #################################################################
+    reg_term = p @ constraints if is_reg else 0
 
-    loss = criterion(logits, batch_labels)
-    loss.backward()
+    _loss = criterion(logits, batch_labels) + reg_term
+    _loss.backward()
     primal_opt.step()
     
     primal_opt.zero_grad()
@@ -93,8 +104,8 @@ def train_iter_unc(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *,
     return loss, constraints
 
 # one iteration of constrained optimization with PBM or ALM or other lagrangian-adjacent algorithm
-def train_iter_hc(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *, constraint_fn, bounds, eq = True, slack_vars = None):
-    loss, constraints = fwd_constrained(model, batch, constraint_fn, bounds, eq, slack_vars)
+def train_iter_hc(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *, c_fn, bounds, eq = True, slack_vars = None, fuse_loss_constraint = False):
+    loss, constraints = fwd_constrained(model, batch, c_fn, bounds, eq, slack_vars, fuse_loss_constraint)
     lagrangian = dual_opt.forward_update(loss, constraints)
     lagrangian.backward()
     primal_opt.step()
@@ -104,11 +115,11 @@ def train_iter_hc(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *, 
     return loss, constraints
 
 # one iteration of (generalized) Switching Subgradient
-def train_iter_sw(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *, constraint_fn, bounds, constraint_tol):
+def train_iter_sw(primal_opt, dual_opt, model, batch, tracker: TrainTracker, *, c_fn, bounds, constraint_tol):
     batch_inputs, batch_sens, batch_labels = batch
     logits = model(batch_inputs)
     # don't even need to evaluate loss if constraints are not satisfied
-    constraints = constraint_fn(model, logits, batch_sens, batch_labels)
+    constraints = c_fn(model, logits, batch_sens, batch_labels)
     constraint = max([con - bounds[i] for i, con in enumerate(constraints)])
     if constraint > constraint_tol:
         constraint.backward()
@@ -147,13 +158,15 @@ def run_train(
         dataloader: torch.utils.data.DataLoader,
         data_val: Tuple,
         n_epochs: int,
-        constraint_fn: Callable,
+        c_fn: Callable,
         constraint_bound: float,
         mode: str,
         verbose: bool,
+        reg_penalty: float | torch.Tensor = None,
         constraints_to_eq: bool = True,
         use_slack: bool = True,
         constraint_tol: float = 0.,
+        fuse_loss_constraint: bool = False,
     ):
     
     (features_train, _, _) = data_train
@@ -173,17 +186,24 @@ def run_train(
     else:
         slack_vars = None
 
+    if reg_penalty is not None and mode != 'torch':
+        raise ValueError('Regularization only supported for vanilla PyTorch training. Do not pass`reg_penalty`when training with constrained algorithms.')
+
     bounds = [constraint_bound]*m
 
-    if mode == 'unconstrained':
-        train_iter = lambda primal, dual, model, batch, timer: train_iter_unc(primal, dual, model, batch, timer, constraint_fn=constraint_fn, )
+    if mode == 'torch':
+        if isinstance(reg_penalty, float):
+            reg_penalty = torch.ones(m) * reg_penalty
+        train_iter = lambda primal, dual, model, batch, timer: train_iter_torch(primal, dual, model, batch, timer, c_fn=c_fn, p=reg_penalty, fuse_loss_constraint=fuse_loss_constraint)
         dual_optimizer = None
     elif mode == 'hc':
-        train_iter = lambda primal, dual, model, batch, timer: train_iter_hc(primal, dual, model, batch, timer, constraint_fn=constraint_fn, bounds=bounds, eq=constraints_to_eq, slack_vars=slack_vars)
+        train_iter = lambda primal, dual, model, batch, timer: train_iter_hc(primal, dual, model, batch, timer, c_fn=c_fn, bounds=bounds, eq=constraints_to_eq, slack_vars=slack_vars, fuse_loss_constraint=fuse_loss_constraint)
         dual_optimizer = dual_opt(m=m, **dual_params)
     elif mode == 'sw':
-        train_iter = lambda primal, dual, model, batch, timer: train_iter_sw(primal, dual, model, batch, timer, constraint_fn=constraint_fn, bounds=bounds, constraint_tol=constraint_tol)
+        train_iter = lambda primal, dual, model, batch, timer: train_iter_sw(primal, dual, model, batch, timer, c_fn=c_fn, bounds=bounds, constraint_tol=constraint_tol)
         dual_optimizer = dual_opt(model.parameters(), **dual_params)
+    else:
+        raise ValueError(f'Expected`mode`to be one of "torch", "hc", "sw"; got "{mode}"')
 
     # first backward pass sometimes takes ages, do it before training
     model(features_train[0]).backward()
@@ -192,7 +212,7 @@ def run_train(
     problem = OptimLoopWrapper(
             model = model,
             train_iter = train_iter,
-            eval = lambda model, batch: eval(model, batch, constraint_fn),
+            eval = lambda model, batch: eval(model, batch, c_fn),
             train_data = dataloader,
             eval_data = (features_val, sens_val, labels_val),
             primal_optimizer = primal_optimizer,

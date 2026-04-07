@@ -6,7 +6,7 @@ import pandas as pd
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from _data_sources import load_data_FT, load_data_DUTCH, load_data_norm
+from _data_sources import load_data_FT, load_data_DUTCH, load_data_norm, load_data_FT_prod
 from benchmark_utils import *
 from plotting import plot_losses_and_constraints_stochastic
 from humancompatible.train.dual_optim import ALM, PBM
@@ -23,7 +23,7 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
     ### load data ###
 
     if dataset == 'folktables':
-        data_source = lambda batch_size: load_data_FT(batch_size, sens_attrs=data_cfg['sens_attrs'], states=data_cfg['states'])
+        data_source = lambda batch_size: load_data_FT(batch_size, **data_cfg['kwargs'])
     elif dataset == 'dutch':
         data_source = load_data_DUTCH
     else:
@@ -49,9 +49,11 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
             c = c(loss=fair_loss(statistic), **constraint_cfg.get('constraint_kwargs', {}))
         else:
             c = c(statistic=statistic, **constraint_cfg.get('constraint_kwargs', {}))
-    else:
-        # not fairret-based, just initialize constraint
-        c = c(**constraint_cfg.get('constraint_kwargs', {}))
+    elif constraint_cfg['name'].startswith('Loss'):
+        # loss-based, load loss function with no reduction
+        loss = importlib.import_module("torch.nn").__dict__.get(constraint_cfg['loss'])
+        c = c(loss=loss(reduction='none'), **constraint_cfg.get('constraint_kwargs', {}))
+        fuse_loss_constraint = True
 
     m = c.m_fn(sens_train.shape[-1])
     constraint_fn = c.compute_constraints
@@ -66,6 +68,7 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
     adam_history_val = []
     models = []
     for _ in range(n_runs):
+        p = adam_params.pop('penalty', None)
         model, h_train, h_val = run_train(
             m=m,
             primal_opt=torch.optim.Adam,
@@ -75,12 +78,14 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
             dataloader=dataloader_train,
             data_val=(features_val, sens_val, labels_val),
             n_epochs=n_epochs,
-            constraint_fn=constraint_fn,
+            c_fn=constraint_fn,
             constraint_bound=constraint_bound,
-            mode='unconstrained',
+            mode='torch',
             verbose=m < 30,
             constraints_to_eq=False,
-            use_slack=False
+            use_slack=False,
+            fuse_loss_constraint=fuse_loss_constraint,
+            reg_penalty=p
         )
 
         models.append(model)
@@ -114,12 +119,13 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
             dataloader=dataloader_train,
             data_val=(features_val, sens_val, labels_val),
             n_epochs=n_epochs,
-            constraint_fn=constraint_fn,
+            c_fn=constraint_fn,
             constraint_bound=constraint_bound,
             mode='hc',
             verbose=m < 30,
             constraints_to_eq=False,
-            use_slack=False
+            use_slack=False,
+            fuse_loss_constraint=fuse_loss_constraint
         )
         models.append(model)
         pbm_history_train.append(h_train)
@@ -152,12 +158,13 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
             dataloader=dataloader_train,
             data_val=(features_val, sens_val, labels_val),
             n_epochs=n_epochs,
-            constraint_fn=constraint_fn,
+            c_fn=constraint_fn,
             constraint_bound=constraint_bound,
             mode='hc',
             verbose=m < 30,
             constraints_to_eq=True,
-            use_slack=True
+            use_slack=True,
+            fuse_loss_constraint=fuse_loss_constraint
         )
         models.append(model)
         alm_history_train.append(h_train)
@@ -190,12 +197,13 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
             dataloader=dataloader_train,
             data_val=(features_val, sens_val, labels_val),
             n_epochs=n_epochs,
-            constraint_fn=constraint_fn,
+            c_fn=constraint_fn,
             constraint_bound=constraint_bound,
             mode='sw',
             verbose=m < 30,
             constraints_to_eq=False,
-            use_slack=False
+            use_slack=False,
+            fuse_loss_constraint=fuse_loss_constraint
         )
         models.append(model)
         ssg_history_train.append(h_train)
@@ -267,6 +275,7 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
 @hydra.main(version_base=None, config_path="conf", config_name="benchmark")
 def hydra_main(cfg: DictConfig):
     task_cfg = cfg.task
+    data_cfg = cfg.data
     # task_cfg = OmegaConf.to_container(cfg.task, resolve=True)
     pbm_params = OmegaConf.to_container(task_cfg.pbm_params, resolve=True)
     alm_params = OmegaConf.to_container(task_cfg.alm_params, resolve=True)
@@ -275,7 +284,7 @@ def hydra_main(cfg: DictConfig):
     constraint_cfg = OmegaConf.to_container(task_cfg.constraint, resolve=True)
 
     run_benchmark(
-        task_cfg.data,
+        data_cfg,
         task_cfg.task,
         cfg.n_runs,
         cfg.n_epochs,

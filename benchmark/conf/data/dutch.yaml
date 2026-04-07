@@ -1,0 +1,3 @@
+name: dutch
+kwargs:
+  sens_attrs: ['AGE', 'SEX']
