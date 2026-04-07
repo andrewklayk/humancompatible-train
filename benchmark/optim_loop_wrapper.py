@@ -216,5 +216,3 @@ class OptimLoopWrapper:
             
             if self.after_epoch_actions is not None:
                 self.after_epoch_actions(self.model, self.primal_opt, self.dual_opt, epoch)
-            if hasattr(self.dual_opt, "update_penalties"):
-                self.dual_opt.update_penalties()
