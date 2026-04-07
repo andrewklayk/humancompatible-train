@@ -249,15 +249,17 @@ class PBM(Optimizer):
 
         return lagrangian
     
-
-    def update_penalties(self):
+    # TODO: add string for penalty update strat to know what to calculate
+    def update_penalties(self, constraints=None):
         """
         Performs the penalty update according to`penalty_update`.
         """
-        for group in self.param_groups:
-            duals, penalties, lr, _update_penalties, pbf = group["params"][0], group["params"][1], group["p_mult"], group["penalty_update"], group['pbf']
-            _update_penalties(penalties, lr, duals, penalty_barrier_funcs[pbf]['d'])
+        for i, group in enumerate(self.param_groups):
+            duals, penalties, p_mult, _update_penalties, pbf = group["params"][0], group["params"][1], group["p_mult"], group["penalty_update"], group['pbf']
+            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            _update_penalties(penalties, p_mult, duals, penalty_barrier_funcs[pbf]['d'](group_constraints))
             clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
+
 
     def state_dict(self) -> dict[str, Any]:
         
