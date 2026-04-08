@@ -117,6 +117,8 @@ class PBM(Optimizer):
     @property
     def duals(self) -> Tensor:
         """
+        Returns all dual variables concatenated from all constraint groups.
+
         :return: Dual variables, concatenated into a single tensor.
         :rtype: Tensor
         """
@@ -125,6 +127,8 @@ class PBM(Optimizer):
     @property
     def penalties(self) -> Tensor:
         """
+        Returns all penalty variables concatenated from all constraint groups.
+
         :return: Penalties, concatenated into a single tensor.
         :rtype: Tensor
         """
@@ -144,21 +148,26 @@ class PBM(Optimizer):
         primal_update_process_length: int = 1
     ) -> None:
         """
-        Allows to add a group of dual variables with separate initial values and learning rates.
+        Adds an additional group of dual variables with separate hyperparameters and barrier functions.
 
-        :param m: Size of group (number of dual variables to add)
+        :param m: Number of constraints in this group (determines the number of dual variables to add)
         :type m: int
-        :param mu: Multiplier for penalty update. 
-        :type mu: float
-        :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`const`. Defaults to`dimin`.
+        :param penalty_mult: Multiplier for penalty update (K1 or K2). If None, inherits from parent. For adaptive penalty update, values close to 1 correspond to high "momentum".
+        :type penalty_mult: float
+        :param penalty_update: Penalty update strategy; must be one of `dimin`, `dimin_dual`, `dimin_adapt`, `const`. If None, defaults to `dimin`.
         :type penalty_update: str
-        :param pbf: Penalty-Barrier Function to use. Can be one of `"quadratic_logarithmic", "quadratic_reciprocal"`
+        :param delta: Violation/satisfaction parameter for penalty update. If None, inherits from parent.
+        :type delta: float
+        :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`, `quadratic_reciprocal`.
         :type pbf: str
-        :param init_duals: Initial values for the dual variables. Defaults to the lower bound for all.
+        :param init_duals: Initial values for the dual variables in this group. Defaults to dual lower bound for all.
         :type init_duals: float | Tensor
-        :param init_penalties: Initial values for the penalty variables. Defaults to min(10, lower_bound) for all.
+        :param init_penalties: Initial values for the penalty variables in this group. Defaults to penalty upper bound for all.
         :type init_penalties: float | Tensor
-        :param primal_update_process_length
+        :param momentum: Multiplier for dual parameter update in this group. Values close to 1 correspond to high "momentum". If None, inherits from parent.
+        :type momentum: float
+        :param primal_update_process_length: Length of the primal update process for this group. If 1 (default), uses original algorithm variant.
+        :type primal_update_process_length: int
         """
         
         
@@ -217,7 +226,7 @@ class PBM(Optimizer):
         Evaluates the Penalty-Barrier Lagrangian and updates the dual variables and penalties.
 
         Combines the computation of the Lagrangian and the update of dual variables and penalties
-        in a single step, which can be more efficient than calling `forward` and `update` separately.
+        in a single step.
 
         :param loss: Loss (objective function) value.
         :type loss: torch.Tensor
@@ -253,10 +262,14 @@ class PBM(Optimizer):
 
         return lagrangian
     
-    # TODO: add string for penalty update strat to know what to calculate
-    def update_penalties(self, constraints=None):
+    def update_penalties(self, constraints: Tensor) -> None:
         """
-        Performs the penalty update according to`penalty_update`.
+        Updates penalties according to the specified penalty update strategy for each constraint group.
+
+        :param constraints: Tensor of constraint violations.
+        :type constraints: torch.Tensor
+        :return: None
+        :rtype: None
         """
         for i, group in enumerate(self.param_groups):
             duals, penalties, p_mult, _update_penalties, pbf = group["params"][0], group["params"][1], group["p_mult"], group["penalty_update"], group['pbf']
@@ -266,6 +279,12 @@ class PBM(Optimizer):
 
 
     def state_dict(self) -> dict[str, Any]:
+        """
+        Returns the state of the optimizer as a dictionary, including dual and penalty ranges and all constraint groups.
+
+        :return: Dictionary containing optimizer state with param groups and configuration.
+        :rtype: dict[str, Any]
+        """
         
         state_dict = super().state_dict()
         state_dict["state"]["penalty_range"] = self.penalty_range
@@ -276,6 +295,14 @@ class PBM(Optimizer):
         return state_dict
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """
+        Loads the optimizer state from a dictionary, including ranges and all constraint groups.
+
+        :param state_dict: Dictionary containing optimizer state (as returned by state_dict).
+        :type state_dict: dict[str, Any]
+        :return: None
+        :rtype: None
+        """
         self.penalty_range = state_dict["state"]["penalty_range"]
         self.dual_range = state_dict["state"]["dual_range"]
         params = state_dict["param_groups"]
