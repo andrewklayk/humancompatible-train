@@ -5,12 +5,15 @@ from optim_loop_wrapper import OptimLoopWrapper, TrainTracker
 from torch.nn import Sequential
 import numpy as np
 import torch
+from torch import nn
+import torch.nn.functional as F
 from humancompatible.train.dual_optim import MoreauEnvelope
 from fairret.statistic import TruePositiveRate, FalsePositiveRate
 
 seed_n = 1
 torch.manual_seed(seed_n)
 criterion = torch.nn.functional.binary_cross_entropy_with_logits
+# criterion = torch.nn.functional.cross_entropy
 
 
 def separation(preds, sens, labels):
@@ -22,6 +25,28 @@ def separation(preds, sens, labels):
 
     return abs(tpr[0] - tpr[1]) + abs(fpr[0] - fpr[1])
 
+# define the network
+class ConvNet(nn.Module):
+    def __init__(self, _=None, num_classes=10):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, num_classes)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = torch.flatten(x, 1) # flatten all dimensions except batch
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+def create_conv_model():
+    return ConvNet()
 
 def create_model(input_shape, latent_size1=64, latent_size2=32):
     model = Sequential(
@@ -61,13 +86,13 @@ def fwd_constrained(model, batch, constraint_fn, bounds, eq = True, slack_vars =
 
     # into equality with slacks
     if eq and slack_vars is not None:
-        constraints_bounded_eq = (constraints - torch.tensor(bounds) + slack_vars).to(torch.float)
+        constraints_bounded_eq = (constraints - torch.tensor(bounds) + slack_vars)
     # into equality with max
     elif eq:
         constraints_bounded_eq = torch.max(constraints - torch.tensor(bounds), torch.zeros_like(constraints))
     # no equality, just subtract bound
     else:
-        constraints_bounded_eq = (constraints - torch.tensor(bounds)).to(torch.float)
+        constraints_bounded_eq = (constraints - torch.tensor(bounds))
 
     return loss, constraints_bounded_eq
 
@@ -148,6 +173,22 @@ def eval(model, batch, constraint_fn):
     constraints = [c.detach().numpy().item() for c in constraints]
     return loss.detach().numpy().item(), constraints
 
+@torch.inference_mode
+def eval_loader(model, dataloader, constraint_fn):
+    total_loss = 0
+    total_constraints = None
+    n = 0
+    for batch in dataloader:
+        loss, constraints = eval(model, batch, constraint_fn)
+        batch_size = batch[0].shape[0]
+        total_loss += loss * batch_size
+        if total_constraints is None:
+            total_constraints = np.array(constraints) * batch_size
+        else:
+            total_constraints += np.array(constraints) * batch_size
+        n += batch_size
+    
+    return total_loss / n, (total_constraints / n).tolist()
 
 def run_train(
         m,
@@ -170,15 +211,20 @@ def run_train(
     ):
     
     (features_train, _, _) = data_train
-    (features_val, sens_val, labels_val) = data_val
+    # (features_val, sens_val, labels_val) = data_val
 
-    model = create_model(features_train.shape[-1])
+    if features_train.ndim == 4:
+        model = create_conv_model()
+    else:
+        model = create_model(features_train.shape[-1])
 
     primal_params = {k.removeprefix('primal__'): v for k, v in param_set.items() if k.startswith('primal__')}
     dual_params = {k.removeprefix('dual__'): v for k, v in param_set.items() if k.startswith('dual__')}
     moreau_params = {k.removeprefix('moreau__'): v for k, v in param_set.items() if k.startswith('moreau__')}
     # set up primal optimizer
-    primal_optimizer = MoreauEnvelope(primal_opt(model.parameters(), **primal_params), **moreau_params)
+    primal_optimizer = MoreauEnvelope(
+        primal_opt(model.parameters(), **primal_params), **moreau_params
+    ) if mode == 'hc' else primal_opt(model.parameters(), **primal_params)
     # set up slack variables if needed
     if use_slack:
         slack_vars = torch.zeros(m, requires_grad=True)
@@ -202,19 +248,20 @@ def run_train(
     elif mode == 'sw':
         train_iter = lambda primal, dual, model, batch, timer: train_iter_sw(primal, dual, model, batch, timer, c_fn=c_fn, bounds=bounds, constraint_tol=constraint_tol)
         dual_optimizer = dual_opt(model.parameters(), **dual_params)
+        # dual_optimizer = primal_optimizer
     else:
         raise ValueError(f'Expected`mode`to be one of "torch", "hc", "sw"; got "{mode}"')
 
     # first backward pass sometimes takes ages, do it before training
-    model(features_train[0]).backward()
+    torch.sum(model(features_train[0].unsqueeze(0))).backward()
     model.zero_grad()
 
     problem = OptimLoopWrapper(
             model = model,
             train_iter = train_iter,
-            eval = lambda model, batch: eval(model, batch, c_fn),
+            eval = (lambda model, batch: eval(model, batch, c_fn)) if isinstance(data_val, tuple) else (lambda model, dataloader: eval_loader(model, dataloader, c_fn)),
             train_data = dataloader,
-            eval_data = (features_val, sens_val, labels_val),
+            eval_data = data_val,
             primal_optimizer = primal_optimizer,
             dual_optimizer = dual_optimizer,
             verbose=verbose)
@@ -239,7 +286,8 @@ def run_grid(
         verbose: bool,
         constraints_to_eq: bool = False,
         use_slack: bool = False,
-        constraint_tol: float = 0.
+        constraint_tol: float = 0.,
+        fuse_loss_constraint: bool = False
     ):
     train_logs = []
     val_logs = []
@@ -251,21 +299,22 @@ def run_grid(
         print(f"starting {i+1}/{len(param_grid)}: {param_set}")
 
         model, train_history, val_history = run_train(
-            m,
-            primal_opt,
-            dual_opt,
-            param_set,
-            data_train,
-            dataloader,
-            data_val,
-            n_epochs,
-            constraint_fn,
-            constraint_bound,
-            mode,
-            verbose,
-            constraints_to_eq,
-            use_slack,
-            constraint_tol
+            m=m,
+            primal_opt=primal_opt,
+            dual_opt=dual_opt,
+            param_set=param_set,
+            data_train=data_train,
+            dataloader=dataloader,
+            data_val=data_val,
+            n_epochs=n_epochs,
+            c_fn=constraint_fn,
+            constraint_bound=constraint_bound,
+            mode=mode,
+            verbose=verbose,
+            constraints_to_eq=constraints_to_eq,
+            use_slack=use_slack,
+            constraint_tol=constraint_tol,
+            fuse_loss_constraint=fuse_loss_constraint
         )
         train_logs.append(train_history)
         val_logs.append(val_history)

@@ -1,30 +1,28 @@
-task: equalized_odds_pairwise
-batch_size: 40
+task: cifar10
+batch_size: 120
 
 # TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
 constraint:
-  name: FairretPairwise
+  name: LossPairwise
   bound: 0.1
-  statistic: PositiveRate
-  kwargs:
-    uses_labels: false
+  loss: CrossEntropyLoss
 
 pbm_params:
   primal__lr: 0.01
-  dual__penalty_mult: 0.5
+  dual__penalty_mult: 0.1
   dual__penalty_update: dimin_adapt #aimd
-  dual__penalty_range: [1e-1, 1.]
+  dual__penalty_range: [1e-1, 100]
   dual__pbf: quadratic_logarithmic
-  dual__gamma: 0.5
-  dual__delta: 0.9
+  dual__gamma: 0.1
+  dual_delta: 0.5
   moreau__mu: 2.0
 
 alm_params:
-  primal__lr: 0.05
+  primal__lr: 0.001
   dual__lr: 0.05
   dual__penalty: 0.0
-  dual__momentum: 0.1
-  moreau__mu: 2.0
+  dual__momentum: 0.0
+  moreau__mu: 0.0
 
 ssg_params:
   primal__lr: 0.01
@@ -33,7 +31,7 @@ ssg_params:
 
 adam_params:
   lr: 0.01
-  # penalty: 0.5
+  penalty: 0.5
 
 hydra:
   run:

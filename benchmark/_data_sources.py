@@ -6,7 +6,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from humancompatible.train.fairness.utils import BalancedBatchSampler
 from itertools import product
-
+import torchvision
+from torchvision import transforms
 
 import itertools
 
@@ -52,9 +53,9 @@ def load_data_norm(batch_size=64):
     )
 
     sens_cols = ["SEX_Female", "SEX_Male"]
-    features = df_feat.drop(columns=sens_cols).to_numpy(dtype="float")
-    groups = df_feat[sens_cols].to_numpy(dtype="float")
-    labels = df_labels.to_numpy(dtype="float")
+    features = df_feat.drop(columns=sens_cols).to_numpy(dtype='float32')
+    groups = df_feat[sens_cols].to_numpy(dtype='float32')
+    labels = df_labels.to_numpy(dtype='float32')
 
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
@@ -73,19 +74,19 @@ def load_data_norm(batch_size=64):
     X_test = scaler.transform(X_test)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_train = torch.tensor(X_train, dtype=torch.float32)
-    labels_train = torch.tensor(y_train, dtype=torch.float32)
-    sens_train = torch.tensor(groups_train, dtype=torch.float32)
+    features_train = torch.tensor(X_train)
+    labels_train = torch.tensor(y_train)
+    sens_train = torch.tensor(groups_train)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_val = torch.tensor(X_val, dtype=torch.float32)
-    labels_val = torch.tensor(y_val, dtype=torch.float32)
-    sens_val = torch.tensor(groups_val, dtype=torch.float32)
+    features_val = torch.tensor(X_val)
+    labels_val = torch.tensor(y_val)
+    sens_val = torch.tensor(groups_val)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_test = torch.tensor(X_test, dtype=torch.float32)
-    labels_test = torch.tensor(y_test, dtype=torch.float32)
-    sens_test = torch.tensor(groups_test, dtype=torch.float32)
+    features_test = torch.tensor(X_test)
+    labels_test = torch.tensor(y_test)
+    sens_test = torch.tensor(groups_test)
 
     # set the same seed for fair comparisons
     torch.manual_seed(0)
@@ -100,10 +101,10 @@ def load_data_norm(batch_size=64):
     dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=64, shuffle=True)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=64, shuffle=True)
 
-    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val)
+    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
 
-def load_data_FT(batch_size, sens_attrs, states, group_size_threshold = 0, sens_groups = None):
+def load_data_FT(batch_size, device, sens_attrs, states, group_size_threshold = 0, sens_groups = None, extend_groups = False):
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
     ACSProblem = BasicProblem(
@@ -125,11 +126,11 @@ def load_data_FT(batch_size, sens_attrs, states, group_size_threshold = 0, sens_
     )
 
     # df_sens_onehot = comb_cat_dummies(df_sens) if sens_groups else df_sens
-    df_sens_onehot = comb_cat_dummies(df_sens)
+    df_sens_onehot = comb_cat_dummies(df_sens) if len(sens_attrs) > 1 else df_sens
 
-    features = df_feat.drop(columns=[col for col in df_feat.columns if col.startswith(tuple(sens_attrs))]).to_numpy()
+    features = df_feat.drop(columns=[col for col in df_feat.columns if col.startswith(tuple(sens_attrs))]).to_numpy(dtype='float')
     groups = df_sens_onehot.to_numpy(dtype='float')
-    labels = df_labels.to_numpy()
+    labels = df_labels.to_numpy(dtype='float')
 
     if sens_groups:
         group_names = []
@@ -169,21 +170,21 @@ def load_data_FT(batch_size, sens_attrs, states, group_size_threshold = 0, sens_
         print(f"{df_sens_onehot.columns[idx]}, : {(groups[:, idx] == 1).sum()}")
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_train = torch.tensor(X_train, dtype=torch.float32)
-    labels_train = torch.tensor(y_train, dtype=torch.float32)
-    sens_train = torch.tensor(groups_train, dtype=torch.float32)
+    features_train = torch.tensor(X_train).to(torch.float32)
+    labels_train = torch.tensor(y_train).to(torch.float32)
+    sens_train = torch.tensor(groups_train).to(torch.float32)
     dataset_train = torch.utils.data.TensorDataset(features_train, labels_train)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_val = torch.tensor(X_val, dtype=torch.float32)
-    labels_val = torch.tensor(y_val, dtype=torch.float32)
-    sens_val = torch.tensor(groups_val, dtype=torch.float32)
+    features_val = torch.tensor(X_val).to(torch.float32)
+    labels_val = torch.tensor(y_val).to(torch.float32)
+    sens_val = torch.tensor(groups_val).to(torch.float32)
     dataset_val = torch.utils.data.TensorDataset(features_val, labels_val)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_test = torch.tensor(X_test, dtype=torch.float32)
-    labels_test = torch.tensor(y_test, dtype=torch.float32)
-    sens_test = torch.tensor(groups_test, dtype=torch.float32)
+    features_test = torch.tensor(X_test).to(torch.float32)
+    labels_test = torch.tensor(y_test).to(torch.float32)
+    sens_test = torch.tensor(groups_test).to(torch.float32)
     dataset_test = torch.utils.data.TensorDataset(features_test, labels_test)
 
     # get the dataset
@@ -193,25 +194,25 @@ def load_data_FT(batch_size, sens_attrs, states, group_size_threshold = 0, sens_
 
     # create a balanced sampling - needed for an unbiased gradient
     sampler = BalancedBatchSampler(
-        group_onehot=sens_train, batch_size=batch_size, drop_last=True
+        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
     )
     sampler_val = BalancedBatchSampler(
-        group_onehot=sens_val, batch_size=batch_size, drop_last=True
+        group_onehot=sens_val, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
     )
     sampler_test = BalancedBatchSampler(
-        group_onehot=sens_test, batch_size=batch_size, drop_last=True
+        group_onehot=sens_test, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
     )
 
     # create a dataloader from the sampler
     dataloader_train = torch.utils.data.DataLoader(dataset, batch_sampler=sampler)
     dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test)
-
-    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val)
-
+    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
 
-def load_data_FT_prod(batch_size):
+
+
+def load_data_FT_prod(batch_size, device='cpu'):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -232,9 +233,9 @@ def load_data_FT_prod(batch_size):
         "MAR_Married",
         "MAR_Never married or under 15 years old",
     ]
-    features = df_feat.drop(columns=sens_cols).to_numpy(dtype="float")
-    groups = df_feat[sens_cols].to_numpy(dtype="float")
-    labels = df_labels.to_numpy(dtype="float")
+    features = df_feat.drop(columns=sens_cols).to_numpy()
+    groups = df_feat[sens_cols].to_numpy()
+    labels = df_labels.to_numpy()
 
     # Split columns into sex and marital
     sex_cols = ["SEX_Female", "SEX_Male"]
@@ -264,7 +265,6 @@ def load_data_FT_prod(batch_size):
 
     # set the same seed for fair comparisons
     torch.manual_seed(0)
-    breakpoint()
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
         features, labels, groups_onehot, test_size=0.2, random_state=42
@@ -286,21 +286,21 @@ def load_data_FT_prod(batch_size):
         print(f"{group_dict[idx]}, : {(groups_onehot[:, idx] == 1).sum()}")
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_train = torch.tensor(X_train, dtype=torch.float32)
-    labels_train = torch.tensor(y_train, dtype=torch.float32)
-    sens_train = torch.tensor(groups_train)
+    features_train = torch.tensor(X_train).to(torch.float32)
+    labels_train = torch.tensor(y_train).to(torch.float32)
+    sens_train = torch.tensor(groups_train).to(torch.float32)
     dataset_train = torch.utils.data.TensorDataset(features_train, labels_train)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_val = torch.tensor(X_val, dtype=torch.float32)
-    labels_val = torch.tensor(y_val, dtype=torch.float32)
-    sens_val = torch.tensor(groups_val)
+    features_val = torch.tensor(X_val).to(torch.float32)
+    labels_val = torch.tensor(y_val).to(torch.float32)
+    sens_val = torch.tensor(groups_val).to(torch.float32)
     dataset_val = torch.utils.data.TensorDataset(features_val, labels_val)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_test = torch.tensor(X_test, dtype=torch.float32)
-    labels_test = torch.tensor(y_test, dtype=torch.float32)
-    sens_test = torch.tensor(groups_test)
+    features_test = torch.tensor(X_test).to(torch.float32)
+    labels_test = torch.tensor(y_test).to(torch.float32)
+    sens_test = torch.tensor(groups_test).to(torch.float32)
     dataset_test = torch.utils.data.TensorDataset(features_test, labels_test)
 
     # set the same seed for fair comparisons
@@ -327,11 +327,11 @@ def load_data_FT_prod(batch_size):
     dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test)
 
-    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val)
+    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
 
 
-def load_data_FT_vec(batch_size, attr = "SEX"):
+def load_data_FT_vec(batch_size, attr = "SEX", device='cpu'):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -348,9 +348,9 @@ def load_data_FT_vec(batch_size, attr = "SEX"):
         sens_cols = ["SEX_Female", "SEX_Male"]
     elif attr == 'MAR':
         sens_cols = ['MAR_Married', 'MAR_Widowed', 'MAR_Divorced', "MAR_Separated", "MAR_Never married or under 15 years old"]
-    features = df_feat.drop(columns=sens_cols).to_numpy(dtype="float")
-    groups = df_feat[sens_cols].to_numpy(dtype="float")
-    labels = df_labels.to_numpy(dtype="float")
+    features = df_feat.drop(columns=sens_cols).to_numpy()
+    groups = df_feat[sens_cols].to_numpy()
+    labels = df_labels.to_numpy()
 
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
@@ -369,21 +369,21 @@ def load_data_FT_vec(batch_size, attr = "SEX"):
     X_test = scaler.transform(X_test)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_train = torch.tensor(X_train, dtype=torch.float32)
-    labels_train = torch.tensor(y_train, dtype=torch.float32)
-    sens_train = torch.tensor(groups_train, dtype=torch.float32)
+    features_train = torch.tensor(X_train)
+    labels_train = torch.tensor(y_train)
+    sens_train = torch.tensor(groups_train)
     dataset_train = torch.utils.data.TensorDataset(features_train, labels_train)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_val = torch.tensor(X_val, dtype=torch.float32)
-    labels_val = torch.tensor(y_val, dtype=torch.float32)
-    sens_val = torch.tensor(groups_val, dtype=torch.float32)
+    features_val = torch.tensor(X_val)
+    labels_val = torch.tensor(y_val)
+    sens_val = torch.tensor(groups_val)
     dataset_val = torch.utils.data.TensorDataset(features_val, labels_val)
 
     # make into a pytorch dataset, remove the sensitive attribute
-    features_test = torch.tensor(X_test, dtype=torch.float32)
-    labels_test = torch.tensor(y_test, dtype=torch.float32)
-    sens_test = torch.tensor(groups_test, dtype=torch.float32)
+    features_test = torch.tensor(X_test)
+    labels_test = torch.tensor(y_test)
+    sens_test = torch.tensor(groups_test)
     dataset_test = torch.utils.data.TensorDataset(features_test, labels_test)
 
     # set the same seed for fair comparisons
@@ -410,7 +410,7 @@ def load_data_FT_vec(batch_size, attr = "SEX"):
     dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test)
 
-    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val)
+    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
     
 
 def load_data_DUTCH(batch_size):
@@ -420,32 +420,32 @@ def load_data_DUTCH(batch_size):
     )
 
     # Convert training data to PyTorch tensors
-    features_train = torch.tensor(X_train, dtype=torch.float32)
-    labels_train = torch.tensor(y_train.to_numpy(), dtype=torch.float32).reshape((-1, 1))
-    sens_train = torch.tensor(groups_train)
+    features_train = torch.tensor(X_train).to(torch.float32)
+    labels_train = torch.tensor(y_train.to_numpy()).reshape((-1, 1)).to(torch.float32)
+    sens_train = torch.tensor(groups_train).to(torch.float32)
     dataset_train = torch.utils.data.TensorDataset(features_train, sens_train, labels_train)
 
     # Convert validation data to PyTorch tensors
-    features_val = torch.tensor(X_val, dtype=torch.float32)
-    labels_val = torch.tensor(y_val, dtype=torch.float32).reshape((-1, 1))
-    sens_val = torch.tensor(groups_val)
+    features_val = torch.tensor(X_val).to(torch.float32)
+    labels_val = torch.tensor(y_val).reshape((-1, 1)).to(torch.float32)
+    sens_val = torch.tensor(groups_val).to(torch.float32)
     dataset_val = torch.utils.data.TensorDataset(features_val, sens_val, labels_val)
 
     # Convert test data to PyTorch tensors
-    features_test = torch.tensor(X_test, dtype=torch.float32)
-    labels_test = torch.tensor(y_test.to_numpy(), dtype=torch.float32).reshape((-1, 1))
-    sens_test = torch.tensor(groups_test)
+    features_test = torch.tensor(X_test).to(torch.float32)
+    labels_test = torch.tensor(y_test.to_numpy()).reshape((-1, 1)).to(torch.float32)
+    sens_test = torch.tensor(groups_test).to(torch.float32)
     dataset_test = torch.utils.data.TensorDataset(features_test, sens_test, labels_test)
 
     # Create balanced samplers
     sampler_train = BalancedBatchSampler(
-        group_onehot=sens_train, batch_size=batch_size, drop_last=True
+        group_onehot=sens_train, batch_size=batch_size, drop_last=True#, extend_groups=list(range(sens_train.shape[1]))
     )
     sampler_val = BalancedBatchSampler(
-        group_onehot=sens_val, batch_size=252*4, drop_last=True
+        group_onehot=sens_val, batch_size=252*4, drop_last=True#, extend_groups=list(range(sens_train.shape[1]))
     )
     sampler_test = BalancedBatchSampler(
-        group_onehot=sens_test, batch_size=252*4, drop_last=True
+        group_onehot=sens_test, batch_size=252*4, drop_last=True#, extend_groups=list(range(sens_train.shape[1]))
     )
 
     # Create dataloaders
@@ -453,7 +453,7 @@ def load_data_DUTCH(batch_size):
     dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val, num_workers=8)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test, num_workers=8)
 
-    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val)
+    return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
 
 
@@ -546,3 +546,176 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_sta
 
     return X_train, X_val, X_test, y_train, y_val, y_test, groups_train, groups_val, groups_test, group_dict
 
+
+
+
+def load_data_cifar10(balanced=False):
+
+    # load the data
+    transform = transforms.Compose(
+        [transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    batch_size = 120
+
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                            download=True, transform=transform)
+
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                        download=True, transform=transform)
+    
+    # make some parameters global
+    global classes
+    classes = ('plane', 'car', 'bird', 'cat',
+            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+    class_ind = {}
+
+    # index the classes
+    for i, classn in enumerate(classes):
+        class_ind[classn] = i
+
+    print(classes)
+    print(class_ind)
+
+    # load all data and create a balanced sampler
+    X = torch.stack([item[0] for item in trainset])
+    targets = torch.tensor([item[1] for item in trainset])
+
+    # create onehot vectors
+    groups_onehot = torch.eye(10)[targets]
+
+    # create a train dataset
+    dataset_train = torch.utils.data.TensorDataset(X, groups_onehot, targets)
+
+    # create the balanced dataloader
+    sampler = BalancedBatchSampler(
+        group_onehot=groups_onehot, batch_size=batch_size, drop_last=True
+    )
+    if balanced:
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler, num_workers=10)
+    else: 
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, num_workers=10)
+
+    # load all data and create a balanced sampler
+    X_test = torch.stack([item[0] for item in testset])
+    targets_test = torch.tensor([item[1] for item in testset])
+
+    # create onehot vectors
+    groups_onehot_test = torch.eye(10)[targets_test]
+
+    # split test / val
+    X_test, X_val, targets_test, targets_val, groups_onehot_test, groups_onehot_val = \
+                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=42)
+
+    # create a train dataset
+    dataset_test = torch.utils.data.TensorDataset(X_test, groups_onehot_test, targets_test)
+
+    # create the balanced dataloader
+    sampler = BalancedBatchSampler(
+        group_onehot=groups_onehot_test, batch_size=batch_size, drop_last=True
+    )
+
+    global testloader
+    if balanced:
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler, num_workers=10)
+    else: 
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, num_workers=10)
+
+    # clean the memory of redundant variables
+    del X, targets, groups_onehot
+    del X_test, targets_test, groups_onehot_test
+
+
+    return trainloader, testloader, classes, class_ind
+
+
+
+
+def load_data_cifar100(balanced=False):
+
+    # load the data
+    transform = transforms.Compose(
+        [transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    batch_size = 200
+
+    trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
+                                            download=True, transform=transform)
+
+    testset = torchvision.datasets.CIFAR100(root='./data', train=False,
+                                        download=True, transform=transform)
+
+    # Get class names for CIFAR-100
+    global classes
+    classes = [
+        'apple', 'aquarium_fish', 'baby', 'bear', 'beaver', 'bed', 'bee', 'beetle', 'bicycle', 'bottle',
+        'bowl', 'boy', 'bridge', 'bus', 'butterfly', 'camel', 'can', 'castle', 'caterpillar', 'cattle',
+        'chair', 'chimpanzee', 'clock', 'cloud', 'cockroach', 'couch', 'crab', 'crocodile', 'cup', 'dinosaur',
+        'dolphin', 'elephant', 'flatfish', 'forest', 'fox', 'girl', 'hamster', 'house', 'kangaroo', 'keyboard',
+        'lamp', 'lawn_mower', 'leopard', 'lion', 'lizard', 'lobster', 'man', 'maple_tree', 'motorcycle', 'mountain',
+        'mouse', 'mushroom', 'oak_tree', 'orange', 'orchid', 'otter', 'palm_tree', 'pear', 'pickup_truck', 'pine_tree',
+        'plain', 'plate', 'poppy', 'porcupine', 'possum', 'rabbit', 'raccoon', 'ray', 'road', 'rocket',
+        'rose', 'sea', 'seal', 'shark', 'shrew', 'skunk', 'skyscraper', 'snail', 'snake', 'spider',
+        'squirrel', 'streetcar', 'sunflower', 'sweet_pepper', 'table', 'tank', 'telephone', 'television', 'tiger', 'tractor',
+        'train', 'trout', 'tulip', 'turtle', 'wardrobe', 'whale', 'willow_tree', 'wolf', 'woman', 'worm'
+    ]
+
+    class_ind = {}
+
+    # index the classes
+    for i, classn in enumerate(classes):
+        class_ind[classn] = i
+
+    print(classes)
+    print(class_ind)
+
+    # load all data and create a balanced sampler
+    X = torch.stack([item[0] for item in trainset])
+    targets = torch.tensor([item[1] for item in trainset])
+
+    # create onehot vectors
+    groups_onehot = torch.eye(100)[targets]
+
+    # create a train dataset
+    dataset_train = torch.utils.data.TensorDataset(X, groups_onehot, targets)
+
+    # create the balanced dataloader
+    sampler = BalancedBatchSampler(
+        group_onehot=groups_onehot, batch_size=batch_size, drop_last=True
+    )
+    if balanced:
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler, num_workers=1)
+    else: 
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, num_workers=1)
+
+    # load all data and create a balanced sampler
+    X_test = torch.stack([item[0] for item in testset])
+    targets_test = torch.tensor([item[1] for item in testset])
+
+    # create onehot vectors
+    groups_onehot_test = torch.eye(100)[targets_test]
+
+    # split test / val
+    X_test, X_val, targets_test, targets_val, groups_onehot_test, groups_onehot_val = \
+                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=42)
+
+    # create a train dataset
+    dataset_test = torch.utils.data.TensorDataset(X_test, groups_onehot_test, targets_test)
+
+    # create the balanced dataloader
+    sampler = BalancedBatchSampler(
+        group_onehot=groups_onehot_test, batch_size=batch_size, drop_last=True
+    )
+    global testloader   
+    if balanced:
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler, num_workers=1)
+    else:
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, num_workers=1)
+
+    # clean the memory of redundant variables
+    del X, targets, groups_onehot
+    del X_test, targets_test, groups_onehot_test
+
+    return trainloader, testloader, classes, class_ind

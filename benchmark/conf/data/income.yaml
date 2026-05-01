@@ -2,3 +2,4 @@ name: folktables
 kwargs:
   sens_attrs: ['MAR', 'SEX']
   states: ['VA']
+  extend_groups: false

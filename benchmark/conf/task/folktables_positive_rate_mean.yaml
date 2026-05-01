@@ -3,37 +3,36 @@ batch_size: 40
 
 # TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
 constraint:
-  name: FairretPairwise
-  bound: 0.1
+  name: FairretMean
+  bound: 0.05
   statistic: PositiveRate
-  kwargs:
+  constraint_kwargs:
     uses_labels: false
 
 pbm_params:
-  primal__lr: 0.01
-  dual__penalty_mult: 0.5
+  primal__lr: 0.005
+  dual__penalty_mult: 0.2
   dual__penalty_update: dimin_adapt #aimd
-  dual__penalty_range: [1e-1, 1.]
+  dual__penalty_range: [1e-1, 100]
   dual__pbf: quadratic_logarithmic
-  dual__gamma: 0.5
-  dual__delta: 0.9
+  dual__gamma: 0.2
   moreau__mu: 2.0
 
 alm_params:
-  primal__lr: 0.05
+  primal__lr: 0.005
   dual__lr: 0.05
-  dual__penalty: 0.0
-  dual__momentum: 0.1
+  dual__penalty: 1.0
+  dual__momentum: 0.3
   moreau__mu: 2.0
 
 ssg_params:
-  primal__lr: 0.01
+  primal__lr: 0.005
   dual__lr: 0.001
   moreau__mu: 0.0
 
 adam_params:
   lr: 0.01
-  # penalty: 0.5
+  penalty: 0.5
 
 hydra:
   run:

@@ -148,6 +148,11 @@ class OptimLoopWrapper:
         if self.dual_opt is not None and hasattr(self.dual_opt, "duals"):
             eval_dict = eval_dict | {f"dual_{j}": l.detach().numpy().copy().item() for j, l in enumerate(self.dual_opt.duals)}
 
+
+        # save dual vars if optimizer has them
+        if self.dual_opt is not None and hasattr(self.dual_opt, "penalties"):
+            eval_dict = eval_dict | {f"p_{j}": l.detach().numpy().copy().item() for j, l in enumerate(self.dual_opt.penalties)}
+
         log = self.train_history if mode == 'train' else self.val_history
         log.append(eval_dict)
 
