@@ -1,6 +1,7 @@
 from humancompatible.train.dual_optim import ALM, PBM, MoreauEnvelope
 import torch
 import time
+import torch.nn.functional as F
 import numpy as np
 from torch import nn
 from torch.nn import Sequential
