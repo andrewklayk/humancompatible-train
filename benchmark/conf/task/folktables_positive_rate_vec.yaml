@@ -1,0 +1,42 @@
+task: equalized_odds_vec
+
+batch_size: 32
+
+# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
+constraint:
+  name: FairretAgg
+  bound: 0.2
+  loss: NormLoss
+  statistic: PositiveRate
+  constraint_kwargs:
+    uses_labels: false
+
+pbm_params:
+  primal__lr: 0.001
+  dual__p_mult: 0.9
+  dual__penalty_update: dimin_adapt
+  dual__pbf: quadratic_logarithmic
+  dual__gamma: 0.1
+  moreau__mu: 2.0
+
+alm_params:
+  primal__lr: 0.001
+  dual__lr: 0.001
+  dual__penalty: 0.
+  dual__momentum: 0.
+  moreau__mu: 0.5
+
+ssg_params:
+  primal__lr: 0.05
+  dual__lr: 0.01
+  moreau__mu: 0.0
+
+adam_params:
+  lr: 0.001
+  penalty: 0.5
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false

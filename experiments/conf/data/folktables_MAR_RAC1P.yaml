@@ -1,6 +1,0 @@
-task: income
-state: CA
-download: True
-path: ./utils/raw_data/
-sens_attr: ['MAR', 'RAC1P']
-binarize: [null, 1]

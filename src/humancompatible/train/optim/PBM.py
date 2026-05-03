@@ -1,0 +1,571 @@
+from typing import Iterable, Optional, Union
+import torch
+from torch import Tensor
+from torch.optim.optimizer import Optimizer, _use_grad_for_differentiable
+import humancompatible.train.optim.barrier as Barrier
+
+"""
+This module implements the PBM optimizer.
+https://www.researchgate.net/publication/2775406_PenaltyBarrier_Multiplier_Methods_for_Convex_Programming_Problems
+
+"""
+
+class PBM(Optimizer):
+    def __init__(
+        self,
+        params,
+        m: int,
+        # tau in paper
+        lr: Union[float, Tensor] = 5e-2,
+        # penalty term multiplier
+        rho: float = 1.0,
+        # smoothing term multiplier
+        mu: float = 2.0,
+        # smoothing term update multiplier
+        beta: float = 0.5,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        dual_beta: float = 0.9, # smoothing of the dual variables
+        init_pi = 10.0,
+        const_p = 1.0,
+        epoch_len=None,
+        penalty_update_m='CONST', # p parameter
+        p_lb = 0.1,
+        p_ub = 1.0,
+        delta = 1.5, # speed of p decrease with ADAPT option
+        dual_bounds = (1e-4, 10),
+        warm_start = 0, # number of epochs to warm start - no constraints included
+        device="cpu",
+        eps: float = 1e-8,
+        amsgrad: bool = False,
+        *,
+        init_dual = 0.1,
+        differentiable: bool = False,
+        opt_method = 'ADAM',
+        barrier='quadratic_logarithmic', # barrier method used on the constraint
+        use_autograd_for_phider=False # if phi should be computed using autograd or using a hardcoded function - hardcoded is known for our given phi
+    ):
+        
+        if isinstance(lr, torch.Tensor) and lr.numel() != 1:
+            raise ValueError("Tensor lr must be 1-element")
+
+        if differentiable:
+            raise NotImplementedError("TorchSSLALM does not support differentiable")
+
+        defaults = dict(
+            lr=lr,
+            rho=rho,
+            mu=mu,
+            beta=beta,
+            amsgrad=amsgrad,
+            differentiable=differentiable,
+        )
+
+        super().__init__(params, defaults)
+
+        if opt_method != 'ADAM' and opt_method != 'SGD':
+            raise ValueError(f"Opt. method needs to be either 'ADAM' or 'SGD'.")
+
+        # set the barrier method
+        if barrier == 'exponential':
+            self.barrier = Barrier.exponential_penalty
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.exponential_penalty_derivative
+
+        elif barrier == 'modified_log':
+            self.barrier = Barrier.modified_log_barrier
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.modified_log_barrier_derivative
+
+        elif barrier == 'augmented_lagrangian':
+            self.barrier = Barrier.augmented_lagrangian
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.augmented_lagrangian_derivative
+
+        elif barrier == 'quadratic_logarithmic':
+            self.barrier = Barrier.quadratic_logarithmic_penalty
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.quadratic_logarithmic_penalty_derivative
+
+        elif barrier == 'quadratic_reciprocal':
+            self.barrier = Barrier.quadratic_reciprocal_penalty
+            if not use_autograd_for_phider:
+                self.barrier_der = Barrier.quadratic_reciprocal_penalty_derivative
+
+        if (penalty_update_m == "DIMINISH" or warm_start or penalty_update_m == "ADAPT") and epoch_len is None:
+            raise ValueError(f"Diminishing penalty update requires epoch_len to be defined")
+        self.epoch_len = epoch_len
+
+        # set the optimizer parameters
+        self.m = m
+        self.device = device
+        self.rho = rho
+        self.dual_bounds = dual_bounds
+        self.beta = beta
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.dual_beta = dual_beta
+        self.init_pi = init_pi
+        self.mu = mu
+        self.c_vals: list[Union[float, Tensor]] = []
+        self._c_val_average = [None]
+        self.eps = eps
+        self.warm_start = warm_start
+        self.iter = 0
+        self.init_dual = init_dual
+        self.opt_method = opt_method
+        self.use_autograd_for_phider = use_autograd_for_phider
+        self._dual_vars = torch.ones(m, requires_grad=False, device=device) * init_dual
+        self.p = torch.ones(m, requires_grad=False, device=device)
+        self.constraints = torch.zeros(m, device=device) # array of current constraint values
+
+        # set the defined penalty update method
+        if penalty_update_m == 'ALM':
+            self.update_p_method = self.update_p_ALM
+
+        elif penalty_update_m == "CONST": # P IS NOT UPDATED
+            self.update_p_method = self.update_p_const
+            self.update_ps_method = self.update_ps_const
+            self.p_const = const_p
+            self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+
+        elif penalty_update_m == "DIMINISH":  # P IS DIMINISHING OVER TIME TO P_LB
+            self.update_p_method = self.update_p_diminishing 
+            self.update_ps_method = self.update_ps_diminishing
+            self.p_const = const_p
+            self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+            self.p_lb = p_lb
+        
+        elif penalty_update_m == "ADAPT": # P IS ADAPTIVE BASED ON MEAN OF THE TRAIN CONSTRINTS
+            self.update_p_method = self.update_p_adapt
+            self.update_ps_method = self.update_ps_adapt
+            self.p_const = const_p
+            self.p = torch.ones(m, requires_grad=False, device=device) * self.p_const
+            self.p_lb = p_lb
+            self.p_ub = p_ub
+            self.delta = delta
+            self.constraints_epoch = torch.zeros(m, requires_grad=False, device=device)
+
+        else: 
+            raise ValueError("NO SUCH p UPDATE METHOD EXISTS!")
+                
+    def add_constraint(self):
+        """
+        Allows to dynamically add constraints. Increments`m`, appends a zero tensor to the end of`_dual_vars`.
+        """
+        self.m += 1
+        self._dual_vars = torch.cat(
+            (
+                self._dual_vars,
+                torch.ones(1, requires_grad=False, device=self._dual_vars.device) * self.init_dual,
+            )
+        )
+
+    def _init_group(
+        self,
+        group,
+        params,
+        grads,
+        exp_avgs,
+        exp_avg_sqs,
+        max_exp_avg_sqs,
+        state_steps,
+        smoothing
+    ):
+        has_sparse_grad = False
+
+        for p in group["params"]:
+            state = self.state[p]
+            params.append(p)
+
+            # Lazy state initialization
+            if len(state) == 0:
+                state["smoothing"] = p.detach().clone()
+                state["l_term_grad"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
+
+                state["aug_term_grad"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
+
+                state["step"] = torch.tensor(0.0)
+                # Exponential moving average of gradient values
+                state["exp_avg"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
+                # Exponential moving average of squared gradient values
+                state["exp_avg_sq"] = torch.zeros_like(
+                    p, memory_format=torch.preserve_format
+                )
+
+                if group["amsgrad"]:
+                    # Maintains max of all exp. moving avg. of sq. grad. values
+                    state["max_exp_avg_sq"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format
+                    )
+
+            exp_avgs.append(state["exp_avg"])
+            exp_avg_sqs.append(state["exp_avg_sq"])
+
+            if group["amsgrad"]:
+                max_exp_avg_sqs.append(state["max_exp_avg_sq"])
+            if group["differentiable"] and state["step"].requires_grad:
+                raise RuntimeError(
+                    "`requires_grad` is not supported for `step` in differentiable mode"
+                )
+
+            state_steps.append(state["step"])
+            grads.append(p.grad)
+            smoothing.append(state.get("smoothing"))
+
+        return has_sparse_grad
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault("amsgrad", False)
+            group.setdefault("maximize", False)
+            group.setdefault("foreach", None)
+            group.setdefault("capturable", False)
+            group.setdefault("differentiable", False)
+            group.setdefault("decoupled_weight_decay", False)
+
+    # --------------------------------------------------- p update functions -------------------------------------
+
+    def update_p_ALM(self, i, t):
+        """
+        update the penalty coefficient - equiv. to ALM
+        """
+
+        self.p[i] = self.rho * self._dual_vars[i]
+
+    def update_p_diminishing(self, i, t):
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+            self.p[i] *= 0.9
+
+        # threshold the p
+        if self.p[i] < self.p_lb:
+            self.p[i] = self.p_lb
+    
+    def update_ps_diminishing(self, t):
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+            self.p *= 0.9
+
+        self.p[ self.p < self.p_lb ] = self.p[ self.p < self.p_lb ] = self.p_lb
+
+    def update_p_adapt(self, i, constraints_cur):
+
+        # add current constraints - then mean them
+        self.constraints_epoch[i] += constraints_cur
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+            
+            # mean the constraints - over this epoch
+            self.constraints_epoch[i] = self.constraints_epoch[i] / self.epoch_len
+
+            # project into using the barrier derivative
+            growth_p = self.barrier_der( self.constraints_epoch[i] )
+
+            # decrease for unsatisfied constraints and increase for satisfied constraints
+            if growth_p > 1.0:
+                self.p[i] = 0.1* self.p[i] + 0.9 * self.p[i] / (self.delta * growth_p)
+            else: 
+                self.p[i] = 0.1* self.p[i] + 0.9 * self.p[i] / growth_p
+
+            self.constraints_epoch[i] *= 0
+
+            # safeguarding
+            self.p[i] = torch.nan_to_num(self.p[i], nan=self.p_ub)
+            self.p[i] = torch.clamp(self.p[i], self.p_lb, self.p_ub)
+
+    def update_ps_adapt(self, constraints_cur):
+
+        # add current constraints - then mean them
+        self.constraints_epoch += constraints_cur
+
+        # diminishing update once per defined number of steps
+        if self.iter % self.epoch_len == 0:
+
+            # mean the constraints - over this epoch
+            self.constraints_epoch = self.constraints_epoch / self.epoch_len
+
+            # project into using the barrier derivative
+            growth_p = self.barrier_der( self.constraints_epoch )
+
+            self.p[ growth_p > 1.0 ] = 0.1 * self.p[ growth_p > 1.0 ] + 0.9 * self.p[ growth_p > 1.0 ] / (self.delta * growth_p[ growth_p > 1.0 ])
+            self.p[ growth_p <= 1.0 ] = 0.1 * self.p[ growth_p <= 1.0 ] + 0.9 * self.p[ growth_p <= 1.0 ] / (growth_p[ growth_p <= 1.0 ] + 0.0001)
+
+            # restart the statistics
+            self.constraints_epoch*= 0 
+
+            self.p = torch.nan_to_num(self.p, nan=self.p_ub)
+            self.p = torch.clamp(self.p, self.p_lb, self.p_ub)
+
+    def update_p_const(self, i, t):
+        """
+        Constant p - do nothing
+        """
+
+        pass
+
+    def update_ps_const(self, t):
+        """
+        Constant p - do nothing
+        """
+
+        pass
+
+    # -----------------------------------------------------------------------------------------------------------
+
+
+    def dual_steps(self, c_vals: Tensor):
+        r"""Perform an update of the dual parameters. THIS IS A VECTORIZED VERSION! IT IS EXPECTED TO PASS A VECTOR OF ALL CONSTRAINTS.
+        Also saved the constraint value for later use in the weights update. To be called BEFORE :func:`step` in an iteration!
+
+        Args:
+            c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
+        """
+
+        if c_vals.shape != self._dual_vars.shape:
+            raise ValueError(
+                f"`dual_steps` is a vectorized version of the dual step. Pass a vector of constraints!"
+            )
+
+        # check for warm start - no condition for n epochs
+        if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start:
+            return # do nothing on duals before the warm start
+
+        # ----------------------------------
+        t = c_vals
+        t = t / self.p
+        dloss_dt = self.barrier_der(t.detach())
+
+        # update dual variables 
+        self._dual_vars = self.dual_beta * self._dual_vars  +  (1 - self.dual_beta) * self._dual_vars * dloss_dt  # soft update
+
+        # update penalty multiplier
+        self.update_ps_method(c_vals.detach())
+
+        # safe-guarding 
+        self._dual_vars[ self._dual_vars <= self.dual_bounds[0] ] = self.dual_bounds[0]
+        self._dual_vars[ self._dual_vars >= self.dual_bounds[1] ] = self.dual_bounds[1]
+        
+        # compute the barrier/penalty of the output of NN  
+        phi_constr = self.p * self.barrier(c_vals / self.p)
+
+        # save the costraint value - later will be used in 
+        self.constraints = phi_constr
+
+    def dual_step(self, i: int, c_val: Tensor):
+        r"""Perform an update of the dual parameters.
+        Also saved the constraint value for later use in the weights update. To be called BEFORE :func:`step` in an iteration!
+
+        Args:
+            i (int): index of the constraint
+            c_val (Tensor): an estimate of the value of the constraint at which the gradient was computed; used for dual parameter update
+        """
+
+        # check for incorrect input
+        if c_val.numel() != 1:
+            raise ValueError(
+                f"`dual_step` expected a scalar `c_val`, got an object of shape {c_val.shape}"
+            )
+        
+        # check for warm start - no condition for n epochs
+        if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start:
+            return # do nothing on duals before the warm start
+
+        # --------------------------------
+
+        # compute the derivative of the barrier wrt using autograd
+        if self.use_autograd_for_phider:
+            # sub variable for computing grad wrt to the input to the penalty/ barrier
+            t = torch.tensor(c_val.detach().item() , dtype=torch.float32, requires_grad=True, device=self._dual_vars.device)
+            t = t / self.p[i]
+
+            # compute the grad wrt. to the sub_var
+            penalty_barrier_val = self.barrier(t)
+            dloss_dt = torch.autograd.grad(penalty_barrier_val, t, retain_graph=True)[0]        
+        
+        # compute the derivative of the barrier wrt using hardcoded function
+        else: 
+            t = torch.tensor(c_val.detach().item())
+            t = t / self.p[i]
+            dloss_dt = self.barrier_der(t)
+
+
+        # update dual variables 
+        self._dual_vars[i] = self.dual_beta * self._dual_vars[i]  +  (1 - self.dual_beta) * self._dual_vars[i] * dloss_dt # soft update
+        
+        # update penalty multiplier
+        self.update_p_method(i, c_val.detach())
+
+        # safe-guarding 
+        if self._dual_vars[i] <= self.dual_bounds[0]:
+            self._dual_vars[i] = self.dual_bounds[0]
+        if self._dual_vars[i] >= self.dual_bounds[1]:
+            self._dual_vars[i] = self.dual_bounds[1]
+
+        # compute the barrier/penalty of the output of NN  
+        phi_constr = self.p[i].item() * self.barrier(c_val / self.p[i].item())
+
+        # save the costraint value - later will be used in 
+        self.constraints[i] = phi_constr
+
+    @_use_grad_for_differentiable
+    def step(self, loss_v: Tensor):
+        r"""Perform an update of the primal parameters (network weights & slack variables). To be called AFTER :func:`dual_step` in an iteration!
+
+        Args:
+            loss_v (Tensor): Loss funciton value
+
+        NOTE: This function is deprecated. Use the forward function instead.
+        """
+
+        with torch.enable_grad():
+            
+            if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start: # warmstart - just the objective
+                F_loss = loss_v
+            else: 
+                # define the augmented F and backpropagate
+                F_loss = loss_v + self._dual_vars @ self.constraints
+        
+            # backpropagate
+            F_loss.backward()
+        
+        # load the smoothing and the momentums
+        for group in self.param_groups:
+            params: list[Tensor] = []
+            grads: list[Tensor] = []
+            exp_avgs: list[Tensor] = []
+            exp_avg_sqs: list[Tensor] = []
+            smoothing: list[Tensor] = []
+            max_exp_avg_sqs: list[Tensor] = []
+            state_steps: list[Tensor] = []
+            lr = group["lr"]
+            amsgrad = group["amsgrad"]
+
+            _ = self._init_group(
+                group,
+                params,
+                grads,
+                exp_avgs,
+                exp_avg_sqs,
+                max_exp_avg_sqs,
+                state_steps,
+                smoothing
+            )
+
+            # no need to track gradients at this point
+            # update the NN params 
+            for i_param, param in enumerate(params):
+                
+                # grads is the sum of gradient of the obj + linear comb. of the constraints + add the smoothing term
+                G_i = torch.zeros_like(param)
+
+                # check for warm start - no condition for n epochs
+                if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start:
+                    G_i.add_(grads[i_param])     # no ALM - just objective 
+                else: 
+                    G_i.add_(grads[i_param]).add_(param - smoothing[i_param], alpha=self.mu)
+
+                    if torch.isnan(G_i).any():
+                        print(torch.isnan(grads[i_param]))
+                        print(F_loss)
+                        print(torch.isnan(grads[i_param]).any())
+                        print(torch.isnan(param).any())
+                        print(torch.isnan(smoothing[i_param]).any())
+
+                if self.opt_method == 'ADAM':
+
+                    # update the smooting term
+                    smoothing[i_param].add_(smoothing[i_param], alpha=-self.beta).add_(
+                        param, alpha=self.beta
+                    )
+
+                    # compute the adam moments
+                    exp_avg = exp_avgs[i_param]
+                    exp_avg_sq = exp_avg_sqs[i_param]
+                    step_t = state_steps[i_param]
+                    step_t += 1
+                    beta1, beta2 = self.beta1, self.beta2
+                    eps = self.eps
+
+                    # moment1, moment2
+                    exp_avg.lerp_(G_i, 1 - beta1)
+                    exp_avg_sq.mul_(beta2).addcmul_(G_i, G_i, value=1 - beta2)
+
+                    # bias correction of adam
+                    bias_correction1 = 1 - beta1**step_t
+                    bias_correction2 = 1 - beta2**step_t
+
+                    # compute the bias corrected moments
+                    step_size = lr / bias_correction1
+                    bias_correction2_sqrt = bias_correction2**0.5
+
+                    if amsgrad:
+                        # Maintains the maximum of all 2nd moment running avg. till now
+                        torch.maximum(
+                            max_exp_avg_sqs[i_param], exp_avg_sq, out=max_exp_avg_sqs[i_param]
+                        )
+
+                        # Use the max. for normalizing running avg. of gradient
+                        denom = (max_exp_avg_sqs[i_param].sqrt() / bias_correction2_sqrt).add_(
+                            eps
+                        )
+                    else:
+                        denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+
+                    # adam step
+                    param.addcdiv_(exp_avg, denom, value=-step_size)
+
+                elif self.opt_method == "SGD":
+                    
+                    # update the smooting term
+                    smoothing[i_param].add_(smoothing[i_param], alpha=-self.beta).add_(
+                        param, alpha=self.beta
+                    )
+                    
+                    param.add_(G_i, alpha=-lr)
+
+            # update p
+            self.iter += 1
+
+        # clean the gradients
+        self.zero_grad()
+        self.constraints = torch.zeros(self.m, device=self.device)
+
+
+    def forward(self, loss, constraints):
+        """
+        The forward step where we update both the dual variables, the p variables and return the loss of the augmented lagrangian. 
+        """
+
+        # update the dual variables + penalty parameter
+        self.dual_steps(constraints)
+
+        if self.warm_start > 0 and self.iter // self.epoch_len < self.warm_start: # warmstart - just the objective
+            F_loss = loss
+        else: 
+            # define the augmented F and backpropagate
+            F_loss = loss + self._dual_vars @ self.constraints
+
+        # TODO: implement smoothing herew
+
+        # clean the gradients
+        # self.constraints = torch.zeros(self.m, device=self.device)
+
+
+        # update iteration
+        self.iter += 1
+
+
+        return F_loss
+
+

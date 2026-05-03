@@ -1,0 +1,41 @@
+task: cifar10
+batch_size: 120
+
+# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
+constraint:
+  name: FairretPairwise
+  bound: 0.1
+  statistic: Accuracy
+  kwargs:
+    uses_labels: true
+
+pbm_params:
+  primal__lr: 0.05
+  dual__penalty_mult: 0.1
+  dual__penalty_update: dimin_adapt #aimd
+  dual__penalty_range: [1e-1, 100]
+  dual__pbf: quadratic_logarithmic
+  dual__gamma: 0.1
+  moreau__mu: 2.0
+
+alm_params:
+  primal__lr: 0.001
+  dual__lr: 0.05
+  dual__penalty: 0.0
+  dual__momentum: 0.0
+  moreau__mu: 0.0
+
+ssg_params:
+  primal__lr: 0.01
+  dual__lr: 0.001
+  moreau__mu: 0.0
+
+adam_params:
+  lr: 0.01
+  penalty: 0.5
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false

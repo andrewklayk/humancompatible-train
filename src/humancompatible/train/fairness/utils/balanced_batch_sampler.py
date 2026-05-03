@@ -13,6 +13,7 @@ class BalancedBatchSampler(Sampler):
         batch_size: int = 1,
         drop_last: bool = True,
         extend_groups: Optional[Iterable[int]] = None,
+        generator: Optional[torch.Generator]=None
     ):
         """
         A Sampler that yields an equal number of samples from each groups specified with either one-hot encoding or indices.
@@ -61,6 +62,8 @@ class BalancedBatchSampler(Sampler):
         self._group_sizes = [len(indices) for indices in group_indices]
         self._extend_groups = extend_groups
 
+        self.generator = generator
+
     def __iter__(self):
         shuffled_group_indices = []
         for group_id, group_indices in enumerate(self._group_indices):
@@ -73,7 +76,7 @@ class BalancedBatchSampler(Sampler):
             # tile with random reorderings of list of indices of the group
             for _ in range(num_tiles):
                 # shuffle
-                indices_shuffled = torch.randperm(len(group_indices)).tolist()
+                indices_shuffled = torch.randperm(len(group_indices), generator=self.generator).tolist()
                 # add new shuffled tile to the indices
                 group_indices_tiled_shuffled.extend(indices_shuffled)
             # cutoff at the length of max group
@@ -104,7 +107,7 @@ class BalancedBatchSampler(Sampler):
                     [self._group_indices[group_idx][i] for i in group_batch_indices]
                 )
             # Yield the global indices for the batch, shuffled within the batch
-            shuffled_batch_indices = torch.randperm(len(batch), dtype=int)
+            shuffled_batch_indices = torch.randperm(len(batch), dtype=int, generator=self.generator)
             yield [batch[i] for i in shuffled_batch_indices]
 
     def __len__(self):

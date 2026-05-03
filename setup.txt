@@ -1,0 +1,9 @@
+
+srun -p gpufast --gres=gpu:1  --pty bash -i
+srun -p h200fast --gres=gpu:1  --pty bash -i
+
+ml load Python/3.13.1-GCCcore-14.2.0
+ml load GCCcore/14.2.0
+ml load PyTorch/2.10.0-foss-2025a-CUDA-12.8.0
+
+source env_humancompatible/bin/activate

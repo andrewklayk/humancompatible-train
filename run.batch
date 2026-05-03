@@ -1,0 +1,18 @@
+#!/bin/sh
+#SBATCH --time=4:00:00
+#SBATCH --partition=h200fast
+#SBATCH --nodes=1
+#SBATCH --mem=100G
+#SBATCH --gres=gpu:1          
+#SBATCH --cpus-per-task=1
+#SBATCH --out=./logs/simulator/exdbn_simulator.stdout
+#SBATCH --err=./logs/simulator/err_simulator.out 
+#SBATCH --mail-user=bosakad1@fel.cvut.cz
+#SBATCH --mail-type=ALL
+#SBATCH --job-name=humancompatible
+
+ml load Python/3.13.1-GCCcore-14.2.0
+ml load GCCcore/14.2.0
+source env_humancompatible/bin/activate
+
+python3 train_4_optimizers.py

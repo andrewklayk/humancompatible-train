@@ -1,0 +1,8 @@
+torch
+scikit-learn
+fairret
+folktables
+numpy
+torchvision
+fairml-datasets
+scikit-learn

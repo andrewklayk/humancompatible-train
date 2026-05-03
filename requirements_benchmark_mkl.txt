@@ -1,3 +1,0 @@
---index-url https://software.repos.intel.com/python/pypi
-numpy
-scipy
