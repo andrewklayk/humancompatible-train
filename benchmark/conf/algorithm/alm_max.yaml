@@ -1,0 +1,8 @@
+# ALM Max configuration for sweeper
+
+algorithm: alm_max
+
+primal__lr: 0.0001, 0.0005, 0.001, 0.005
+dual__lr: 0.0001, 0.0005, 0.001, 0.005
+dual__penalty: 0., 1., 2.
+moreau__mu: 0, 0.1, 0.5, 1., 2.

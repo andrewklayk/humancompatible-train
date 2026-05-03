@@ -1,0 +1,54 @@
+task: cifar100
+batch_size: 400
+
+# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
+constraint:
+  name: LossPairwise
+  bound: 0.1
+  loss: CrossEntropyLoss
+
+algorithms: none
+
+# best val
+pbm_params:
+  primal__lr: 0.05
+  dual__penalty_mult: 1.0
+  dual__penalty_update: dimin #aimd
+  dual__penalty_range: [1e-1, 10.]
+  dual__pbf: quadratic_logarithmic
+  dual__gamma: 0.2
+  dual_delta: 1.0
+  moreau__mu: 0.0
+
+# # previous
+# pbm_params:
+#   primal__lr: 0.002
+#   dual__penalty_mult: 1.0
+#   dual__penalty_update: const #aimd
+#   dual__penalty_range: [1., 1.]
+#   dual__pbf: quadratic_reciprocal
+#   dual__gamma: 0.9
+#   dual_delta: 1.5
+#   moreau__mu: 0.1
+
+alm_params:
+  primal__lr: 0.01
+  dual__lr: 0.001
+  dual__penalty: 0.0
+  dual__momentum: 0.
+  moreau__mu: 0.0
+
+# ssg_params:
+#   primal__lr: 0.01
+#   dual__lr: 0.001
+#   moreau__mu: 0.0
+
+adam_params:
+  lr: 0.01
+  # penalty: 0.5
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false

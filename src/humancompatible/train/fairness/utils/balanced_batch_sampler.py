@@ -34,9 +34,9 @@ class BalancedBatchSampler(Sampler):
 
         # convert one-hot group masks (fairret style) to group indices
         if group_onehot is not None:
-            group_onehot = group_onehot.numpy()
+            group_onehot = group_onehot
             group_indices = [
-                np.argwhere(group_onehot[:, gr] == 1).squeeze()
+                torch.argwhere(group_onehot[:, gr] == 1).squeeze()
                 for gr in range(group_onehot.shape[-1])
             ]
 

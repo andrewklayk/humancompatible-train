@@ -1,0 +1,5 @@
+# Baseline Adam optimizer configuration for sweeper
+
+algorithm: adam
+
+primal__lr: 0.0001

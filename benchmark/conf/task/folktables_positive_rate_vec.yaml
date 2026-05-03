@@ -4,11 +4,11 @@ batch_size: 32
 
 # TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
 constraint:
-  name: FairretLoss
+  name: FairretAgg
   bound: 0.2
   loss: NormLoss
   statistic: PositiveRate
-  constraint_kwargs:
+  kwargs:
     uses_labels: false
 
 pbm_params:

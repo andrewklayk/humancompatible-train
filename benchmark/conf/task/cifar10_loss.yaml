@@ -1,0 +1,8 @@
+task: cifar10
+batch_size: 120
+
+# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
+constraint:
+  name: LossPairwise
+  bound: 0.1
+  loss: CrossEntropyLoss

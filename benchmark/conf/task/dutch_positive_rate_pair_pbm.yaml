@@ -1,0 +1,26 @@
+task: equalized_odds_pairwise
+
+batch_size: 72
+
+# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
+constraint:
+  name: FairretPairwise
+  bound: 0.1
+  statistic: PositiveRate
+  kwargs:
+    uses_labels: false
+
+algorithms: ['pbm']
+
+# alm_params:
+#   primal__lr: 0.001
+#   dual__lr: 0.05
+#   dual__penalty: 1.0
+#   dual__momentum: 0.3
+#   moreau__mu: 2.0
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false

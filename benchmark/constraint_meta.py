@@ -1,5 +1,5 @@
 from typing import Callable, Any, Dict
-from attr import dataclass
+from dataclasses import dataclass
 import torch
 from constraints import positive_rate_per_group
 import fairret
@@ -47,7 +47,7 @@ class FairretPairwise(ConstraintMetadata):
             stat_pergroup = self.statistic(batch_out, batch_sens, batch_labels)
         else:
             stat_pergroup = self.statistic(batch_out, batch_sens)
-        constraints = ((stat_pergroup.unsqueeze(1) - stat_pergroup.unsqueeze(0)).to(torch.float))
+        constraints = ((stat_pergroup.unsqueeze(1) - stat_pergroup.unsqueeze(0)))
         mask = ~torch.eye(batch_sens.shape[-1], dtype=torch.bool)
         constraints = constraints[mask]
 
@@ -77,10 +77,10 @@ class FairretMean(ConstraintMetadata):
             batch_out = torch.sigmoid(batch_out)
         if self.uses_labels:
             stat_pergroup = self.statistic(batch_out, batch_sens, batch_labels)
-            mean_stat = self.statistic(batch_out, batch_labels)
+            mean_stat = self.statistic(batch_out, sens=None, labels=batch_labels)
         else:
             stat_pergroup = self.statistic(batch_out, batch_sens)
-            mean_stat = self.statistic(batch_out)
+            mean_stat = self.statistic(batch_out, sens=None)
 
         constraints = torch.abs(stat_pergroup - mean_stat)
 
@@ -88,7 +88,7 @@ class FairretMean(ConstraintMetadata):
 
 
 
-class FairretLoss(ConstraintMetadata):
+class FairretAgg(ConstraintMetadata):
     """Wrapper class for a vector fairness constraint based on a given statistic (e.g., positive rate, false positive rate, etc.).
     The constraint is computed as the difference between the statistic for each group and the mean statistic across all groups."""
     def __init__(self, loss: Callable, uses_labels: bool, as_logits: bool = False):
@@ -136,11 +136,13 @@ class LossPairwise(ConstraintMetadata):
     def compute_constraints(self, model, batch_out, batch_sens, batch_labels, loss = None):
         if loss is None:
             loss = self.loss(batch_out, batch_labels)
-        per_group_losses = _get_normalized_per_group_losses(loss, batch_sens)
-        constraints = ((per_group_losses.unsqueeze(1) - per_group_losses.unsqueeze(0)).to(torch.float))    
+        
+        per_group_losses = _get_normalized_per_group_losses(loss, batch_sens).squeeze()
+        # print(per_group_losses)
+        constraints = ((per_group_losses.unsqueeze(1) - per_group_losses.unsqueeze(0)))
+        # print(constraints)
         mask = ~torch.eye(batch_sens.shape[-1], dtype=torch.bool)
         constraints = constraints[mask]
-
         return constraints
     
 
@@ -169,7 +171,7 @@ class LossMean(ConstraintMetadata):
 
 
 def _get_normalized_per_group_losses(loss, sens_onehot):
-    return loss.T @ sens_onehot / sens_onehot.sum(dim=0)
+    return loss.unsqueeze(0) @ sens_onehot / sens_onehot.sum(dim=0)
 
 
 def weight_constraint(model, out, batch_sens, batch_labels):

@@ -1,0 +1,6 @@
+# Stochastic Subgradient (SSG) configuration for sweeper
+algorithm: ssg
+
+primal__lr: 0.0001, 0.0005, 0.001, 0.005
+dual__lr: 0.0001, 0.0005, 0.001, 0.005
+moreau__mu: 0., 0.1., 0.5, 1., 2.

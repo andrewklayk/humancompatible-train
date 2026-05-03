@@ -1,0 +1,10 @@
+task: weight_norm
+batch_size: 80
+
+algorithms: ['ssg']
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false

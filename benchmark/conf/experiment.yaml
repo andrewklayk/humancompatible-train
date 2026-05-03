@@ -1,0 +1,24 @@
+# Base experiment config for single-run multirun sweeps
+# Extend this with algorithm-specific configs
+
+defaults:
+  - task: dutch_positive_rate_pair
+  - data: dutch
+  - algorithm: adam
+  - override /hydra/launcher: configured_submitit_slurm_amdgpu
+  - _self_
+
+n_epochs: 10
+seed: 0
+
+hydra:
+  sweeper:
+    max_batch_size: 100
+  sweep:
+    dir: multirun/${task.task}_${data.name}
+    subdir: ./${algorithm.algorithm}
+  run:
+    dir: multirun/${task.task}_${data.name}/${algorithm.algorithm}
+  job:
+    chdir: false
+  output_subdir: null

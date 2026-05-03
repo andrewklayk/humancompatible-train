@@ -1,0 +1,8 @@
+defaults:
+  - submitit_slurm
+
+gres: gpu=1
+mem_per_cpu: 16G
+cpus_per_task: 4
+partition: h200fast,amdgpufast
+

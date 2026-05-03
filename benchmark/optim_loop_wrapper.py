@@ -146,7 +146,12 @@ class OptimLoopWrapper:
         
         # save dual vars if optimizer has them
         if self.dual_opt is not None and hasattr(self.dual_opt, "duals"):
-            eval_dict = eval_dict | {f"dual_{j}": l.detach().numpy().copy().item() for j, l in enumerate(self.dual_opt.duals)}
+            eval_dict = eval_dict | {f"dual_{j}": l.detach().cpu().numpy().copy().item() for j, l in enumerate(self.dual_opt.duals)}
+
+
+        # save dual vars if optimizer has them
+        if self.dual_opt is not None and hasattr(self.dual_opt, "penalties"):
+            eval_dict = eval_dict | {f"p_{j}": l.detach().cpu().numpy().copy().item() for j, l in enumerate(self.dual_opt.penalties)}
 
         log = self.train_history if mode == 'train' else self.val_history
         log.append(eval_dict)
@@ -212,7 +217,7 @@ class OptimLoopWrapper:
                     loss, constraints = self.train_iter(self.primal_opt, self.dual_opt, model=self.model, batch=batch, timer=tracker)
 
                 if save_train_this_iter:
-                    self.save_logs('train', loss.detach().numpy().item(), constraints.detach().numpy(), None, epoch, epoch_iters, tracker.total_iters, tracker.time)
+                    self.save_logs('train', loss.detach().cpu().numpy().item(), constraints.detach().cpu().numpy(), None, epoch, epoch_iters, tracker.total_iters, tracker.time)
             
             if self.after_epoch_actions is not None:
                 self.after_epoch_actions(self.model, self.primal_opt, self.dual_opt, epoch)

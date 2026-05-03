@@ -1,3 +1,4 @@
 name: dutch
 kwargs:
   sens_attrs: ['AGE', 'SEX']
+  extend_groups: false
