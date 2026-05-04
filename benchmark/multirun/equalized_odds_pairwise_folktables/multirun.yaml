@@ -33,7 +33,7 @@ hydra:
     setup: null
   sweeper:
     _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
-    max_batch_size: 100
+    max_batch_size: 99
     params: null
   help:
     app_name: ${hydra.job.name}
@@ -137,18 +137,22 @@ hydra:
     hydra:
     - hydra.mode=MULTIRUN
     task:
-    - algorithm=ssg
-    - algorithm.primal__lr=0.0001,0.0005,0.001,0.005
+    - algorithm=pbm_dimin
+    - algorithm.primal__lr=0.0001,0.0005,0.001,0.002,0.005
     - +algorithm.primal__weight_decay=0.01
-    - algorithm.dual__lr=0.0001,0.0005,0.001,0.005
+    - algorithm.dual__penalty_mult=0.99,0.999,0.9999,1.
+    - algorithm.dual__penalty_update=dimin
+    - algorithm.dual__pbf=quadratic_logarithmic
+    - algorithm.dual__gamma=0.8,0.9,0.95,0.99,0.999
+    - algorithm.dual__delta=1.0
     - algorithm.moreau__mu=1.
     - seed=0,1,2
     - task=folktables_positive_rate_pair
-    - data=dutch
+    - data=income
   job:
     name: run_single_experiment
     chdir: false
-    override_dirname: +algorithm.primal__weight_decay=0.01,algorithm.dual__lr=0.0001,0.0005,0.001,0.005,algorithm.moreau__mu=1.,algorithm.primal__lr=0.0001,0.0005,0.001,0.005,algorithm=ssg,data=dutch,seed=0,1,2,task=folktables_positive_rate_pair
+    override_dirname: +algorithm.primal__weight_decay=0.01,algorithm.dual__delta=1.0,algorithm.dual__gamma=0.8,0.9,0.95,0.99,0.999,algorithm.dual__pbf=quadratic_logarithmic,algorithm.dual__penalty_mult=0.99,0.999,0.9999,1.,algorithm.dual__penalty_update=dimin,algorithm.moreau__mu=1.,algorithm.primal__lr=0.0001,0.0005,0.001,0.002,0.005,algorithm=pbm_dimin,data=income,seed=0,1,2,task=folktables_positive_rate_pair
     id: ???
     num: ???
     config_name: experiment
@@ -175,8 +179,8 @@ hydra:
       provider: schema
     output_dir: ???
     choices:
-      algorithm: ssg
-      data: dutch
+      algorithm: pbm_dimin
+      data: income
       task: folktables_positive_rate_pair
       hydra/env: default
       hydra/callbacks: null
@@ -203,16 +207,22 @@ task:
     job:
       chdir: false
 data:
-  name: dutch
+  name: folktables
   kwargs:
     sens_attrs:
-    - AGE
+    - MAR
     - SEX
+    states:
+    - VA
     extend_groups: false
 algorithm:
-  algorithm: ssg
+  algorithm: pbm_dimin
   primal__lr: 0.0001, 0.0005, 0.001, 0.005
-  dual__lr: 0.0001, 0.0005, 0.001, 0.005
+  dual__penalty_mult: 0.9, 0.99, 0.999, 1.
+  dual__penalty_update: dimin
+  dual__pbf: quadratic_logarithmic
+  dual__gamma: 0.9, 0.99, 0.999
+  dual__delta: 1.0
   moreau__mu: 1.0
   primal__weight_decay: 0.01
 n_epochs: 10

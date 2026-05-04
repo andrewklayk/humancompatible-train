@@ -18,6 +18,8 @@ benchmark/results
 benchmark/cache
 benchmark/data
 
+.submitit
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

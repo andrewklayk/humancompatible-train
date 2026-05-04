@@ -5,7 +5,7 @@ defaults:
   - task: dutch_positive_rate_pair
   - data: dutch
   - algorithm: adam
-  - override /hydra/launcher: configured_submitit_slurm_amdgpu
+  - override /hydra/launcher: configured_submitit_slurm_amd
   - _self_
 
 n_epochs: 10
@@ -13,7 +13,7 @@ seed: 0
 
 hydra:
   sweeper:
-    max_batch_size: 100
+    max_batch_size: 99
   sweep:
     dir: multirun/${task.task}_${data.name}
     subdir: ./${algorithm.algorithm}
