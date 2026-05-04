@@ -11,12 +11,49 @@ from fairret.statistic import PositiveRate, TruePositiveRate, FalsePositiveRate,
 from fairret.loss import NormLoss
 from humancompatible.train.fairness.utils import BalancedBatchSampler
 import torch
+from tqdm import tqdm
+import os
+from typing import Callable, Any, Dict
+from dataclasses import dataclass
+import torch
+import fairret
+
+
+def dataset_to_tensors(dataset, batch_size=512, num_workers=8):
+    """Fast parallel loading of an entire dataset into tensors."""
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    all_X, all_targets = [], []
+    for X_batch, target_batch in tqdm(loader, desc="Loading dataset into tensors", total=len(loader)):
+        all_X.append(X_batch)
+        all_targets.append(target_batch)
+    return torch.cat(all_X, dim=0), torch.cat(all_targets, dim=0)
+ 
+ 
+def load_or_cache(dataset, cache_path, batch_size=512, num_workers=8):
+    """Load tensors from cache if available, otherwise build and save."""
+    if os.path.exists(cache_path):
+        print(f"Loading cache from {cache_path}...")
+        data = torch.load(cache_path, weights_only=True)
+        return data["X"], data["targets"]
+ 
+    print(f"Building cache → {cache_path} (one-time cost)...")
+    X, targets = dataset_to_tensors(dataset, batch_size=batch_size, num_workers=num_workers)
+    torch.save({"X": X, "targets": targets}, cache_path)
+    print(f"Cache saved ({X.nbytes / 1e9:.2f} GB)")
+    return X, targets
+ 
+ 
 
 def train_tinyimagenet():
 
     # define batch size here
-    train_batch_size=128
-    batch_size = 256
+    batch_size = 400
     
     # define the path here 
     dataset_path="~/.torchvision/tinyimagenet/"
@@ -36,63 +73,227 @@ def train_tinyimagenet():
                     ])
 
 
-    # load the data
-    train = TinyImageNet(Path(dataset_path),split="train",transform=train_transform,imagenet_idx=True)
-    val = TinyImageNet(Path(dataset_path),split="val",transform=normalize_transform,imagenet_idx=True)
-    test = TinyImageNet(Path(dataset_path),split="test",transform=normalize_transform,imagenet_idx=True)
-    print(f'Dataset has {len(train.classes)} classes. Sample classes: {train.classes[:5]}')
+    # --- Load datasets ---
+    train = TinyImageNet(Path(dataset_path), split="train", transform=train_transform, imagenet_idx=False)
+    val   = TinyImageNet(Path(dataset_path), split="val",   transform=normalize_transform, imagenet_idx=False)
+    test  = TinyImageNet(Path(dataset_path), split="test",  transform=normalize_transform, imagenet_idx=False)
+    print(f"Dataset has {len(train.classes)} classes. Sample classes: {train.classes[:5]}")
+
+    class_to_idx = train.class_to_idx
+    def remap_targets(dataset, targets):
+        return torch.tensor([class_to_idx[dataset.classes[t]] for t in targets])
+
+    # datasets = {"train": train, "val": val, "test": test}
+    datasets = {"val": val}
     
-    # create dataloaders
-    datasets = {"train": train,"val": val, "test": test}
+    # --- Build loaders ---
     loaders = {}
-
-
     for name, dataset in datasets.items():
-        print(f"Dataset size: {len(dataset)}")
+        print(f"\nDataset: {name} | Size: {len(dataset)}")
 
-        # create balanced batch sampler for training
-        X = torch.stack([item[0] for item in dataset])
-        targets = torch.tensor([item[1] for item in dataset])
+        X, targets = load_or_cache(dataset, cache_path=f"./data/cache_{name}.pt")
+        print(f"  X: {X.shape}, targets: {targets.shape}")
 
-        # create onehot vectors
+        # onehot groups
         groups_onehot = torch.eye(200)[targets]
-
-        # create a train dataset
+    
         dataset_torch = torch.utils.data.TensorDataset(X, groups_onehot, targets)
-
-        # create the balanced dataloader
+    
+        print(targets.sum())
         sampler = BalancedBatchSampler(
             group_onehot=groups_onehot, batch_size=batch_size, drop_last=True
         )
-        loader_balanced = torch.utils.data.DataLoader(dataset_torch, batch_sampler=sampler, num_workers=10)
-        loader_unbalanced = torch.utils.data.DataLoader(dataset_torch, batch_size=batch_size, shuffle=True, num_workers=10)
-
-        # save the lodaers
-        loaders[name] = loader_unbalanced
-        loaders[name+"_balanced"] = loader_balanced
+        loaders[name] = torch.utils.data.DataLoader(
+            dataset_torch, batch_size=batch_size, shuffle=True, num_workers=4
+        )
+        loaders[name + "_balanced"] = torch.utils.data.DataLoader(
+            dataset_torch, batch_sampler=sampler, num_workers=4
+        )
+        print(f"  Loaders created: '{name}' and '{name}_balanced'")
 
     # create fair dataloaders
 
-    # test the models
-    model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
-    for name,dataloader in [ ('train',loaders['train_balanced']),('val',loaders['val_balanced']),('test',loaders['test_balanced']) ]:
-        correct =0
-        total = 0
-        for (x,y, sens) in dataloader:
+    # ----- Build model, criterion, optimizer -----
+    device = torch.device("cuda")
+    lr = 1e-3
+    epochs = 10
+    loader_name = "val_balanced"
 
-            print(x, y, sens)
-            exit()
 
+    # ----- Unconstrained Optimization Adam -----
+    constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
+    model     = build_model().to(device)
+    criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+ 
+    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
+ 
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name],      criterion, optimizer, device, train=True)
+        val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"],    criterion, optimizer, device, train=False)
+        # scheduler.step()
+ 
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+        history["max_constr"].append(max_constr)
+        print(f"Epoch {epoch:>3}/{epochs} | "
+              f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
+              f"val loss {val_loss:.4f} acc {val_acc:.3f}"
+                f" | max constraint {max_constr:.4f}")  
+ 
+
+
+
+    # ----- SPMB Optimization -----
+    constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
+    model     = build_model().to(device)
+    criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # dual_optim = 
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+ 
+    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
+ 
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name],      criterion, optimizer, device, train=True)
+        val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"],    criterion, optimizer, device, train=False)
+        # scheduler.step()
+ 
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+        history["max_constr"].append(max_constr)
+        print(f"Epoch {epoch:>3}/{epochs} | "
+              f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
+              f"val loss {val_loss:.4f} acc {val_acc:.3f}"
+                f" | max constraint {max_constr:.4f}")  
+
+
+def build_model(num_classes=200):
+    """EfficientNet-B0 from scratch (no pretrained weights)."""
+    model = models.efficientnet_b0(weights=None)
+    # Replace classifier head for 200-class TinyImageNet
+    in_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(in_features, num_classes)
+    return model
+
+ 
+def run_epoch(model, loader, criterion, optimizer, device, train=True):
+    model.train() if train else model.eval()
+    total_loss, correct, total = 0.0, 0, 0
+    constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
+ 
+    ctx = torch.enable_grad() if train else torch.no_grad()
+    with ctx:
+        for x, sens, y in tqdm(loader, desc="train" if train else "eval", leave=False):
+            x, sens, y = x.to(device), sens.to(device), y.to(device)
+ 
+            if train:
+                optimizer.zero_grad()
+ 
             pred = model(x)
-            pred = pred.argmax(axis=1)
-            total +=x.shape[0]
-            correct += (y==pred).sum()
+            loss = criterion(pred, y)
+            
+            # calculate the constraints
+            constraints = constraint_type.compute_constraints(None, pred, sens, None, loss=loss)
+            max_constr = constraints.max().item()
 
-            print(x, y, pred)
+            if train:
+                loss.mean().backward()  # Aggregate loss for backward pass
+                optimizer.step()
+ 
+            total_loss += loss.mean().item() * x.size(0)
+            correct    += (pred.argmax(1) == y).sum().item()
+            total      += x.size(0)
+ 
+    return total_loss / total, correct / total, max_constr
+ 
 
-            exit()
-        accuracy = correct/total
-        print(f'Accuracy for {name}: {accuracy}')
+
+
+
+
+
+def positive_rate_per_group(out_batch, batch_sens, prob_f=torch.nn.functional.sigmoid):
+    """
+    Calculates the positive rate vector based on the given outputs of the model for the given groups. 
+    
+    """
+    if prob_f is None: 
+        preds = out_batch
+    else: 
+        preds = prob_f( out_batch )
+    pr = PositiveRate()
+    probs_per_group = pr(preds, batch_sens)
+
+    return probs_per_group
+
+def posrate_per_group(model, out, batch_sens, batch_labels):
+    pos_rate_pergroup = positive_rate_per_group(out, batch_sens)
+    constraints = ((pos_rate_pergroup.unsqueeze(1) - pos_rate_pergroup.unsqueeze(0)).to(torch.float))
+    mask = ~torch.eye(batch_sens.shape[-1], dtype=torch.bool)
+    constraints = constraints[mask]
+
+    return constraints
+
+def posrate_fairret_constraint(model, out, batch_sens, batch_labels):
+    statistic = PositiveRate()
+    fair_criterion = NormLoss(statistic=statistic)
+    
+    return fair_criterion(out, batch_sens).unsqueeze(0)
+
+def weight_constraint(model, out, batch_sens, batch_labels):
+    norms = []
+    for param in model.parameters():
+        norm = torch.linalg.norm(param)
+        norms.append(norm.unsqueeze(0))
+    
+    return torch.concat(norms)
+
+
+@dataclass
+class ConstraintMetadata:
+    """This class is a wrapper for fairness constraints;
+    it contains the function that computes the constraint
+    and a function that computes the number of constraints given the number of protected groups
+    (for example, if the constraint calculates a metric for each pair of groups,`m`would be`n_groups`* (`n_groups` - 1))."""
+    fn: Callable[[Any, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+    m_fn: Callable[[int], int]
+
+class LossPairwise(ConstraintMetadata):
+    """Wrapper class for a fairness constraint that enforces equal loss across groups.
+    The constraint is computed as the pairwise difference between the losses for each group."""
+    def __init__(self, loss: Callable = None, abs_diff: bool = False):
+        """
+        Args:
+            loss (Callable): A function that computes the loss for each sample in the batch; must be **unaggregated** (i.e., reduction='none')
+            If not provided, the constraint will expect the loss to be precomputed and passed as an argument to the compute_constraints function.
+        """
+        super().__init__(
+            fn=self.compute_constraints,
+            m_fn=lambda n_groups: n_groups * (n_groups - 1) if not self.abs_diff else n_groups * (n_groups - 1) // 2
+        )
+        self.abs_diff = abs_diff
+        if self.abs_diff:
+            raise NotImplementedError("abs_diff=True is not implemented yet.")
+        self.loss = loss
+
+    def compute_constraints(self, model, batch_out, batch_sens, batch_labels, loss = None):
+        if loss is None:
+            loss = self.loss(batch_out, batch_labels)
+
+        per_group_losses = _get_normalized_per_group_losses(loss, batch_sens).squeeze()
+        constraints = ((per_group_losses.unsqueeze(1) - per_group_losses.unsqueeze(0)))    
+        mask = ~torch.eye(batch_sens.shape[-1], dtype=torch.bool)
+        constraints = constraints[mask]
+        return constraints
+
+def _get_normalized_per_group_losses(loss, sens_onehot):
+    return loss.unsqueeze(0) @ sens_onehot / sens_onehot.sum(dim=0)
 
 
 if __name__ == "__main__":
