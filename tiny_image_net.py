@@ -73,34 +73,38 @@ def train_tinyimagenet():
 
                     ])
 
-
     # --- Load datasets ---
     train = TinyImageNet(Path(dataset_path), split="train", transform=train_transform, imagenet_idx=False)
-    val   = TinyImageNet(Path(dataset_path), split="val",   transform=normalize_transform, imagenet_idx=False)
-    test  = TinyImageNet(Path(dataset_path), split="test",  transform=normalize_transform, imagenet_idx=False)
+    val_full = TinyImageNet(Path(dataset_path), split="val", transform=normalize_transform, imagenet_idx=False)
+
     print(f"Dataset has {len(train.classes)} classes. Sample classes: {train.classes[:5]}")
-
-    class_to_idx = train.class_to_idx
-    def remap_targets(dataset, targets):
-        return torch.tensor([class_to_idx[dataset.classes[t]] for t in targets])
-
-    # datasets = {"train": train, "val": val, "test": test}
-    datasets = {"val": val}
     
+    # --- Cache and split val into val/test ---
+    X_val_full, targets_val_full = load_or_cache(val_full, cache_path="./data/cache_val.pt")
+
+    n = len(X_val_full)
+    idx = torch.randperm(n, generator=torch.Generator().manual_seed(42))
+    split = n // 2
+    val_idx, test_idx = idx[:split], idx[split:]
+
+    raw_splits = {
+        "train": load_or_cache(train, cache_path="./data/cache_train.pt"),
+        "val":   (X_val_full[val_idx],  targets_val_full[val_idx]),
+        "test":  (X_val_full[test_idx], targets_val_full[test_idx]),
+    }
+
     # --- Build loaders ---
     loaders = {}
-    for name, dataset in datasets.items():
-        print(f"\nDataset: {name} | Size: {len(dataset)}")
-
-        X, targets = load_or_cache(dataset, cache_path=f"./data/cache_{name}.pt")
+    for name, (X, targets) in raw_splits.items():
+        print(f"\nDataset: {name} | Size: {len(X)}")
         print(f"  X: {X.shape}, targets: {targets.shape}")
 
-        # onehot groups
         groups_onehot = torch.eye(200)[targets]
-    
         dataset_torch = torch.utils.data.TensorDataset(X, groups_onehot, targets)
-    
-        print(targets.sum())
+
+        group_counts = torch.bincount(targets, minlength=200)
+        print("Samples per group:", group_counts)
+
         sampler = BalancedBatchSampler(
             group_onehot=groups_onehot, batch_size=batch_size, drop_last=True
         )
@@ -116,36 +120,36 @@ def train_tinyimagenet():
 
     # ----- Build model, criterion, optimizer -----
     device = torch.device("cuda")
-    epochs = 50
+    epochs = 5
     loader_name = "val_balanced"
 
 
     # ----- Unconstrained Optimization Adam -----
-    # constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
-    # model     = build_model().to(device)
-    # criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
-    # optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
+    model     = build_model().to(device)
+    criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
  
-    # history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
+    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
  
-    # for epoch in range(1, epochs + 1):
-    #     train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name], 
-    #                                                   criterion, optimizer, device, 
-    #                                                   train=True)
-    #     val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"], 
-    #                                                   criterion, optimizer, device, 
-    #                                                   train=False)
-    #     # scheduler.step()
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name], 
+                                                      criterion, optimizer, device, 
+                                                      train=True)
+        val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"], 
+                                                      criterion, optimizer, device, 
+                                                      train=False)
+        # scheduler.step()
  
-    #     history["train_loss"].append(train_loss)
-    #     history["train_acc"].append(train_acc)
-    #     history["val_loss"].append(val_loss)
-    #     history["val_acc"].append(val_acc)
-    #     history["max_constr"].append(max_constr)
-    #     print(f"Epoch {epoch:>3}/{epochs} | "
-    #           f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
-    #           f"val loss {val_loss:.4f} acc {val_acc:.3f}"
-    #             f" | max constraint {max_constr:.4f}")  
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+        history["max_constr"].append(max_constr)
+        print(f"Epoch {epoch:>3}/{epochs} | "
+              f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
+              f"val loss {val_loss:.4f} acc {val_acc:.3f}"
+                f" | max constraint {max_constr:.4f}")  
  
 
     # ----- SPMB Optimization -----

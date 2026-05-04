@@ -259,8 +259,6 @@ class PBM(Optimizer):
             active = duals >= 1e-5
             if active.any():
                 lagrangian.add_(duals[active].mul(penalties[active]) @ pbf_val[active])
-
-            # lagrangian.add_(duals.mul(penalties) @ pbf_val)
         
         # update the iter
         self.iter = (self.iter + 1) % primal_update_process_length
