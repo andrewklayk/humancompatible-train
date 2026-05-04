@@ -17,6 +17,7 @@ from typing import Callable, Any, Dict
 from dataclasses import dataclass
 import torch
 import fairret
+from humancompatible.train.dual_optim import ALM, MoreauEnvelope, PBM
 
 
 def dataset_to_tensors(dataset, batch_size=512, num_workers=8):
@@ -53,7 +54,7 @@ def load_or_cache(dataset, cache_path, batch_size=512, num_workers=8):
 def train_tinyimagenet():
 
     # define batch size here
-    batch_size = 400
+    batch_size = 1200
     
     # define the path here 
     dataset_path="~/.torchvision/tinyimagenet/"
@@ -115,53 +116,76 @@ def train_tinyimagenet():
 
     # ----- Build model, criterion, optimizer -----
     device = torch.device("cuda")
-    lr = 1e-3
-    epochs = 10
+    epochs = 50
     loader_name = "val_balanced"
 
 
     # ----- Unconstrained Optimization Adam -----
-    constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
-    model     = build_model().to(device)
-    criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    # constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
+    # model     = build_model().to(device)
+    # criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
  
-    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
+    # history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
  
-    for epoch in range(1, epochs + 1):
-        train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name],      criterion, optimizer, device, train=True)
-        val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"],    criterion, optimizer, device, train=False)
-        # scheduler.step()
+    # for epoch in range(1, epochs + 1):
+    #     train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name], 
+    #                                                   criterion, optimizer, device, 
+    #                                                   train=True)
+    #     val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"], 
+    #                                                   criterion, optimizer, device, 
+    #                                                   train=False)
+    #     # scheduler.step()
  
-        history["train_loss"].append(train_loss)
-        history["train_acc"].append(train_acc)
-        history["val_loss"].append(val_loss)
-        history["val_acc"].append(val_acc)
-        history["max_constr"].append(max_constr)
-        print(f"Epoch {epoch:>3}/{epochs} | "
-              f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
-              f"val loss {val_loss:.4f} acc {val_acc:.3f}"
-                f" | max constraint {max_constr:.4f}")  
+    #     history["train_loss"].append(train_loss)
+    #     history["train_acc"].append(train_acc)
+    #     history["val_loss"].append(val_loss)
+    #     history["val_acc"].append(val_acc)
+    #     history["max_constr"].append(max_constr)
+    #     print(f"Epoch {epoch:>3}/{epochs} | "
+    #           f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
+    #           f"val loss {val_loss:.4f} acc {val_acc:.3f}"
+    #             f" | max constraint {max_constr:.4f}")  
  
-
-
 
     # ----- SPMB Optimization -----
     constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
     model     = build_model().to(device)
     criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    # dual_optim = 
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    
+    # Define data and optimizers
+    optimizer = MoreauEnvelope(torch.optim.Adam(model.parameters(), lr=0.002), mu=2.0)
+    
+    dual = PBM(
+        m=39800,
+        # penalty_update='dimin',
+        # penalty_update='dimin_adapt',
+        penalty_update='const',
+        pbf = 'quadratic_reciprocal',
+        gamma=0.95,
+        init_duals=0.00001,
+        init_penalties=1.,
+        penalty_range=(0.5, 1.),
+        penalty_mult=0.99,
+        dual_range=(0.000001, 100.),
+        delta=1.0,
+        device=device
+    )
  
     history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
  
     for epoch in range(1, epochs + 1):
-        train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name],      criterion, optimizer, device, train=True)
-        val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"],    criterion, optimizer, device, train=False)
+        train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name],  
+                                                criterion, optimizer, device, 
+                                                train=True, dual=dual)
+        val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"], 
+                                                criterion, optimizer, device, 
+                                                train=False, dual=dual)
         # scheduler.step()
- 
+        
+        # print numer of duals smaller than 1e-5 and larger than 100
+        print('small duals', (dual.duals <= 1e-5).sum().item())
+        print('large duals', (dual.duals >= 100.).sum().item())
         history["train_loss"].append(train_loss)
         history["train_acc"].append(train_acc)
         history["val_loss"].append(val_loss)
@@ -171,6 +195,44 @@ def train_tinyimagenet():
               f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
               f"val loss {val_loss:.4f} acc {val_acc:.3f}"
                 f" | max constraint {max_constr:.4f}")  
+        
+    
+    # ----- SSLALM Optimization -----
+    # constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
+    # model     = build_model().to(device)
+    # criterion = nn.CrossEntropyLoss(reduction='none')  # Unaggregated loss for fairness constraints
+    
+    # # Define data and optimizers
+    # optimizer = MoreauEnvelope(torch.optim.Adam(model.parameters(), lr=0.005), mu=2.0)
+    
+    # dual = ALM(
+    #     m=39800,
+    #     lr=0.1,
+    #     momentum=0.5,
+    #     # penalty_update='dimin',
+    #     device=device   
+    # )  
+ 
+    # history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "max_constr": []}
+ 
+    # for epoch in range(1, epochs + 1):
+    #     train_loss, train_acc, max_constr = run_epoch(model, loaders[loader_name],  
+    #                                             criterion, optimizer, device, 
+    #                                             train=True, dual=dual)
+    #     val_loss,   val_acc, max_constr   = run_epoch(model, loaders["val_balanced"], 
+    #                                             criterion, optimizer, device, 
+    #                                             train=False, dual=dual)
+    #     # scheduler.step()
+ 
+    #     history["train_loss"].append(train_loss)
+    #     history["train_acc"].append(train_acc)
+    #     history["val_loss"].append(val_loss)
+    #     history["val_acc"].append(val_acc)
+    #     history["max_constr"].append(max_constr)
+    #     print(f"Epoch {epoch:>3}/{epochs} | "
+    #           f"train loss {train_loss:.4f} acc {train_acc:.3f} | "
+    #           f"val loss {val_loss:.4f} acc {val_acc:.3f}"
+    #             f" | max constraint {max_constr:.4f}")  
 
 
 def build_model(num_classes=200):
@@ -182,10 +244,11 @@ def build_model(num_classes=200):
     return model
 
  
-def run_epoch(model, loader, criterion, optimizer, device, train=True):
+def run_epoch(model, loader, criterion, optimizer, device, train=True, dual=None):
     model.train() if train else model.eval()
-    total_loss, correct, total = 0.0, 0, 0
+    total_loss, correct, total, total_constr = 0.0, 0, 0, 0.0
     constraint_type = LossPairwise(loss=nn.CrossEntropyLoss(reduction='none'))
+    threshold = 0.1  # Example threshold for constraint violation
  
     ctx = torch.enable_grad() if train else torch.no_grad()
     with ctx:
@@ -194,23 +257,41 @@ def run_epoch(model, loader, criterion, optimizer, device, train=True):
  
             if train:
                 optimizer.zero_grad()
- 
-            pred = model(x)
-            loss = criterion(pred, y)
-            
-            # calculate the constraints
-            constraints = constraint_type.compute_constraints(None, pred, sens, None, loss=loss)
-            max_constr = constraints.max().item()
 
-            if train:
-                loss.mean().backward()  # Aggregate loss for backward pass
-                optimizer.step()
+            if dual is None:
+                pred = model(x)
+                loss = criterion(pred, y)
+                # calculate the constraints
+                constraints = constraint_type.compute_constraints(None, None, sens, None, loss=loss)
+                constraints = constraints - threshold
+                max_constr = constraints.max().item()
+
+                if train:
+                    loss.mean().backward()  # Aggregate loss for backward pass
+                    optimizer.step()
+
+
+            elif dual is not None:
+                pred = model(x)
+                loss = criterion(pred, y)
+                constraints = constraint_type.compute_constraints(None, None, sens, None, loss=loss)
+                constraints = constraints - threshold
+                max_constr = constraints.max().item()
+
+                # compute the lagrangian value
+                lagrangian = dual.forward_update(loss.mean(), constraints)
+
+                if train:
+                    lagrangian.backward()
+                    optimizer.step()
+                    optimizer.zero_grad()
  
             total_loss += loss.mean().item() * x.size(0)
             correct    += (pred.argmax(1) == y).sum().item()
             total      += x.size(0)
- 
-    return total_loss / total, correct / total, max_constr
+            total_constr += max_constr
+
+    return total_loss / total, correct / total, total_constr / len(loader)
  
 
 
