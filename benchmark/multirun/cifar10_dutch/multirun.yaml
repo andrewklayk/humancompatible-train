@@ -137,14 +137,11 @@ hydra:
     hydra:
     - hydra.mode=MULTIRUN
     task:
-    - algorithm=pbm_dimin
-    - algorithm.primal__lr=0.0001,0.0005,0.001,0.002,0.005
+    - algorithm=alm_slack
+    - algorithm.primal__lr=0.0001,0.0005,0.001,0.005
     - +algorithm.primal__weight_decay=0.01
-    - +algorithm.dual__penalty_mult=0.99,0.999,0.9999,1.
-    - algorithm.dual__penalty_update=dimin
-    - algorithm.dual__pbf=quadratic_logarithmic
-    - algorithm.dual__gamma=0.8,0.9,0.95,0.99,0.999
-    - algorithm.dual__delta=1.0
+    - algorithm.dual__lr=0.0001,0.0005,0.001,0.005
+    - algorithm.dual__penalty=0.,1.,2.
     - algorithm.moreau__mu=1.
     - seed=0,1,2
     - task=cifar10_loss
@@ -152,7 +149,7 @@ hydra:
   job:
     name: run_single_experiment
     chdir: false
-    override_dirname: +algorithm.dual__penalty_mult=0.99,0.999,0.9999,1.,+algorithm.primal__weight_decay=0.01,algorithm.dual__delta=1.0,algorithm.dual__gamma=0.8,0.9,0.95,0.99,0.999,algorithm.dual__pbf=quadratic_logarithmic,algorithm.dual__penalty_update=dimin,algorithm.moreau__mu=1.,algorithm.primal__lr=0.0001,0.0005,0.001,0.002,0.005,algorithm=pbm_dimin,data=dutch,seed=0,1,2,task=cifar10_loss
+    override_dirname: +algorithm.primal__weight_decay=0.01,algorithm.dual__lr=0.0001,0.0005,0.001,0.005,algorithm.dual__penalty=0.,1.,2.,algorithm.moreau__mu=1.,algorithm.primal__lr=0.0001,0.0005,0.001,0.005,algorithm=alm_slack,data=dutch,seed=0,1,2,task=cifar10_loss
     id: ???
     num: ???
     config_name: experiment
@@ -179,7 +176,7 @@ hydra:
       provider: schema
     output_dir: ???
     choices:
-      algorithm: pbm_dimin
+      algorithm: alm_slack
       data: dutch
       task: cifar10_loss
       hydra/env: default
@@ -207,13 +204,10 @@ data:
     - SEX
     extend_groups: false
 algorithm:
-  algorithm: pbm_dimin
+  algorithm: alm_slack
   primal__lr: 0.0001, 0.0005, 0.001, 0.005
-  dual_penalty_mult: 0.9, 0.99, 0.999, 1.
-  dual__penalty_update: dimin
-  dual__pbf: quadratic_logarithmic
-  dual__gamma: 0.9, 0.99, 0.999
-  dual__delta: 1.0
+  dual__lr: 0.0001, 0.0005, 0.001, 0.005
+  dual__penalty: 0., 1., 2.
   moreau__mu: 1.0
   primal__weight_decay: 0.01
 n_epochs: 10
