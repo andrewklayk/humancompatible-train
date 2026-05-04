@@ -1,0 +1,17 @@
+Dataset has 200 classes. Sample classes: ['n01443537', 'n01629819', 'n01641577', 'n01644900', 'n01698640']
+
+Dataset: val | Size: 10000
+Loading cache from ./data/cache_val.pt...
+  X: torch.Size([10000, 3, 64, 64]), targets: torch.Size([10000])
+tensor(995000)
+  Loaders created: 'val' and 'val_balanced'
+Epoch   1/10 | train loss 5.3459 acc 0.007 | val loss 5.3013 acc 0.005 | max constraint 0.3071
+Epoch   2/10 | train loss 5.2444 acc 0.012 | val loss 5.3078 acc 0.005 | max constraint 0.6606
+Epoch   3/10 | train loss 5.1482 acc 0.016 | val loss 5.2965 acc 0.005 | max constraint 1.6579
+Epoch   4/10 | train loss 4.9798 acc 0.028 | val loss 4.7633 acc 0.043 | max constraint 3.8804
+Epoch   5/10 | train loss 4.7372 acc 0.047 | val loss 4.3450 acc 0.090 | max constraint 9.3368
+Epoch   6/10 | train loss 4.4343 acc 0.079 | val loss 3.9285 acc 0.152 | max constraint 5.1328
+Epoch   7/10 | train loss 4.1320 acc 0.121 | val loss 3.5667 acc 0.219 | max constraint 5.3288
+Epoch   8/10 | train loss 3.7321 acc 0.179 | val loss 2.9391 acc 0.317 | max constraint 5.8890
+Epoch   9/10 | train loss 3.3022 acc 0.248 | val loss 2.3792 acc 0.451 | max constraint 6.3630
+Epoch  10/10 | train loss 2.7599 acc 0.359 | val loss 1.7547 acc 0.586 | max constraint 6.0408

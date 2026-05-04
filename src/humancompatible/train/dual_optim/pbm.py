@@ -170,7 +170,6 @@ class PBM(Optimizer):
         :type primal_update_process_length: int
         """
         
-        
         params, settings_dict = self._init_constraint_group(m, penalty_mult, penalty_update, delta, pbf, init_duals, init_penalties, momentum, self.dual_range, self.penalty_range, primal_update_process_length)
         param_group_dict = {"params": params, **settings_dict}
         self.add_param_group(param_group_dict)
@@ -255,8 +254,14 @@ class PBM(Optimizer):
 
             cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]['f'](cdivp)
-            lagrangian.add_(duals.mul(penalties) @ pbf_val)
 
+            # change duals to 0 for them < 1e-4, but do not overwrite the actual duals to keep the momentum working
+            active = duals >= 1e-5
+            if active.any():
+                lagrangian.add_(duals[active].mul(penalties[active]) @ pbf_val[active])
+
+            # lagrangian.add_(duals.mul(penalties) @ pbf_val)
+        
         # update the iter
         self.iter = (self.iter + 1) % primal_update_process_length
 
