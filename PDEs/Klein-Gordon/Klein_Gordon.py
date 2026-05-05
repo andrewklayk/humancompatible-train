@@ -13,6 +13,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
+from humancompatible.train.dual_optim import ALM, MoreauEnvelope, PBM
+
 from networks import set_model, u_Net_shallow_wide, u_Net_shallow_wide_resnet, u_Net_deep_narrow, u_Net_deep_narrow_resnet
 
 # Equation parameter
@@ -80,7 +82,7 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
             loss.backward()
             optimizer.step()
         elif dual_opt is not None:
-            threshold = 1e-4
+            threshold = 0.1
             constraints = torch.stack([loss2, loss3, loss4], dim=0)
             constraints = constraints - threshold
 
@@ -114,9 +116,6 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     Nt, Nx = 51, 51
     X_train = torch.FloatTensor(np.mgrid[tmin:tmax:51j, xmin:xmax:51j].reshape(2, -1).T).to(device)
 
-    print(X_train.shape)
-    exit()
-
     # Initial Conditions
     X_ini = Variable(X_train[X_train[:,0]==tmin].to(device), requires_grad=True)
     u_ini = X_ini.detach()[:,1].view(-1,1)
@@ -128,7 +127,12 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     
     # Validation & Test Set
     X_test, y_test, X_val, y_val= torch.load('./PDEs/Klein-Gordon/Klein-Gordon_test', map_location=device)
-    
+
+    # take 1000 samples from the validation set
+    idx = np.random.choice(X_val.shape[0], 1000, replace=False)
+    X_val = X_val[idx]
+    y_val = y_val[idx]
+
     # Make dataloader
     data_train = TensorDataset(X_train)
     train_loader = DataLoader(data_train, batch_size=10000, shuffle=False)
@@ -140,25 +144,22 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     optimizer=torch.optim.Adam([{'params': u_model.parameters()}], lr=lr)
     best_model = copy.deepcopy(u_model)
 
-    for t in tqdm(range(0, EPOCH)) :
+    # for t in tqdm(range(0, EPOCH)) :
 
-        loss, loss1, loss2, loss3, loss4, val_err, test_err = train(u_model, beta, trainloader=train_loader,\
-                                                      ini_bdry_data=[X_ini, u_ini, u_ini_t, X_bdry, u_bdry],\
-                                                      val_test = [X_val, y_val, X_test, y_test],\
-                                                      optimizer=optimizer, loss_f=nn.MSELoss())
+    #     loss, loss1, loss2, loss3, loss4, val_err, test_err = train(u_model, beta, trainloader=train_loader,\
+    #                                                   ini_bdry_data=[X_ini, u_ini, u_ini_t, X_bdry, u_bdry],\
+    #                                                   val_test = [X_val, y_val, X_test, y_test],\
+    #                                                   optimizer=optimizer, loss_f=nn.MSELoss())
         
-        val_errs.append(val_err)
-        test_errs.append(test_err)
-        total_loss.append(loss)
-        constraints.append([loss2, loss3, loss4])    # append both costraint
+    #     val_errs.append(val_err)
+    #     test_errs.append(test_err)
+    #     total_loss.append(loss)
+    #     constraints.append([loss2, loss3, loss4])    # append both costraint
 
-        # Print Log
-        if t%100 == 0 :
-            print("%s/%s | loss: %06.6f | loss_f: %06.6f | loss_u: %06.6f | val error : %06.6f | test error : %06.6f " % \
-                  (t, EPOCH, loss, loss1, loss2+loss3+loss4, val_err, test_err))
-
-        if np.argmin(val_errs) == t :
-            best_model = copy.deepcopy(u_model)
+    #     # Print Log
+    #     if t%100 == 0 :
+    #         print("%s/%s | loss: %06.6f | loss_f: %06.6f | loss_u: %06.6f | val error : %06.6f | test error : %06.6f " % \
+    #               (t, EPOCH, loss, loss1, loss2+loss3+loss4, val_err, test_err))
 
 
     # SPBM
@@ -167,7 +168,7 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     u_model = set_model(model_name, device)
     
     # Define data and optimizers
-    optimizer = MoreauEnvelope(torch.optim.Adam([{'params': u_model.parameters()}], lr=0.005), mu=2.0)
+    optimizer = MoreauEnvelope(torch.optim.Adam([{'params': u_model.parameters()}], lr=0.001), mu=0.1)
     
     dual = PBM(
         m=3,
@@ -180,7 +181,7 @@ def main_function(model_name, beta, lr, EPOCH, device) :
         init_penalties=1.,
         penalty_range=(0.5, 1.),
         penalty_mult=0.99,
-        dual_range=(0.01, 100.),
+        dual_range=(0.1, 100.),
         delta=1.0,
         device=device
     )
@@ -192,8 +193,8 @@ def main_function(model_name, beta, lr, EPOCH, device) :
                                                       val_test = [X_val, y_val, X_test, y_test],\
                                                       optimizer=optimizer, loss_f=nn.MSELoss(), dual_opt=dual)
         
-        val_spbm.append(val_err)
-        test_spbm.append(test_err)
+        val_errs_spbm.append(val_err)
+        test_errs_spbm.append(test_err)
         total_loss_spbm.append(loss)
         constraints_spbm.append([loss2, loss3, loss4])    # append both costraint
 
@@ -201,9 +202,6 @@ def main_function(model_name, beta, lr, EPOCH, device) :
         if t%100 == 0 :
             print("%s/%s | loss: %06.6f | loss_f: %06.6f | loss_u: %06.6f | val error : %06.6f | test error : %06.6f " % \
                   (t, EPOCH, loss, loss1, loss2+loss3+loss4, val_err, test_err))
-
-        if np.argmin(val_errs) == t :
-            best_model = copy.deepcopy(u_model)
     
     # ALM
     torch.manual_seed(0)
@@ -226,8 +224,8 @@ def main_function(model_name, beta, lr, EPOCH, device) :
                                                       val_test = [X_val, y_val, X_test, y_test],\
                                                       optimizer=optimizer, loss_f=nn.MSELoss(), dual_opt=dual)
         
-        val_alm.append(val_err)
-        test_alm.append(test_err)
+        val_errs_alm.append(val_err)
+        test_errs_alm.append(test_err)
         total_loss_alm.append(loss)
         constraints_alm.append([loss2, loss3, loss4])    # append both costraint
 
@@ -235,10 +233,6 @@ def main_function(model_name, beta, lr, EPOCH, device) :
         if t%100 == 0 :
             print("%s/%s | loss: %06.6f | loss_f: %06.6f | loss_u: %06.6f | val error : %06.6f | test error : %06.6f " % \
                   (t, EPOCH, loss, loss1, loss2+loss3+loss4, val_err, test_err))
-
-        if np.argmin(val_errs) == t :
-            best_model = copy.deepcopy(u_model)
-
 
     # plot the resultsimport matplotlib.pyplot as plt
     import matplotlib.pyplot as plt
@@ -261,13 +255,13 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     # plot both constraints + methods shuold have the same color but dashed vs solid
     axes[2].plot([c[0] for c in constraints], label='Adam - Initial Condition - Zero Order', linestyle='--', color='blue')
     axes[2].plot([c[1] for c in constraints], label='Adam - Initial Condition - First Order', linestyle='-', color='blue')
-    axes[2].plot([c[2] for c in constraints], label='Adam - Boundary Condition', linestyle='.', color='blue')
-    axes[2].plot([c[0] for c in constraints_spbm], label='SPBM - Initial Condition - Zero Order', linestyle='--', color='green')
-    axes[2].plot([c[1] for c in constraints_spbm], label='SPBM - Initial Condition - First Order', linestyle='-', color='green') 
-    axes[2].plot([c[2] for c in constraints_spbm], label='SPBM - Boundary Condition', linestyle='.', color='green')     
-    axes[2].plot([c[0] for c in constraints_alm], label='ALM - Initial Condition - Zero Order', linestyle='--', color='red')
-    axes[2].plot([c[1] for c in constraints_alm], label='ALM - Initial Condition - First Order', linestyle='-', color='red')
-    axes[2].plot([c[2] for c in constraints_alm], label='ALM - Boundary Condition', linestyle='.', color='red')
+    axes[2].plot([c[2] for c in constraints], label='Adam - Boundary Condition', linestyle=':', color='blue')
+    axes[2].plot([c[0] for c in constraints_spbm], label='SPBM - Initial Condition - Zero Order', linestyle='--', color='orange')
+    axes[2].plot([c[1] for c in constraints_spbm], label='SPBM - Initial Condition - First Order', linestyle='-', color='orange') 
+    axes[2].plot([c[2] for c in constraints_spbm], label='SPBM - Boundary Condition', linestyle=':', color='orange')     
+    axes[2].plot([c[0] for c in constraints_alm], label='ALM - Initial Condition - Zero Order', linestyle='--', color='green')
+    axes[2].plot([c[1] for c in constraints_alm], label='ALM - Initial Condition - First Order', linestyle='-', color='green')
+    axes[2].plot([c[2] for c in constraints_alm], label='ALM - Boundary Condition', linestyle=':', color='green')
     axes[2].set_xlabel('Epoch')
     axes[2].set_ylabel('Constraint Violation')
     axes[2].legend()
@@ -281,12 +275,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='deep_narrow', help='Specify the model. Choose one of [deep_narrow, shallow_wide, deep_narrow_resent, shallow_wide_resnet].')
     parser.add_argument('--beta', default=1, type=float, help='Penalty parameter beta')
-    parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
-    parser.add_argument('--EPOCH', default=100, type=int, help='Number of training EPOCH')
+    parser.add_argument('--lr', default=1e-1, type=float, help='Learning rate')
+    parser.add_argument('--EPOCH', default=2000, type=int, help='Number of training EPOCH')
     parser.add_argument('--ordinal', default=0, type=int, help='Specify the cuda device ordinal.')
     args = parser.parse_args()
     
     device = 'cuda'
-    best_model, total_loss, val_errs, test_errs = main_function(args.model, args.beta, args.lr, args.EPOCH, device)
-    print('Best Test Error : ', test_errs[np.argmin(val_errs)])
+    main_function(args.model, args.beta, args.lr, args.EPOCH, device)
+    
     

@@ -100,7 +100,12 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     
     # Validation & Test Set
     X_test, y_test, X_val, y_val= torch.load('./PDEs/Viscous_Burgers/Burgers_test', map_location=device)
-    
+
+    # take 1000 samples from the validation set
+    idx = np.random.choice(X_val.shape[0], 1000, replace=False)
+    X_val = X_val[idx]
+    y_val = y_val[idx]
+
     # Make dataloader
     data_train = TensorDataset(X_train)
     train_loader = DataLoader(data_train, batch_size=10000, shuffle=False)
@@ -242,10 +247,10 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     # plot both constraints + methods shuold have the same color but dashed vs solid
     axes[2].plot([c[0] for c in constraints], label='Adam - Initial Condition', linestyle='--', color='blue')
     axes[2].plot([c[1] for c in constraints], label='Adam - Boundary Condition', linestyle='-', color='blue')
-    axes[2].plot([c[0] for c in constraints_spbm], label='SPBM - Initial Condition', linestyle='--', color='green')
-    axes[2].plot([c[1] for c in constraints_spbm], label='SPBM - Boundary Condition', linestyle='-', color='green')   
-    axes[2].plot([c[0] for c in constraints_alm], label='ALM - Initial Condition', linestyle='--', color='red')
-    axes[2].plot([c[1] for c in constraints_alm], label='ALM - Boundary Condition', linestyle='-', color='red')
+    axes[2].plot([c[0] for c in constraints_spbm], label='SPBM - Initial Condition', linestyle='--', color='orange')
+    axes[2].plot([c[1] for c in constraints_spbm], label='SPBM - Boundary Condition', linestyle='-', color='orange')   
+    axes[2].plot([c[0] for c in constraints_alm], label='ALM - Initial Condition', linestyle='--', color='green')
+    axes[2].plot([c[1] for c in constraints_alm], label='ALM - Boundary Condition', linestyle='-', color='green')
     axes[2].set_xlabel('Epoch')
     axes[2].set_ylabel('Constraint Violation')
     axes[2].legend()

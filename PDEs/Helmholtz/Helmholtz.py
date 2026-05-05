@@ -100,7 +100,16 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     u_bdry = torch.zeros_like(X_bdry[:,0]).to(device).view(-1,1)
     
     X_test, y_test, X_val, y_val= torch.load('./PDEs/Helmholtz/Helmholtz_test', map_location=device)
-    
+
+    # take 1000 samples from the validation set
+    idx = np.random.choice(X_val.shape[0], 1000, replace=False)
+    X_val = X_val[idx]
+    y_val = y_val[idx]
+        
+    print(X_train.shape)
+    print(X_val.shape)
+    exit()
+
     # Make dataloader
     data_train = TensorDataset(X_train)
     train_loader = DataLoader(data_train, batch_size=10000, shuffle=False)
