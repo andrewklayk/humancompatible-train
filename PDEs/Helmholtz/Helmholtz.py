@@ -84,7 +84,7 @@ def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f, du
         val_list.append(val_err)
         test_list.append(test_err)
         
-    return np.mean(loss_list), np.mean(loss_list1), np.mean(loss_list2), np.mean(val_list), np.mean(test_list)
+        
 
 
 def main_function(model_name, beta, lr, EPOCH, device) :
