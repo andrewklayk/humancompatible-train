@@ -168,7 +168,7 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     u_model = set_model(model_name, device)
     
     # Define data and optimizers
-    optimizer = MoreauEnvelope(torch.optim.Adam([{'params': u_model.parameters()}], lr=0.001), mu=0.1)
+    optimizer = MoreauEnvelope(torch.optim.Adam([{'params': u_model.parameters()}], lr=0.0005), mu=0.1)
     
     dual = PBM(
         m=3,
@@ -176,8 +176,8 @@ def main_function(model_name, beta, lr, EPOCH, device) :
         # penalty_update='dimin_adapt',
         penalty_update='const',
         pbf = 'quadratic_logarithmic',
-        gamma=0.9,
-        init_duals=0.01,
+        gamma=0.1,
+        init_duals=0.1,
         init_penalties=1.,
         penalty_range=(0.5, 1.),
         penalty_mult=0.99,
