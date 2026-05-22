@@ -343,9 +343,13 @@ class PBM(Optimizer):
                     )
 
             cdivp = group_constraints.div(penalties)
-            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
-            lagrangian.add_(duals.mul(penalties) @ pbf_val)
+            pbf_val = penalty_barrier_funcs[pbf]['f'](cdivp)
 
+            # change duals to 0 for them < 1e-4, but do not overwrite the actual duals to keep the momentum working
+            active = duals >= 1e-5
+            if active.any():
+                lagrangian.add_(duals[active].mul(penalties[active]) @ pbf_val[active])
+        
         # update the iter
         self.iter = (self.iter + 1) % primal_update_process_length
 
