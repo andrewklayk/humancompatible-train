@@ -1,6 +1,5 @@
 import torch
 from torch.optim import Optimizer
-from torch.optim.optimizer import _use_grad_for_differentiable
 
 
 class MoreauEnvelope(Optimizer):
@@ -8,7 +7,7 @@ class MoreauEnvelope(Optimizer):
         self,
         optimizer: torch.optim.Optimizer,
         *,
-        mu: float = 2.,
+        mu: float = 2.0,
         beta: float = 0.5,
     ) -> None:
         """
@@ -26,24 +25,33 @@ class MoreauEnvelope(Optimizer):
         self.mu, self.beta = mu, beta
 
         if mu < 0:
-            raise ValueError(f"The smoothing parameter`mu`must be non-negative, got {mu}.")
+            raise ValueError(
+                f"The smoothing parameter`mu`must be non-negative, got {mu}."
+            )
         else:
             self.smoothing_buffer = []
             for param_group in optimizer.param_groups:
-                self.smoothing_buffer.append({'params': []})
-                for _, param in enumerate(param_group['params']):
-                    self.smoothing_buffer[-1]['params'].append(param.clone().detach())
+                self.smoothing_buffer.append({"params": []})
+                for _, param in enumerate(param_group["params"]):
+                    self.smoothing_buffer[-1]["params"].append(param.clone().detach())
 
     def step(self) -> None:
         with torch.no_grad():
             # add smoothing term gradient to the gradient w.r.t. primal params, and update smoothing params before optimizer step
-            for param_group, smoothing_buffer_group in zip(self.optimizer.param_groups, self.smoothing_buffer):
-                for param, smoothing_buffer in zip(param_group["params"], smoothing_buffer_group['params']):
-                    param.grad.add_(param, alpha=self.mu).add_(smoothing_buffer, alpha=-self.mu)
-                    smoothing_buffer.add_(smoothing_buffer, alpha=-self.beta).add_(param, alpha=self.beta)
-        
-        self.optimizer.step()
+            for param_group, smoothing_buffer_group in zip(
+                self.optimizer.param_groups, self.smoothing_buffer
+            ):
+                for param, smoothing_buffer in zip(
+                    param_group["params"], smoothing_buffer_group["params"]
+                ):
+                    param.grad.add_(param, alpha=self.mu).add_(
+                        smoothing_buffer, alpha=-self.mu
+                    )
+                    smoothing_buffer.add_(smoothing_buffer, alpha=-self.beta).add_(
+                        param, alpha=self.beta
+                    )
 
+        self.optimizer.step()
 
     def __getattr__(self, name):
         # Delegate to the wrapped object
@@ -54,8 +62,10 @@ class MoreauEnvelope(Optimizer):
         else:
             # If it's a method, bind it to self.optimizer
             if callable(attr):
+
                 def method(*args, **kwargs):
                     return attr(self.optimizer, *args, **kwargs)
+
                 return method
             else:
                 return attr
@@ -72,7 +82,7 @@ class MoreauEnvelope(Optimizer):
     # def load_state_dict(self, state_dict: dict[str, Any]) -> None:
     #     primal_state_dict = state_dict["primal"]
     #     self.primal_optimizer.load_state_dict(primal_state_dict)
-        
+
     #     dual_state_dict = state_dict["dual"]
     #     self.penalty = dual_state_dict["state"]["penalty"]
     #     self.dual_range = dual_state_dict["state"]["dual_range"]

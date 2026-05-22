@@ -4,10 +4,10 @@ from torch.optim import Optimizer
 from typing import Any, Tuple
 from torch import clamp_, Tensor
 
-# cite: Stochastic Smoothed Primal-Dual Algorithms for Nonconvex Optimization with Linear Inequality Constraints 
-# https://arxiv.org/pdf/2504.07607
+# cite: Stochastic inexact augmented Lagrangian method for nonconvex expectation constrained optimization
+# https://link.springer.com/content/pdf/10.1007/s10589-023-00521-z.pdf
 
-class ALM(Optimizer):
+class iALM(Optimizer):
     def __init__(
         self,
         m: int = None,
@@ -18,6 +18,9 @@ class ALM(Optimizer):
         dual_range: Tuple[float, float] = (0.0, 100.0),
         momentum: float = 0.0,
         dampening: float = 0.0,
+        beta: float = 1.0,
+        sigma: float = 1.0,
+        gamma: float = 1.0,
         ctol: float = 1e-4,
         device=None,
     ) -> None:
@@ -38,7 +41,13 @@ class ALM(Optimizer):
         :type momentum: float
         :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
         :type dampening: float
-        :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
+        :param beta: Dual variable update rate
+        :type beta: float
+        :param sigma: Multiplier for increasing`beta`.
+        :type sigma: float
+        :param gamma: Penalty update parameter
+        :type gamma: float
+        :param ctol: Constraint tolerance; value that allows tiny violations of constraints to account for noise.
         :type ctol: float
         """
 
@@ -46,9 +55,13 @@ class ALM(Optimizer):
             dampening = momentum
 
         self.dual_range = dual_range
+
+        self.beta = beta
+        self.penalty = penalty
+        self.gamma = gamma
+        self.sigma = sigma
         self.ctol = ctol
 
-        self.penalty = penalty
         duals, defaults = self._init_constraint_group(
             m, lr, momentum, dampening, init_duals, dual_range, device
         )
@@ -142,17 +155,25 @@ class ALM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals = group["params"][0]
+            duals, lr, momentum, dampening, momentum_buffer = (
+                group["params"][0],
+                group["lr"],
+                group["momentum"],
+                group["dampening"],
+                group["momentum_buffer"],
+            )
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
             lagrangian.add_(duals @ group_constraints)
+            
+            _update_c_buffers(
+                group_constraints, momentum, dampening, momentum_buffer
+            )
 
-        if self.penalty > 0:
-            lagrangian.add_(0.5 * self.penalty * torch.dot(constraints - self.ctol, constraints - self.ctol))
+        lagrangian.add_(0.5 * self.beta * torch.dot(constraints, constraints))
 
         return lagrangian
 
     def update(self, constraints: Tensor) -> None:
-        """"""
         """
         Updates the dual variables
         
@@ -170,9 +191,12 @@ class ALM(Optimizer):
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
             with torch.no_grad():
                 _update_duals(
-                    duals, group_constraints, lr, momentum, dampening, momentum_buffer
+                    duals, group_constraints, lr, self.beta, self.gamma, momentum, dampening, momentum_buffer
                 )
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+
+        self.beta *= self.sigma
+
 
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
@@ -198,15 +222,19 @@ class ALM(Optimizer):
             )
             group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
             with torch.no_grad():
+                _update_c_buffers(
+                    group_constraints, momentum, dampening, momentum_buffer
+                )
                 _update_duals(
-                    duals, group_constraints, lr, momentum, dampening, momentum_buffer
+                    duals, group_constraints, lr, self.beta, self.gamma, momentum, dampening, momentum_buffer
                 )
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
 
             lagrangian.add_(duals @ group_constraints)
 
-        if self.penalty > 0:
-            lagrangian.add_(0.5 * self.penalty * torch.dot(constraints - self.ctol, constraints - self.ctol))
+        lagrangian.add_(0.5 * self.beta * torch.dot(constraints - self.ctol, constraints - self.ctol))
+
+        self.beta *= self.sigma
 
         return lagrangian
 
@@ -232,16 +260,28 @@ class ALM(Optimizer):
             self.param_groups.append(param)
 
 
-def _update_duals(
-    duals: Tensor,
+def _update_c_buffers(
     constraints: Tensor,
-    lr: float,
     momentum: float,
     dampening: float,
     buffer: Tensor,
-) -> None:
+):
     if momentum == 0:
         buffer = constraints
     else:
         buffer.mul_(momentum).add_(constraints, alpha=1 - dampening)
-    duals.add_(buffer, alpha=lr)
+
+
+def _update_duals(
+    duals: Tensor,
+    constraints: Tensor,
+    lr: float,
+    beta: float,
+    gamma: float,
+    momentum: float,
+    dampening: float,
+    buffer: Tensor,
+) -> None:
+    
+    update_mult = min(beta, gamma/(buffer @ buffer))
+    duals.add_(buffer, alpha=update_mult)
