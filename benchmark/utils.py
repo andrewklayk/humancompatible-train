@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from torch import nn
 from torch.nn import Sequential
+from torchvision import models
 
 # define the network
 class ConvNet(nn.Module):
@@ -25,6 +26,19 @@ class ConvNet(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+def create_efficientnet(num_classes=200):
+    """EfficientNet-B0 from scratch (no pretrained weights)."""
+    model = models.efficientnet_b0(weights=None)
+    # Replace classifier head for 200-class TinyImageNet
+    in_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(in_features, num_classes)
+    return model
+
+
+def create_resnet():
+    import torchvision
+    return torchvision.models.resnet18(pretrained=False)
 
 def create_conv_model():
     return ConvNet()
@@ -128,10 +142,7 @@ def run_train(
     constraint_tol: float = 0.,
     criterion = None,
 ):
-    # Use provided criterion or fall back to global
-    if criterion is None:
-        criterion = globals()['criterion']
-    
+    print(f"Starting on {device}")
     model = model_gen(**model_kwargs)
 
     primal_params = {k.removeprefix('primal__'): v for k, v in param_set.items() if k.startswith('primal__')}
@@ -158,8 +169,8 @@ def run_train(
 
     bounds = torch.tensor([constraint_bound]*m).to(device)
 
-    torch.sum(model(data_train[0][0].unsqueeze(0))).backward()
-    model.zero_grad()
+    # torch.sum(model(data_train[0][0].unsqueeze(0))).backward()
+    # model.zero_grad()
 
     if mode == 'hc':
         history = train_loop_primal_dual(
@@ -249,20 +260,25 @@ def train_loop_sw(
 
         epoch_losses = []
         epoch_constraints = []
+        epoch_accuracies = []
         epoch_constraint_time = 0.0
         
         if epoch == 0:
             model.eval()
+            train_start_time = time.perf_counter()
             for batch_features, batch_sens_attrs, batch_labels in train_dataloader:
                 batch_features = batch_features.to(device)
                 batch_sens_attrs = batch_sens_attrs.to(device)
                 batch_labels = batch_labels.to(device)
                 batch_out = model(batch_features)
-                constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, None, batch_sens_attrs, batch_labels, batch_out, None)
                 loss = loss_fn(batch_out, batch_labels)
-                train_start_time = time.perf_counter()
+                constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, None, batch_sens_attrs, batch_labels, batch_out, loss)
+                batch_acc = calc_perclass_acc(batch_sens_attrs, batch_labels, batch_out)
+                if loss.dim() > 0:  # If loss is not aggregated
+                    loss = loss.mean()
                 epoch_losses.append(loss.detach().cpu().numpy().item())
                 epoch_constraints.append(constraints.detach().cpu().numpy())
+                epoch_accuracies.append(batch_acc)
         else:
             # Training phase
             model.train()
@@ -285,6 +301,7 @@ def train_loop_sw(
                 constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, None, batch_sens_attrs, batch_labels, batch_out, None)
                 epoch_constraint_time += time.perf_counter() - constraint_start
                 
+                batch_acc = calc_perclass_acc(batch_sens_attrs, batch_labels, batch_out)
                 max_constraint = max(constraints_bounded_eq)
 
                 # constraint step if violated
@@ -292,14 +309,19 @@ def train_loop_sw(
                     max_constraint.backward()
                     dual_optimizer.step()
                     loss = loss_fn(batch_out, batch_labels)
+                    if loss.dim() > 0:
+                        loss = loss.mean()
                 else:
                     loss = loss_fn(batch_out, batch_labels)
+                    if loss.dim() > 0:
+                        loss = loss.mean()
                     loss.backward()
                     optimizer.step()
                 
 
                 epoch_losses.append(loss.detach().cpu().numpy().item())
                 epoch_constraints.append(constraints.detach().cpu().numpy())
+                epoch_accuracies.append(batch_acc)
 
         # Stop training timer
         train_end_time = time.perf_counter()
@@ -312,19 +334,21 @@ def train_loop_sw(
         eval_dict = {
             "epoch": epoch,
             "time": train_time,
-            "loss": np.mean(epoch_losses)
+            "loss": np.mean(epoch_losses),
+            "acc": np.mean(epoch_accuracies, axis=0)
         } | { f"c_{j}": c for j, c in enumerate(np.mean(epoch_constraints, axis=0)) }
 
         history_train.append(eval_dict)
         
         # Validation phase
         model.eval()
-        val_loss, val_constraints = validate_model(model, val_data, loss_fn, constraint_fn, device)
+        val_loss, val_constraints, val_acc = validate_model(model, val_data, loss_fn, constraint_fn, device)
         
         eval_dict = {
             "epoch": epoch,
             "time": train_time,
-            "loss": val_loss
+            "loss": val_loss,
+            "acc": val_acc
         } | {
             f"c_{j}": c for j, c in enumerate(val_constraints)
         }
@@ -373,20 +397,28 @@ def train_loop_primal_dual(
         model.train()
         epoch_losses = []
         epoch_constraints = []
+        epoch_accuracies = []
         epoch_constraint_time = 0.0
         
         if epoch == 0:
             model.eval()
+            train_start_time = time.perf_counter()
             for batch_features, batch_sens_attrs, batch_labels in train_dataloader:
                 batch_features = batch_features.to(device)
                 batch_sens_attrs = batch_sens_attrs.to(device)
                 batch_labels = batch_labels.to(device)
                 batch_out = model(batch_features)
-                constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, None, batch_sens_attrs, batch_labels, batch_out, None)
                 loss = loss_fn(batch_out, batch_labels)
-                train_start_time = time.perf_counter()
+                # print(loss)
+                constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, None, batch_sens_attrs, batch_labels, batch_out, loss)
+                batch_acc = calc_perclass_acc(batch_sens_attrs, batch_labels, batch_out)
+                # print(constraints)
+                # print(constraints_bounded_eq)
+                if loss.dim() > 0:  # If loss is not aggregated
+                    loss = loss.mean()
                 epoch_losses.append(loss.detach().cpu().numpy().item())
                 epoch_constraints.append(constraints.detach().cpu().numpy())
+                epoch_accuracies.append(batch_acc)
             model.train()
         else:
             # Start training timer
@@ -408,10 +440,12 @@ def train_loop_primal_dual(
                 # Compute constraints
                 # if not timing constraints, we just log the time and then subtract it at the end.
                 constraint_start = time.perf_counter()
+                # print(loss)
                 constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, slack_vars, batch_sens_attrs, batch_labels, batch_out, loss)
                 epoch_constraint_time += time.perf_counter() - constraint_start
                 
-                if mode != 'sw' and loss.dim() > 0:  # If loss is not aggregated
+                batch_acc = calc_perclass_acc(batch_sens_attrs, batch_labels, batch_out)
+                if loss.dim() > 0:  # If loss is not aggregated
                     loss = loss.mean()
                     
                 lgr = dual_optimizer.forward_update(loss, constraints_bounded_eq)
@@ -420,6 +454,7 @@ def train_loop_primal_dual(
                 
                 epoch_losses.append(loss.detach().cpu().numpy().item())
                 epoch_constraints.append(constraints.detach().cpu().numpy())
+                epoch_accuracies.append(batch_acc)
 
         # Stop training timer
         train_end_time = time.perf_counter()
@@ -432,23 +467,23 @@ def train_loop_primal_dual(
         eval_dict = {
             "epoch": epoch,
             "time": train_time,
-            "loss": np.mean(epoch_losses)
+            "loss": np.mean(epoch_losses),
+            "acc": np.mean(epoch_accuracies, axis=0)
         } | { f"c_{j}": c for j, c in enumerate(np.mean(epoch_constraints, axis=0)) }
-
         history_train.append(eval_dict)
         
         # Validation phase
         model.eval()
-        val_loss, val_constraints = validate_model(model, val_data, loss_fn, constraint_fn, device)
+        val_loss, val_constraints, val_acc = validate_model(model, val_data, loss_fn, constraint_fn, device)
         
         eval_dict = {
             "epoch": epoch,
             "time": train_time,
-            "loss": val_loss
+            "loss": val_loss,
+            "acc": val_acc
         } | {
             f"c_{j}": c for j, c in enumerate(val_constraints)
         }
-
         history_val.append(eval_dict)
     
     return model, history_train, history_val
@@ -488,20 +523,25 @@ def train_loop_adam(
         model.train()
         epoch_losses = []
         epoch_constraints = []
+        epoch_accuracies = []
         epoch_constraint_time = 0.0
         
         if epoch == 0:
             model.eval()
+            train_start_time = time.perf_counter()
             for batch_features, batch_sens_attrs, batch_labels in train_dataloader:
                 batch_features = batch_features.to(device)
                 batch_sens_attrs = batch_sens_attrs.to(device)
                 batch_labels = batch_labels.to(device)
                 batch_out = model(batch_features)
-                constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, None, batch_sens_attrs, batch_labels, batch_out, None)
                 loss = loss_fn(batch_out, batch_labels)
-                train_start_time = time.perf_counter()
+                constraints, constraints_bounded_eq = calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, None, batch_sens_attrs, batch_labels, batch_out, loss)
+                batch_acc = calc_perclass_acc(batch_sens_attrs, batch_labels, batch_out)
+                if loss.dim() > 0:  # If loss is not aggregated
+                    loss = loss.mean()
                 epoch_losses.append(loss.detach().cpu().numpy().item())
                 epoch_constraints.append(constraints.detach().cpu().numpy())
+                epoch_accuracies.append(batch_acc)
             model.train()
         else:
             # Start training timer
@@ -526,6 +566,7 @@ def train_loop_adam(
                 if not time_constraint_computation: # time constraint separately to subtract it from total time later
                     epoch_constraint_time += time.perf_counter() - constraint_start
                 
+                batch_acc = calc_perclass_acc(batch_sens_attrs, batch_labels, batch_out)
                 if loss.dim() > 0:  # If loss is not aggregated
                     loss = loss.mean()
 
@@ -540,6 +581,7 @@ def train_loop_adam(
             
                 epoch_losses.append(loss.detach().cpu().numpy().item())
                 epoch_constraints.append(constraints.detach().cpu().numpy())
+                epoch_accuracies.append(batch_acc)
 
         # Stop training timer
         train_end_time = time.perf_counter()
@@ -552,19 +594,21 @@ def train_loop_adam(
         eval_dict = {
             "epoch": epoch,
             "time": train_time,
-            "loss": np.mean(epoch_losses)
+            "loss": np.mean(epoch_losses),
+            "acc": np.mean(epoch_accuracies, axis=0)
         } | { f"c_{j}": c for j, c in enumerate(np.mean(epoch_constraints, axis=0)) }
 
         history_train.append(eval_dict)
         
         # Validation phase
         model.eval()
-        val_loss, val_constraints = validate_model(model, val_data, loss_fn, constraint_fn, device)
+        val_loss, val_constraints, val_acc = validate_model(model, val_data, loss_fn, constraint_fn, device)
         
         eval_dict = {
             "epoch": epoch,
             "time": train_time,
-            "loss": val_loss
+            "loss": val_loss,
+            "acc": val_acc
         } | {
             f"c_{j}": c for j, c in enumerate(val_constraints)
         }
@@ -577,6 +621,7 @@ def train_loop_adam(
 def validate_model(model, val_data, loss_fn, constraint_fn, device):
     val_losses = []
     val_constraints_list = []
+    val_accuracies_list = []
     with torch.no_grad():
         if isinstance(val_data, torch.utils.data.DataLoader):
             # Use dataloader batches
@@ -591,9 +636,11 @@ def validate_model(model, val_data, loss_fn, constraint_fn, device):
                     val_loss = val_loss.mean()
                     
                 val_constraints = constraint_fn(model, val_out, batch_sens_attrs, batch_labels)
+                val_acc = calc_perclass_acc(batch_sens_attrs, batch_labels, val_out)
                 # val_constraints -= constraint_bounds
                 val_losses.append(val_loss.detach().cpu().numpy().item())
                 val_constraints_list.append(val_constraints.detach().cpu().numpy())
+                val_accuracies_list.append(val_acc)
         else:
             # Use full validation dataset
             val_features, val_sens_attrs, val_labels = val_data
@@ -607,12 +654,15 @@ def validate_model(model, val_data, loss_fn, constraint_fn, device):
                 val_loss = val_loss.mean()
                 
             val_constraints = constraint_fn(model, val_out, val_sens_attrs, val_labels)
+            val_acc = calc_perclass_acc(val_sens_attrs, val_labels, val_out)
             val_losses.append(val_loss.detach().cpu().numpy().item())
             val_constraints_list.append(val_constraints.detach().cpu().numpy())
+            val_accuracies_list.append(val_acc)
 
     val_losses = np.mean(val_losses)
     val_constraints_list = np.mean(val_constraints_list, axis=0)
-    return val_losses, val_constraints_list
+    val_accuracies = np.mean(val_accuracies_list, axis=0)
+    return val_losses, val_constraints_list, val_accuracies
 
 
 def calc_constraints(model, constraint_fn, constraint_bounds, constraint_options, slack_vars, batch_sens, batch_labels, batch_out, loss=None):
@@ -629,3 +679,34 @@ def calc_constraints(model, constraint_fn, constraint_bounds, constraint_options
         constraints_bounded_eq = (constraints - constraint_bounds)
     return constraints, constraints_bounded_eq
 
+
+def calc_perclass_acc(batch_classes_onehot, batch_labels, batch_out):
+    """
+    Efficiently calculate per-class accuracy.
+    
+    Args:
+        batch_classes_onehot: shape (batch_size, n_classes), one-hot encoding of class membership
+        batch_labels: shape (batch_size,), ground truth labels
+        batch_out: shape (batch_size, n_classes), logits from model
+    
+    Returns:
+        per_class_acc: shape (n_classes,), accuracy for each class
+    """
+    # Get predictions from logits
+    predictions = torch.argmax(batch_out, dim=1)
+    
+    # Check if predictions match labels
+    if batch_labels.ndim > predictions.ndim:
+        batch_labels = batch_labels.squeeze()
+    correct = (predictions == batch_labels).float()  # shape (batch_size,)
+    
+    # Number of samples per class
+    n_samples_per_class = batch_classes_onehot.sum(dim=0)  # shape (n_classes,)
+    
+    # Sum correct predictions per class using matrix multiplication
+    correct_per_class = batch_classes_onehot.T @ correct  # shape (n_classes,)
+    
+    # Calculate per-class accuracy, avoid division by zero
+    per_class_acc = correct_per_class / (n_samples_per_class + 1e-8)
+    
+    return per_class_acc.detach().cpu().numpy()

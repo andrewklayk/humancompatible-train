@@ -7,31 +7,54 @@ constraint:
   bound: 0.1
   loss: CrossEntropyLoss
 
-pbm_params:
-  primal__lr: 0.01
-  dual__penalty_mult: 0.1
-  dual__penalty_update: dimin_adapt #aimd
-  dual__penalty_range: [1e-1, 100]
-  dual__pbf: quadratic_logarithmic
-  dual__gamma: 0.1
-  dual_delta: 0.5
-  moreau__mu: 2.0
+# pbm_params:
+#   primal__lr: 0.005
+#   dual__penalty_mult: 0.1
+#   dual__penalty_update: dimin_adapt #aimd
+#   dual__penalty_range: [1e-1, 100.]
+#   dual__pbf: quadratic_logarithmic
+#   dual__gamma: 0.5
+#   dual_delta: 0.1
+#   moreau__mu: 2.0
 
-alm_params:
-  primal__lr: 0.001
-  dual__lr: 0.05
-  dual__penalty: 0.0
-  dual__momentum: 0.0
-  moreau__mu: 0.0
+# pbm_params:
+#   primal__lr: 0.0005
+#   dual__penalty_mult: 0.9
+#   dual__penalty_update: dimin_adapt #aimd
+#   dual__penalty_range: [1e-1, 1.]
+#   dual__pbf: quadratic_logarithmic
+#   dual__gamma: 0.9
+#   dual_delta: 1.0
+#   moreau__mu: 2.0
+
+# pbm_params:
+#   primal__lr: 0.001
+#   dual__penalty_mult: 0.99
+#   dual__penalty_update: const #aimd
+#   dual__penalty_range: [1e-1, 1.]
+#   dual__pbf: quadratic_reciprocal
+#   dual__gamma: 0.9
+#   dual_delta: 1.0
+#   moreau__mu: 1.0
+#   +primal__weight_decay: 0.01
+
+# alm_params:
+#   primal__lr: 0.001
+#   dual__lr: 0.001
+#   dual__penalty: 0.0
+#   moreau__mu: 1.0
+#   +primal__weight_decay: 0.01
 
 ssg_params:
   primal__lr: 0.01
   dual__lr: 0.001
-  moreau__mu: 0.0
+  moreau__mu: 1.0
+  +primal__weight_decay: 0.01
 
-adam_params:
-  lr: 0.01
-  penalty: 0.5
+# adam_params:
+#   lr: 0.001
+#   +primal__weight_decay: 0.01
+#   # penalty: 0.5
 
 hydra:
   run:

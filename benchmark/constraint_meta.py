@@ -23,7 +23,7 @@ class ConstraintMetadata:
 class FairretPairwise(ConstraintMetadata):
     """Wrapper class for a pairwise fairness constraint based on a given statistic (e.g., positive rate, false positive rate, etc.).
     The constraint is computed as the difference between the statistic for each pair of groups."""
-    def __init__(self, statistic: Callable, uses_labels: bool, abs_diff: bool = False, as_logits: bool = False):
+    def __init__(self, statistic: Callable, uses_labels: bool, abs_diff: bool = False, as_logits: bool = True):
         """Initializes the FairretPairwise constraint.
         Args:
             statistic (Callable): An initialized fairret.statistic object.
@@ -41,7 +41,7 @@ class FairretPairwise(ConstraintMetadata):
         self.uses_labels = uses_labels
 
     def compute_constraints(self, model, batch_out, batch_sens, batch_labels):
-        if not self.as_logits:
+        if self.as_logits:
             batch_out = torch.sigmoid(batch_out)
         if self.uses_labels:
             stat_pergroup = self.statistic(batch_out, batch_sens, batch_labels)
@@ -58,7 +58,7 @@ class FairretPairwise(ConstraintMetadata):
 class FairretMean(ConstraintMetadata):
     """Wrapper class for a pairwise fairness constraint based on a given statistic (e.g., positive rate, false positive rate, etc.).
     The constraint is computed as the difference between the statistic for each pair of groups."""
-    def __init__(self, statistic: Callable, uses_labels: bool, as_logits: bool = False):
+    def __init__(self, statistic: Callable, uses_labels: bool, as_logits: bool = True):
         """Initializes the FairretPairwise constraint.
         Args:
             statistic (Callable): An initialized fairret.statistic object.
@@ -73,7 +73,7 @@ class FairretMean(ConstraintMetadata):
         self.uses_labels = uses_labels
 
     def compute_constraints(self, model, batch_out, batch_sens, batch_labels):
-        if not self.as_logits:
+        if self.as_logits:
             batch_out = torch.sigmoid(batch_out)
         if self.uses_labels:
             stat_pergroup = self.statistic(batch_out, batch_sens, batch_labels)
@@ -91,15 +91,15 @@ class FairretMean(ConstraintMetadata):
 class FairretAgg(ConstraintMetadata):
     """Wrapper class for a vector fairness constraint based on a given statistic (e.g., positive rate, false positive rate, etc.).
     The constraint is computed as the difference between the statistic for each group and the mean statistic across all groups."""
-    def __init__(self, loss: Callable, uses_labels: bool, as_logits: bool = False):
+    def __init__(self, loss: Callable, uses_labels: bool, as_logits: bool = True):
         super().__init__(
             fn=self.compute_constraints,
             m_fn=lambda n_groups: 1
         )
         self.loss = loss
         self.as_logits = as_logits
-        if self.as_logits:
-            raise ValueError("`as_logits=True`is not supported for the fairret loss constraint, since the loss should already be computed on the logits.")
+        if not self.as_logits:
+            raise ValueError("`as_logits=False`is not supported for the fairret loss constraint, since the loss should already be computed on the logits.")
         self.uses_labels = uses_labels
 
     def compute_constraints(self, model, batch_out, batch_sens, batch_labels):
@@ -138,7 +138,9 @@ class LossPairwise(ConstraintMetadata):
             loss = self.loss(batch_out, batch_labels)
         
         per_group_losses = _get_normalized_per_group_losses(loss, batch_sens).squeeze()
-        constraints = ((per_group_losses.unsqueeze(1) - per_group_losses.unsqueeze(0)))    
+        # print(per_group_losses)
+        constraints = ((per_group_losses.unsqueeze(1) - per_group_losses.unsqueeze(0)))
+        # print(constraints)
         mask = ~torch.eye(batch_sens.shape[-1], dtype=torch.bool)
         constraints = constraints[mask]
         return constraints

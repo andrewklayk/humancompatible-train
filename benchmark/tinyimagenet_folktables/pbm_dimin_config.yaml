@@ -1,0 +1,3 @@
+,algorithm,dual__delta,dual__gamma,dual__pbf,dual__penalty_mult,dual__penalty_update,init_duals,moreau__mu,primal__lr,primal__weight_decay
+985d15a255fc,pbm_dimin,1.0,0.9500000000000001,quadratic_reciprocal,1,const,1e-05,1.0,0.0005,0.01
+00301b66238d,pbm_dimin,1.0,0.1,quadratic_reciprocal,0.9999,dimin,,1.0,0.0005,0.01

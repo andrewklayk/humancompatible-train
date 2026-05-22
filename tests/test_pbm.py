@@ -114,7 +114,7 @@ class TestPenaltyUpdateStrategies(unittest.TestCase):
     def test_constant_penalty(self):
         """Test that penalty_update='const' keeps penalties constant during forward_update."""
         init_penalty = 5.0
-        pbm = PBM(m=3, penalty_update='const', init_penalties=init_penalty)
+        pbm = PBM(m=3, penalty_update='const', init_penalties=init_penalty, penalty_range=(0.1, 100.))
         penalties_before = pbm.penalties.clone()
         loss = torch.tensor(1.0)
         
@@ -453,8 +453,8 @@ class TestParameterInteractions(unittest.TestCase):
 
     def test_delta_affects_adaptive_penalty_behavior(self):
         """Test that delta parameter affects adaptive penalty update."""
-        pbm_low_delta = PBM(m=1, penalty_update='dimin_adapt', delta=0.5, penalty_mult=0.8, init_penalties=10.0)
-        pbm_high_delta = PBM(m=1, penalty_update='dimin_adapt', delta=2.0, penalty_mult=0.8, init_penalties=10.0)
+        pbm_low_delta = PBM(m=1, penalty_update='dimin_adapt', delta=0.5, penalty_mult=0.8, init_penalties=10.0, penalty_range=(0.1, 100.))
+        pbm_high_delta = PBM(m=1, penalty_update='dimin_adapt', delta=2.0, penalty_mult=0.8, init_penalties=10.0, penalty_range=(0.1, 100.))
         loss = torch.tensor(1.0)
         
         # Constraint with significant violation

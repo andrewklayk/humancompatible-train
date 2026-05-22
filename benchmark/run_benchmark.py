@@ -7,7 +7,7 @@ import pandas as pd
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from benchmark_utils import create_model
+from utils import create_model, create_conv_model, create_resnet
 from _data_sources import load_data_FT_prod, load_data_FT_vec, load_data_FT, load_data_DUTCH, load_data_norm, load_data_cifar10, load_data_cifar100
 # from benchmark_utils import *
 from plotting import plot_losses_and_constraints_stochastic
@@ -18,7 +18,12 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
     seed = 0
     torch.manual_seed(seed)
     dataset = data_cfg['name']
-    device = 'cpu'
+
+    device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(torch.cuda.device_count())
+    print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'No GPU')
+    torch.set_default_device(device)
+    
     result_dir = "results/" + dataset + '_' + task
 
     os.makedirs(result_dir, exist_ok=True)
@@ -50,18 +55,27 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
     batch_size = cfg.batch_size
     if task == 'cifar10':
         criterion = torch.nn.CrossEntropyLoss(reduction = 'none')
-        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar10(batch_size)
+        dataloader_train, dataloader_val, dataloader_test, classes, class_ind = load_data_cifar10(device=device)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
+        model_fn = create_conv_model
+        dataloader_val = dataloader_test
+        model_kwargs = {}
     elif task == 'cifar100':
         criterion = torch.nn.CrossEntropyLoss(reduction = 'none')
-        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar100(batch_size)
+        dataloader_train, dataloader_val, dataloader_test, classes, class_ind = load_data_cifar100(device=device)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
+        model_fn = create_resnet
+        dataloader_val = dataloader_test
+        model_kwargs = {}
     else:
         criterion = torch.nn.functional.binary_cross_entropy_with_logits
         (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test) = data_source(batch_size)
-        features_val = features_test
-        sens_val = sens_test
-        labels_val = labels_test
+        if task != 'equalized_odds_vec':
+            features_val = features_test
+            sens_val = sens_test
+            labels_val = labels_test
+        model_fn = create_model
+        model_kwargs = {'input_shape': features_train.shape[-1], **model_kwargs}
 
     data_val = (features_val, sens_val, labels_val) if task not in ['cifar10', 'cifar100'] else dataloader_val
     
@@ -131,9 +145,10 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
                 use_slack=False,
                 fuse_loss_constraint=fuse_loss_constraint,
                 reg_penalty=p,
-                model_gen = create_model,
-                model_kwargs = {'input_shape': features_train.shape[-1], **model_kwargs},
-                criterion=criterion
+                model_gen = model_fn,
+                model_kwargs = model_kwargs,
+                criterion=criterion,
+                device=device
             )
 
             models.append(model)
@@ -180,9 +195,10 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
                 constraints_to_eq=False,
                 use_slack=False,
                 fuse_loss_constraint=fuse_loss_constraint,
-                model_gen = create_model,
-                model_kwargs = {'input_shape': features_train.shape[-1], **model_kwargs},
-                criterion=criterion
+                model_gen = model_fn,
+                model_kwargs = model_kwargs,
+                criterion=criterion,
+                device=device
             )
             models.append(model)
             pbm_history_train.append(h_train)
@@ -225,9 +241,10 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
                 constraints_to_eq=True,
                 use_slack=alm_use_slack,
                 fuse_loss_constraint=fuse_loss_constraint,
-                model_gen = create_model,
-                model_kwargs = {'input_shape': features_train.shape[-1], **model_kwargs},
-                criterion=criterion
+                model_gen = model_fn,
+                model_kwargs = model_kwargs,
+                criterion=criterion,
+                device=device
             )
             models.append(model)
             alm_history_train.append(h_train)
@@ -272,9 +289,10 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
                 constraints_to_eq=False,
                 use_slack=False,
                 fuse_loss_constraint=fuse_loss_constraint,
-                model_gen = create_model,
-                model_kwargs = {'input_shape': features_train.shape[-1], **model_kwargs},
-                criterion=criterion
+                model_gen = model_fn,
+                model_kwargs = model_kwargs,
+                criterion=criterion,
+                device=device
             )
             models.append(model)
             ssg_history_train.append(h_train)
@@ -300,6 +318,10 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
 
     ###### PLOT ######
 
+    algorithms_run = ['adam', 'ssg', 'alm', 'pbm']
+    # algorithms_run = ['adam', 'alm_slack', 'alm_max', 'pbm_dimin']
+    # algorithms_run = ['adam', 'alm_max', 'pbm_dimin']
+
     if len(algorithms_run) == 0:
         print('\nNo algorithms were run. Skipping plotting.\n')
         return
@@ -307,8 +329,18 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
     def read_prepare_data(path: str):
         train = pd.read_csv(path)
         c_cols = [c for c in train.columns if c.startswith('c_')]
+        if "params" in train.columns:
+            train.drop("params", inplace=True, axis="columns")
+        if "acc" in train.columns:
+            train.drop("acc", inplace=True, axis="columns")
         mean = train.groupby(by='epoch').mean()
-        std = train.groupby(by=['Unnamed: 0', 'epoch']).mean().groupby(by='epoch').std()
+        # breakpoint()
+        # if "Unnamed: 0" not in train.columns:
+            # train.reset_index(inplace=True)
+            # train['Unnamed: 0'] = train.index
+        # std = train.groupby(by=['Unnamed: 0', 'epoch']).mean().groupby(by='epoch').std()
+        
+        std = train.groupby(by='epoch').std()
         loss_mean = mean['loss'].to_numpy()
         loss_std = std['loss'].to_numpy()
         cs_mean = mean[c_cols].to_numpy()
@@ -327,20 +359,23 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
     cs_stds_val = []
     alg_names = []
     alg_display_names = {
-        'adam': 'Adam',
+        'adam': 'Unconstrained Adam',
         'pbm': 'SPBM',
-        'alm': 'ALM',
-        'ssg': 'SSG'
+        'pbm_dimin': 'SPBM',
+        'alm': 'SSL-ALM',
+        'alm_max': 'SSL-ALM',
+        'ssg': 'SSW'
     }
 
+
     for alg in algorithms_run:
+
         train_file = f'{result_dir}/runs_{alg}_train.csv'
         val_file = f'{result_dir}/runs_{alg}_val.csv'
         
         if os.path.exists(train_file) and os.path.exists(val_file):
             _, loss_mean_train, loss_std_train, cs_mean_train, cs_std_train = read_prepare_data(train_file)
             _, loss_mean_val, loss_std_val, cs_mean_val, cs_std_val = read_prepare_data(val_file)
-            
             loss_means_train.append(loss_mean_train)
             loss_stds_train.append(loss_std_train)
             cs_means_train.append(cs_mean_train.T)
@@ -349,8 +384,9 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
             loss_stds_val.append(loss_std_val)
             cs_means_val.append(cs_mean_val.T)
             cs_stds_val.append(cs_std_val.T)
+            # alg_names.append(alg)
             alg_names.append(alg_display_names[alg])
-
+    print(alg_names)
     if len(alg_names) > 0:
         plot_losses_and_constraints_stochastic(
             loss_means_train,
@@ -366,6 +402,7 @@ def run_benchmark(data_cfg, task, n_runs, n_epochs, constraint_cfg, pbm_params, 
             mode='train_test' if not task == 'weight_norm' else 'train',
             # plot_max_constraint=m > 5,
             save_path=result_dir + '/plot.png',
+            std_multiplier=1.
             # combine_algos = True
         )
 
