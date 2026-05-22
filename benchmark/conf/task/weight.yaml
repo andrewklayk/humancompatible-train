@@ -3,12 +3,12 @@ batch_size: 80
 
 
 pbm_params:
-  primal__lr: 0.005
+  primal__lr: 0.001
   dual__penalty_mult: 0.1
   dual__penalty_update: dimin_adapt #aimd
-  dual__penalty_range: [1e-1, 10]
+  dual__penalty_range: [1e-1, 1]
   dual__pbf: quadratic_logarithmic
-  dual__gamma: 0.0
+  dual__gamma: 0.95
   moreau__mu: 2.0
 
 alm_params:

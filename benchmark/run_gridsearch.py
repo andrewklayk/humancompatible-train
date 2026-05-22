@@ -1,6 +1,4 @@
-# from benchmark_utils import *
 from utils import *
-import benchmark_utils
 from utils import create_model, create_conv_model
 from humancompatible.train.fairness.utils import BalancedBatchSampler
 from itertools import product
@@ -51,13 +49,13 @@ def extract_best_params(runs, param_grid, val_c_tolerance, filter='upper'):
     return min_feasible_val_loss_params, min_feasible_val_loss_idx, min_val_loss, min_val_c, runs
 
 
-def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
+def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
     seed = 0
     torch.manual_seed(seed)
     
     dataset = data_cfg['name']
     task = task_cfg.task
-    result_dir = dataset + '_' + task
+    result_dir = dataset + '_' + task + seed
     
     os.makedirs(result_dir, exist_ok=True)
 
@@ -81,13 +79,13 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
     if task == 'cifar10':
         dataloader_train, dataloader_val, classes, class_ind = load_data_cifar10(device=device)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
-        create_model = create_conv_model
+        create_model_fn = create_conv_model
         model_kwargs = {}
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     elif task == 'cifar100':
         dataloader_train, dataloader_val, classes, class_ind = load_data_cifar100(device=device)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
-        create_model = create_conv_model
+        create_model_fn = create_conv_model
         model_kwargs = {}
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     else:
@@ -95,7 +93,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
         features_val = features_test
         sens_val = sens_test
         labels_val = labels_test
-        create_model = benchmark_utils.create_model
+        create_model_fn = create_model
         model_kwargs = {'input_shape': features_train.shape[1], 'latent_size1': 64, 'latent_size2': 32}
         criterion = torch.nn.functional.binary_cross_entropy_with_logits
 
@@ -107,11 +105,10 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
             "primal__lr": lr,
             "dual__penalty_mult": dual_lr,
             "dual__penalty_update": p_update,
-            "dual__penalty_range": [1e-1, 1.],
             "dual__pbf": pb_func,
-            "dual__init_duals": 1e-4,
+            "dual__penalty_range": p_range,
             "dual__gamma": dual_gamma,
-            "dual__delta": dual_delta,
+            "dual__delta": 1.,
             "moreau__mu": moreau_mu
         }
         for (
@@ -119,16 +116,18 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
                 dual_lr,
                 p_update,
                 pb_func,
+                p_range,
                 dual_gamma,
-                dual_delta,
+                # dual_delta,
                 moreau_mu
             ) in product (
             [0.001, 0.005, 0.01, 0.05],
             [0., 0.1, 0.2, 0.5],
             ["dimin_adapt"],
             ["quadratic_logarithmic"],
+            [[1e-1, 1.], [1e-1, 100.]],
             [0., 0.1, 0.2, 0.5],
-            [0.9, 1.0, 1.1],
+            # [0.9, 1.0, 1.1],
             [2.]
             )
     ]
@@ -138,18 +137,20 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
             "primal__lr": lr, 
             "dual__lr": dual_lr,
             "dual__penalty": penalty,
-            "dual__momentum": dual_momentum,
+            # "dual__momentum": dual_momentum,
             "moreau__mu": moreau_mu
         }
         for (
                 lr,
-                dual_lr, penalty, dual_momentum,
+                dual_lr,
+                penalty,
+                # dual_momentum,
                 moreau_mu
             ) in product (
             [0.001, 0.005, 0.01, 0.05],
             [0.001, 0.005, 0.01, 0.05],
             [0., 1.],
-            [0., 0.1, 0.2, 0.5],
+            # [0., 0.1, 0.2, 0.5],
             [2.]
             )
     ]
@@ -174,7 +175,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
     alm_max_grid = alm_grid
     alm_slack_grid = alm_grid
 
-    adam_grid = [{"lr": lr} for lr in [0.005, 0.01, 0.05]]
+    adam_grid = [{"lr": lr} for lr in [0.001, 0.005, 0.01, 0.05]]
 
     # Determine constraint function and parameters based on task
     fuse_loss_constraint = False
@@ -215,8 +216,50 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
 
     # Run experiments
 
+    if 'adam' in task_cfg.algorithms:
+        seed = seed
+        torch.manual_seed(seed)
+        _, adam_history_train, adam_history_val = run_grid(
+            m=m,
+            primal_opt=torch.optim.Adam,
+            dual_opt=None,
+            param_grid=adam_grid,
+            n_epochs=n_epochs,
+            constraint_fn=constraint_fn,
+            constraint_bound=constraint_bound,
+            dataloader=dataloader_train,
+            data_train=(features_train, sens_train, labels_train),
+            data_val=data_val,
+            mode='torch',
+            verbose=False,
+            constraints_to_eq=False,
+            use_slack=False,
+            fuse_loss_constraint=fuse_loss_constraint,
+            model_gen=create_model_fn,
+            model_kwargs=model_kwargs,
+            device=device,
+            criterion = criterion)
+
+        best_adam_params = extract_best_params(adam_history_val, adam_grid, None, filter='none')
+
+        print('\n------------\n')
+        print('adam')
+        print(best_adam_params[0], best_adam_params[1])
+        print(f'loss: {best_adam_params[2]}')
+        print(f'max c: {best_adam_params[3]}')
+        print('\n------------\n')
+        grid_adam = pd.DataFrame(adam_grid)
+        runs_adam_train = runs_to_df(adam_history_train)
+        runs_adam_train.to_csv(f'{result_dir}/runs_adam_train.csv')
+        runs_adam_val = runs_to_df(adam_history_val)
+        runs_adam_val.to_csv(f'{result_dir}/runs_adam_val.csv')
+        grid_adam.to_csv(f'{result_dir}/grid_adam.csv')
+        del adam_history_train, adam_history_val, runs_adam_train, runs_adam_val, grid_adam
+
     #################################################################
     if 'pbm' in task_cfg.algorithms:
+        seed = seed
+        torch.manual_seed(seed)
         _, pbm_history_train, pbm_history_val = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
@@ -233,7 +276,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
             constraints_to_eq=False,
             use_slack=False,
             fuse_loss_constraint=fuse_loss_constraint,
-            model_gen=create_model,
+            model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
             criterion=criterion)
@@ -255,6 +298,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
         del pbm_history_train, pbm_history_val, runs_pbm_train, runs_pbm_val, grid_pbm
 
     if 'alm_slack' in task_cfg.algorithms:
+        seed = seed
+        torch.manual_seed(seed)
         _, alm_history_train, alm_history_val = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
@@ -271,7 +316,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
             constraints_to_eq=True,
             use_slack=True,
             fuse_loss_constraint=fuse_loss_constraint,
-            model_gen=create_model,
+            model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
             criterion = criterion)
@@ -293,6 +338,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
         del alm_history_train, alm_history_val, runs_alm_train, runs_alm_val, grid_alm
 
     if 'alm_max' in task_cfg.algorithms:
+        seed = seed
+        torch.manual_seed(seed)
         _, alm_history_train, alm_history_val = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
@@ -309,7 +356,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
             constraints_to_eq=True,
             use_slack=False,
             fuse_loss_constraint=fuse_loss_constraint,
-            model_gen=create_model,
+            model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
             criterion=criterion)
@@ -331,6 +378,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
         del alm_history_train, alm_history_val, runs_alm_train, runs_alm_val, grid_alm
 
     if 'ssg' in task_cfg.algorithms:
+        seed = seed
+        torch.manual_seed(seed)
         _, ssg_history_train, ssg_history_val = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
@@ -347,7 +396,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device):
             constraints_to_eq=False,
             use_slack=False,
             fuse_loss_constraint=fuse_loss_constraint,
-            model_gen=create_model,
+            model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
             criterion=criterion)
@@ -380,8 +429,9 @@ def hydra_main(cfg: DictConfig):
     print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'No GPU')
     torch.set_default_device(device)
     constraint_cfg = OmegaConf.to_container(task_cfg.constraint, resolve=True)
+    seed = task_cfg.seed
     
-    main(data_cfg, task_cfg, n_epochs, constraint_cfg, device)
+    main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed)
 
 
 

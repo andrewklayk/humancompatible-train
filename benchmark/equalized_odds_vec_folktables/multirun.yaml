@@ -1,0 +1,249 @@
+hydra:
+  run:
+    dir: multirun/${task.task}_${data.name}/${algorithm.algorithm}
+  sweep:
+    dir: multirun/${task.task}_${data.name}
+    subdir: ./${algorithm.algorithm}
+  launcher:
+    submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+    timeout_min: 60
+    cpus_per_task: 4
+    gpus_per_node: null
+    tasks_per_node: 1
+    mem_gb: null
+    nodes: 1
+    name: ${hydra.job.name}
+    stderr_to_stdout: false
+    _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+    partition: amdfast
+    qos: null
+    comment: null
+    constraint: null
+    exclude: null
+    gres: null
+    cpus_per_gpu: null
+    gpus_per_task: null
+    mem_per_gpu: null
+    mem_per_cpu: 20G
+    account: null
+    signal_delay_s: 120
+    max_num_timeout: 0
+    additional_parameters: {}
+    array_parallelism: 256
+    setup: null
+  sweeper:
+    _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
+    max_batch_size: 85
+    params: null
+  help:
+    app_name: ${hydra.job.name}
+    header: '${hydra.help.app_name} is powered by Hydra.
+
+      '
+    footer: 'Powered by Hydra (https://hydra.cc)
+
+      Use --hydra-help to view Hydra specific help
+
+      '
+    template: '${hydra.help.header}
+
+      == Configuration groups ==
+
+      Compose your configuration from those groups (group=option)
+
+
+      $APP_CONFIG_GROUPS
+
+
+      == Config ==
+
+      Override anything in the config (foo.bar=value)
+
+
+      $CONFIG
+
+
+      ${hydra.help.footer}
+
+      '
+  hydra_help:
+    template: 'Hydra (${hydra.runtime.version})
+
+      See https://hydra.cc for more info.
+
+
+      == Flags ==
+
+      $FLAGS_HELP
+
+
+      == Configuration groups ==
+
+      Compose your configuration from those groups (For example, append hydra/job_logging=disabled
+      to command line)
+
+
+      $HYDRA_CONFIG_GROUPS
+
+
+      Use ''--cfg hydra'' to Show the Hydra config.
+
+      '
+    hydra_help: ???
+  hydra_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '[%(asctime)s][HYDRA] %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+    root:
+      level: INFO
+      handlers:
+      - console
+    loggers:
+      logging_example:
+        level: DEBUG
+    disable_existing_loggers: false
+  job_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '[%(asctime)s][%(name)s][%(levelname)s] - %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        formatter: simple
+        filename: ${hydra.runtime.output_dir}/${hydra.job.name}.log
+    root:
+      level: INFO
+      handlers:
+      - console
+      - file
+    disable_existing_loggers: false
+  env: {}
+  mode: MULTIRUN
+  searchpath: []
+  callbacks: {}
+  output_subdir: null
+  overrides:
+    hydra:
+    - hydra.mode=MULTIRUN
+    task:
+    - algorithm=pbm_adapt
+    - algorithm.primal__lr=0.0001,0.0005,0.001,0.005
+    - +algorithm.primal__weight_decay=0.01
+    - algorithm.dual__penalty_mult=0.8,0.9,0.99,0.999
+    - algorithm.dual__penalty_update=dimin_adapt
+    - algorithm.dual__pbf=quadratic_logarithmic
+    - algorithm.dual__gamma=0.1,0.5,0.9,0.99,0.999
+    - algorithm.dual__delta=1.0
+    - algorithm.moreau__mu=1.
+    - seed=0,1,2
+    - task=folktables_positive_rate_vec
+    - data=income_sex
+  job:
+    name: run_single_experiment
+    chdir: false
+    override_dirname: +algorithm.primal__weight_decay=0.01,algorithm.dual__delta=1.0,algorithm.dual__gamma=0.1,0.5,0.9,0.99,0.999,algorithm.dual__pbf=quadratic_logarithmic,algorithm.dual__penalty_mult=0.8,0.9,0.99,0.999,algorithm.dual__penalty_update=dimin_adapt,algorithm.moreau__mu=1.,algorithm.primal__lr=0.0001,0.0005,0.001,0.005,algorithm=pbm_adapt,data=income_sex,seed=0,1,2,task=folktables_positive_rate_vec
+    id: ???
+    num: ???
+    config_name: experiment
+    env_set: {}
+    env_copy: []
+    config:
+      override_dirname:
+        kv_sep: '='
+        item_sep: ','
+        exclude_keys: []
+  runtime:
+    version: 1.3.2
+    version_base: '1.3'
+    cwd: /mnt/personal/kliacand/humancompatible-train/benchmark
+    config_sources:
+    - path: hydra.conf
+      schema: pkg
+      provider: hydra
+    - path: /mnt/personal/kliacand/humancompatible-train/benchmark/conf
+      schema: file
+      provider: main
+    - path: ''
+      schema: structured
+      provider: schema
+    output_dir: ???
+    choices:
+      algorithm: pbm_adapt
+      data: income_sex
+      task: folktables_positive_rate_vec
+      hydra/env: default
+      hydra/callbacks: null
+      hydra/job_logging: default
+      hydra/hydra_logging: default
+      hydra/hydra_help: default
+      hydra/help: default
+      hydra/sweeper: basic
+      hydra/launcher: configured_submitit_slurm_amd
+      hydra/output: default
+  verbose: false
+task:
+  task: equalized_odds_vec
+  batch_size: 32
+  constraint:
+    name: FairretAgg
+    bound: 0.2
+    loss: NormLoss
+    statistic: PositiveRate
+    kwargs:
+      uses_labels: false
+  pbm_params:
+    primal__lr: 0.001
+    dual__p_mult: 0.9
+    dual__penalty_update: dimin_adapt
+    dual__pbf: quadratic_logarithmic
+    dual__gamma: 0.1
+    moreau__mu: 2.0
+  alm_params:
+    primal__lr: 0.001
+    dual__lr: 0.001
+    dual__penalty: 0.0
+    dual__momentum: 0.0
+    moreau__mu: 0.5
+  ssg_params:
+    primal__lr: 0.05
+    dual__lr: 0.01
+    moreau__mu: 0.0
+  adam_params:
+    lr: 0.001
+    penalty: 0.5
+  hydra:
+    run:
+      dir: .
+    job:
+      chdir: false
+data:
+  name: folktables
+  kwargs:
+    sens_attrs:
+    - SEX
+    states:
+    - VA
+    extend_groups: false
+algorithm:
+  algorithm: pbm_adapt
+  primal__lr: 0.0001, 0.0005, 0.001, 0.005
+  dual__penalty_mult: 0.9, 0.99, 0.999
+  dual__penalty_update: dimin_adapt
+  dual__pbf: quadratic_logarithmic
+  dual__gamma: 0.9, 0.99, 0.999
+  dual__delta: 1.0
+  moreau__mu: 1.0
+  primal__weight_decay: 0.01
+n_epochs: 10
+seed: 0

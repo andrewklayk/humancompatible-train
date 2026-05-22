@@ -2,34 +2,18 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
-def plot_losses_and_constraints_stochastic(
-    train_losses_list,
-    train_losses_std_list,
-    train_constraints_list,
-    train_constraints_std_list,
-    constraint_thresholds,
-    test_losses_list=None,
-    test_losses_std_list=None,
-    test_constraints_list=None,
-    test_constraints_std_list=None,
-    titles=None,
-    eval_points=1,
-    std_multiplier=2,
-    log_constraints=False,
-    mode="train",  # "train" or "train_test"
-    times=[], # second per epoch
-    plot_time_instead_epochs=False,
-    save_path=None,
-    separate_constraints = False,
-    abs_constraints=False
-):
-    """
-    mode:
-        "train"       -> only training plots
-        "train_test"  -> training + test side by side
-    """
 
-#     # --- Color palette (Tableau 10) ---
+def plot_accuracy_per_epoch(algorithms_data, eval_points=1, algorithms_data_std=None, std_multiplier=2):
+    """
+    Plots average per-class accuracy per epoch for each algorithm.
+
+    Parameters:
+    - algorithms_data: Dict where keys are algorithm names and values are lists of average per-class accuracies per epoch.
+    - eval_points: Evaluate points for markers (default: 1).
+    - algorithms_data_std: Optional. Dict with same structure as algorithms_data for standard deviations.
+    - std_multiplier: Multiplier for standard deviation bands (default: 2).
+    """
+    # --- Color palette (Tableau 10) ---
     colors = [
         "#4E79A7",
         "#F28E2B",
@@ -45,175 +29,274 @@ def plot_losses_and_constraints_stochastic(
 
     marker_styles = ["o", "s", "D", "^", "v", "<", ">", "P", "X", "*"]
 
-    num_algos = len(train_losses_list)
-    if titles is None:
-        titles = [f"Algorithm {i + 1}" for i in range(num_algos)]
-
-    constraint_thresholds = np.atleast_1d(constraint_thresholds)
+    num_algos = len(algorithms_data)
+    algo_names = list(algorithms_data.keys())
 
     # --- Layout ---
-    ncols = 1 if mode == "train" else 2
-    nrows = 1 + train_constraints_list[0].shape[0] if separate_constraints else 2
+    fig, axes = plt.subplots(num_algos, 1, figsize=(9, 4*num_algos), sharex=True)
 
-    join_bottom_plot = not test_constraints_list and mode == "train_test"
+    if num_algos == 1:
+        axes = [axes]  # Ensure axes is iterable
 
-    if join_bottom_plot:
-        fig = plt.figure(figsize=(9 * ncols, 10))
-        axes = []
+    for i, (ax, algo_name) in enumerate(zip(axes, algo_names)):
+        y = np.array(algorithms_data[algo_name])
+        K = len(y)
+        x = np.arange(1, K+1)
         
-        ax1 = fig.add_subplot(2, 2, 1)
-        ax2 = fig.add_subplot(2, 2, 2, sharey = ax1)
-        ax3 = fig.add_subplot(2, 1, 2)
+        color = colors[i % len(colors)]
+        ax.plot(x, y, lw=2.2, color=color, label=algo_name)
 
-        axes = [ax1, ax2, ax3]
-    else:
-        fig, axes = plt.subplots(2, ncols, figsize=(9 * ncols, 10), sharex="col", sharey="row")
-
-    if ncols == 1:
-        axes = np.array([[axes[0]], [axes[1]]])
-
-    # ======================================================
-    # Helper plotting functions
-    # ======================================================
-
-    def plot_loss(ax, losses_list, losses_std_list, title_suffix):
-        for j, (loss, loss_std) in enumerate(zip(losses_list, losses_std_list)):
-            x = np.arange(len(loss))
-            color = colors[j % len(colors)]
-            upper = loss + std_multiplier * loss_std
-            lower = loss - std_multiplier * loss_std
-
-            if plot_time_instead_epochs:
-                x *= round(times[j])
-
-            # ax.plot(x, loss, lw=2.2, color=color, label=titles[j] + f"; TPE: {minutes}m:{seconds}s")
-            ax.plot(x, loss, lw=2.2, color=color, label=titles[j])
-            ax.fill_between(x, lower, upper, color=color, alpha=0.15)
-
-            if eval_points is not None:
-                idx = (
-                    np.arange(0, len(loss), eval_points)
-                    if isinstance(eval_points, int)
-                    else np.array(eval_points)
-                )
-                idx = idx[idx < len(loss)]
-                ax.plot(
-                    x[idx],
-                    loss[idx],
-                    marker_styles[j % len(marker_styles)],
-                    color=color,
-                    markersize=6,
-                    alpha=0.8,
-                )
-
-        ax.set_title(f"Loss ({title_suffix})")
-        ax.set_ylabel("Mean Loss")
-        ax.grid(True, linestyle="--", alpha=0.35)
-        ax.legend(fontsize=9)
-    
-    
-    def plot_constraints(ax, constraints_list, constraints_std_list, title_suffix):
-        for j, (constraints, constraints_std) in enumerate(
-            zip(constraints_list, constraints_std_list)
-        ):
-            color = colors[j % len(colors)]
-            constraints = np.asarray(constraints)
-            constraints_std = np.asarray(constraints_std)
-
-            x = np.arange(constraints.shape[1])
-
-            print(np.array(constraints).shape)
-            c_max = np.max(constraints, axis=0)
-            c_max_std = np.std(c_max)
-
-            c_lower = c_max - std_multiplier * c_max_std
-            c_upper = c_max + std_multiplier * c_max_std
-            ax.fill_between(x, c_lower, c_upper, color=color, alpha=0.1)
-
-            if plot_time_instead_epochs:
-                x *= round(times[j])
-
-            label = titles[j]
-            ax.plot(x, c_max, lw=1.8, color=color, alpha=0.3, label=label)
-
-            if eval_points is not None:
-                idx = (
-                    np.arange(0, len(c_max), eval_points)
-                    if isinstance(eval_points, int)
-                    else np.array(eval_points)
-                )
-                idx = idx[idx < len(c_max)]
-                ax.plot(
-                    x[idx],
-                    c_max[idx],
-                    marker_styles[j % len(marker_styles)],
-                    color=color,
-                    markersize=5,
-                    alpha=0.3,
-                )
-                
-
-        for th in constraint_thresholds:
-            y = np.log(th) if log_constraints else th
-            ax.axhline(y, color="red", linestyle="--", lw=1.4, label="Threshold")
-
-        ax.set_title(f"Constraint ({title_suffix})")
-        ax.set_ylabel("Log Constraint" if log_constraints else "Constraint")
-
-        if plot_time_instead_epochs:
-            ax.set_xlabel("Time (m)")
-        else: 
-            ax.set_xlabel("Epoch")
-        ax.grid(True, linestyle="--", alpha=0.35)
-        ax.legend(fontsize=9)
-
-    # ======================================================
-    # TRAIN PLOTS
-    # ======================================================
-
-    plot_loss(
-        axes[0] if join_bottom_plot else axes[0, 0],
-        train_losses_list,
-        train_losses_std_list,
-        "Train"
-    )
-    plot_constraints(
-        axes[2] if join_bottom_plot else axes[1, 0],
-        train_constraints_list,
-        train_constraints_std_list,
-        "Train",
-    )
-
-    # ======================================================
-    # TEST PLOTS
-    # ======================================================
-
-    if mode == "train_test":
-        plot_loss(
-            axes[1] if join_bottom_plot else axes[0, 1],
-            test_losses_list,
-            test_losses_std_list,
-            "Test"
-        )
-        if join_bottom_plot:
-            print(axes[0].get_yticks())
-            print(axes[1].get_yticks())
-        if test_constraints_list:
-            plot_constraints(
-                axes[1, 1],
-                test_constraints_list,
-                test_constraints_std_list,
-                "Test",
+        # Add error band if standard deviation data is provided
+        if algorithms_data_std is not None:
+            y_std = np.array(algorithms_data_std[algo_name])
+            ax.fill_between(
+                x,
+                y - std_multiplier * y_std,
+                y + std_multiplier * y_std,
+                color=color,
+                alpha=0.15,
             )
 
+        if eval_points is not None:
+            idx = (
+                np.arange(0, len(y), eval_points)
+                if isinstance(eval_points, int)
+                else np.array(eval_points)
+            )
+            idx = idx[idx < len(y)]
+            ax.plot(
+                x[idx],
+                y[idx],
+                marker_styles[i % len(marker_styles)],
+                color=color,
+                markersize=6,
+                alpha=0.8,
+            )
+
+        ax.set_title(algo_name)
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Average Per-Class Accuracy")
+        ax.grid(True, linestyle="--", alpha=0.35)
+        ax.legend(fontsize=9)
+
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
+    plt.show()
 
 
 
-import numpy as np
-import matplotlib.pyplot as plt
+
+# def plot_losses_and_constraints_stochastic(
+#     train_losses_list,
+#     train_losses_std_list,
+#     train_constraints_list,
+#     train_constraints_std_list,
+#     constraint_thresholds,
+#     test_losses_list=None,
+#     test_losses_std_list=None,
+#     test_constraints_list=None,
+#     test_constraints_std_list=None,
+#     titles=None,
+#     eval_points=1,
+#     std_multiplier=2,
+#     log_constraints=False,
+#     mode="train",  # "train" or "train_test"
+#     times=[], # second per epoch
+#     plot_time_instead_epochs=False,
+#     save_path=None,
+#     separate_constraints = False,
+#     abs_constraints=False
+# ):
+#     """
+#     mode:
+#         "train"       -> only training plots
+#         "train_test"  -> training + test side by side
+#     """
+
+# #     # --- Color palette (Tableau 10) ---
+#     colors = [
+#         "#4E79A7",
+#         # "#F28E2B",
+#         "#E15759",
+#         "#76B7B2",
+#         "#59A14F",
+#         "#EDC948",
+#         "#B07AA1",
+#         "#FF9DA7",
+#         "#9C755F",
+#         "#BAB0AB",
+#     ]
+
+#     marker_styles = ["o", "s", "D", "^", "v", "<", ">", "P", "X", "*"]
+
+#     num_algos = len(train_losses_list)
+#     if titles is None:
+#         titles = [f"Algorithm {i + 1}" for i in range(num_algos)]
+
+#     constraint_thresholds = np.atleast_1d(constraint_thresholds)
+
+#     # --- Layout ---
+#     ncols = 1 if mode == "train" else 2
+#     nrows = 1 + train_constraints_list[0].shape[0] if separate_constraints else 2
+
+#     join_bottom_plot = not test_constraints_list and mode == "train_test"
+
+#     if join_bottom_plot:
+#         fig = plt.figure(figsize=(9 * ncols, 10))
+#         axes = []
+        
+#         ax1 = fig.add_subplot(2, 2, 1)
+#         ax2 = fig.add_subplot(2, 2, 2, sharey = ax1)
+#         ax3 = fig.add_subplot(2, 1, 2)
+
+#         axes = [ax1, ax2, ax3]
+#     else:
+#         fig, axes = plt.subplots(2, ncols, figsize=(9 * ncols, 10), sharex="col", sharey="row")
+
+#     if ncols == 1:
+#         axes = np.array([[axes[0]], [axes[1]]])
+
+#     # ======================================================
+#     # Helper plotting functions
+#     # ======================================================
+
+#     def plot_loss(ax, losses_list, losses_std_list, title_suffix):
+#         for j, (loss, loss_std) in enumerate(zip(losses_list, losses_std_list)):
+#             x = np.arange(len(loss))
+#             color = colors[j % len(colors)]
+#             upper = loss + std_multiplier * loss_std
+#             lower = loss - std_multiplier * loss_std
+
+#             if plot_time_instead_epochs:
+#                 x *= round(times[j])
+
+#             # ax.plot(x, loss, lw=2.2, color=color, label=titles[j] + f"; TPE: {minutes}m:{seconds}s")
+#             ax.plot(x, loss, lw=2.2, color=color, label=titles[j])
+#             ax.fill_between(x, lower, upper, color=color, alpha=0.15)
+
+#             if eval_points is not None:
+#                 idx = (
+#                     np.arange(0, len(loss), eval_points)
+#                     if isinstance(eval_points, int)
+#                     else np.array(eval_points)
+#                 )
+#                 idx = idx[idx < len(loss)]
+#                 ax.plot(
+#                     x[idx],
+#                     loss[idx],
+#                     marker_styles[j % len(marker_styles)],
+#                     color=color,
+#                     markersize=6,
+#                     alpha=0.8,
+#                 )
+
+#         ax.set_title(f"Loss ({title_suffix})")
+#         ax.set_ylabel("Mean Loss")
+#         ax.grid(True, linestyle="--", alpha=0.35)
+#         ax.legend(fontsize=9)
+    
+    
+#     def plot_constraints(ax, constraints_list, constraints_std_list, title_suffix):
+#         for j, (constraints, constraints_std) in enumerate(
+#             zip(constraints_list, constraints_std_list)
+#         ):
+#             color = colors[j % len(colors)]
+#             constraints = np.asarray(constraints)
+#             constraints_std = np.asarray(constraints_std)
+
+#             x = np.arange(constraints.shape[1])
+
+#             print(np.array(constraints).shape)
+#             c_max = np.max(constraints, axis=0)
+#             c_max_std = np.std(c_max)
+
+#             c_lower = c_max - std_multiplier * c_max_std
+#             c_upper = c_max + std_multiplier * c_max_std
+#             ax.fill_between(x, c_lower, c_upper, color=color, alpha=0.1)
+
+#             if plot_time_instead_epochs:
+#                 x *= round(times[j])
+
+#             label = titles[j]
+#             ax.plot(x, c_max, lw=1.8, color=color, alpha=0.3, label=label)
+
+#             if eval_points is not None:
+#                 idx = (
+#                     np.arange(0, len(c_max), eval_points)
+#                     if isinstance(eval_points, int)
+#                     else np.array(eval_points)
+#                 )
+#                 idx = idx[idx < len(c_max)]
+#                 ax.plot(
+#                     x[idx],
+#                     c_max[idx],
+#                     marker_styles[j % len(marker_styles)],
+#                     color=color,
+#                     markersize=5,
+#                     alpha=0.3,
+#                 )
+                
+
+#         for th in constraint_thresholds:
+#             y = np.log(th) if log_constraints else th
+#             ax.axhline(y, color="red", linestyle="--", lw=1.4, label="Threshold")
+
+#         ax.set_title(f"Constraint ({title_suffix})")
+#         ax.set_ylabel("Log Constraint" if log_constraints else "Constraint")
+
+#         if plot_time_instead_epochs:
+#             ax.set_xlabel("Time (m)")
+#         else: 
+#             ax.set_xlabel("Epoch")
+#         ax.grid(True, linestyle="--", alpha=0.35)
+#         ax.legend(fontsize=9)
+
+#     # ======================================================
+#     # TRAIN PLOTS
+#     # ======================================================
+
+#     plot_loss(
+#         axes[0] if join_bottom_plot else axes[0, 0],
+#         train_losses_list,
+#         train_losses_std_list,
+#         "Train"
+#     )
+#     plot_constraints(
+#         axes[2] if join_bottom_plot else axes[1, 0],
+#         train_constraints_list,
+#         train_constraints_std_list,
+#         "Train",
+#     )
+
+#     # ======================================================
+#     # TEST PLOTS
+#     # ======================================================
+
+#     if mode == "train_test":
+#         plot_loss(
+#             axes[1] if join_bottom_plot else axes[0, 1],
+#             test_losses_list,
+#             test_losses_std_list,
+#             "Test"
+#         )
+#         if join_bottom_plot:
+#             print(axes[0].get_yticks())
+#             print(axes[1].get_yticks())
+#         if test_constraints_list:
+#             plot_constraints(
+#                 axes[1, 1],
+#                 test_constraints_list,
+#                 test_constraints_std_list,
+#                 "Test",
+#             )
+
+#     plt.tight_layout()
+#     if save_path:
+#         plt.savefig(save_path)
+
+
+
+# import numpy as np
+# import matplotlib.pyplot as plt
 
 
 def plot_losses_and_constraints_stochastic(
@@ -258,7 +341,19 @@ def plot_losses_and_constraints_stochastic(
     if titles is None:
         titles = [f"Algorithm {i+1}" for i in range(num_algos)]
 
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    # colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    colors = [
+        "#4E79A7",
+        "#F28E2B",
+        "#E15759",
+        "#76B7B2",
+        "#59A14F",
+        "#EDC948",
+        "#B07AA1",
+        "#FF9DA7",
+        "#9C755F",
+        "#BAB0AB",
+    ]
     markers = ["o", "s", "D", "^", "v", "<", ">", "P", "X", "*"]
 
     constraint_thresholds = np.atleast_1d(constraint_thresholds)

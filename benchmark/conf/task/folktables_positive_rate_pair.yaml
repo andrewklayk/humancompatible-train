@@ -1,5 +1,5 @@
 task: equalized_odds_pairwise
-batch_size: 40
+batch_size: 30
 
 # TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
 constraint:
@@ -10,30 +10,33 @@ constraint:
     uses_labels: false
 
 pbm_params:
-  primal__lr: 0.01
-  dual__penalty_mult: 0.5
+  primal__lr: 0.0005
+  primal__weight_decay: 0.01
+  dual__penalty_mult: 0.999
   dual__penalty_update: dimin_adapt #aimd
   dual__penalty_range: [1e-1, 1.]
   dual__pbf: quadratic_logarithmic
-  dual__gamma: 0.5
-  dual__delta: 0.9
-  moreau__mu: 2.0
+  dual__gamma: 0.9
+  dual__delta: 1.0
+  moreau__mu: 1.0
+
 
 alm_params:
-  primal__lr: 0.05
-  dual__lr: 0.05
+  primal__lr: 0.0001
+  primal__weight_decay: 0.01
+  dual__lr: 0.005
   dual__penalty: 0.0
-  dual__momentum: 0.1
-  moreau__mu: 2.0
+  moreau__mu: 1.0
 
 ssg_params:
-  primal__lr: 0.01
-  dual__lr: 0.001
-  moreau__mu: 0.0
+  primal__lr: 0.001
+  primal__weight_decay: 0.01
+  dual__lr: 0.0001
+  moreau__mu: 1.0
 
 adam_params:
-  lr: 0.01
-  # penalty: 0.5
+  primal__lr: 0.0001
+  primal__weight_decay: 0.01
 
 hydra:
   run:

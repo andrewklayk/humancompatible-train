@@ -1,0 +1,2 @@
+,algorithm,primal__lr,dual__lr,dual__penalty,moreau__mu,primal__weight_decay
+1e87d660012c,alm_max,0.0005,0.0005,0.0,0.1,0.01

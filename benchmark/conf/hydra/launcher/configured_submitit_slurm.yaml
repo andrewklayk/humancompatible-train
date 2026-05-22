@@ -1,0 +1,15 @@
+defaults:
+#  - override hydra/launcher: submitit_slurm
+  - submitit_slurm
+
+#hydra:
+#  launcher:
+#mem_gb: 32 # configuration used with slurm launcher
+#tasks_per_node: 60
+mem_per_cpu: 16G
+cpus_per_task: 4
+#mem_gb: 32
+partition: amd
+timeout_min: 1440
+#array_parallelism: 50
+
