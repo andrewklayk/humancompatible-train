@@ -7,6 +7,7 @@ from torch import clamp_, Tensor
 # cite: Stochastic inexact augmented Lagrangian method for nonconvex expectation constrained optimization
 # https://link.springer.com/content/pdf/10.1007/s10589-023-00521-z.pdf
 
+
 class iALM(Optimizer):
     def __init__(
         self,
@@ -162,12 +163,12 @@ class iALM(Optimizer):
                 group["dampening"],
                 group["momentum_buffer"],
             )
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
-            lagrangian.add_(duals @ group_constraints)
-            
-            _update_c_buffers(
-                group_constraints, momentum, dampening, momentum_buffer
+            group_constraints = (
+                constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
             )
+            lagrangian.add_(duals @ group_constraints)
+
+            _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
 
         lagrangian.add_(0.5 * self.beta * torch.dot(constraints, constraints))
 
@@ -176,7 +177,7 @@ class iALM(Optimizer):
     def update(self, constraints: Tensor) -> None:
         """
         Updates the dual variables
-        
+
         :param constraints: Tensor of constraint values
         :type constraints: Tensor
         """
@@ -188,15 +189,23 @@ class iALM(Optimizer):
                 group["dampening"],
                 group["momentum_buffer"],
             )
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            group_constraints = (
+                constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            )
             with torch.no_grad():
                 _update_duals(
-                    duals, group_constraints, lr, self.beta, self.gamma, momentum, dampening, momentum_buffer
+                    duals,
+                    group_constraints,
+                    lr,
+                    self.beta,
+                    self.gamma,
+                    momentum,
+                    dampening,
+                    momentum_buffer,
                 )
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
 
         self.beta *= self.sigma
-
 
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
@@ -220,19 +229,32 @@ class iALM(Optimizer):
                 group["dampening"],
                 group["momentum_buffer"],
             )
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            group_constraints = (
+                constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            )
             with torch.no_grad():
                 _update_c_buffers(
                     group_constraints, momentum, dampening, momentum_buffer
                 )
                 _update_duals(
-                    duals, group_constraints, lr, self.beta, self.gamma, momentum, dampening, momentum_buffer
+                    duals,
+                    group_constraints,
+                    lr,
+                    self.beta,
+                    self.gamma,
+                    momentum,
+                    dampening,
+                    momentum_buffer,
                 )
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
 
             lagrangian.add_(duals @ group_constraints)
 
-        lagrangian.add_(0.5 * self.beta * torch.dot(constraints - self.ctol, constraints - self.ctol))
+        lagrangian.add_(
+            0.5
+            * self.beta
+            * torch.dot(constraints - self.ctol, constraints - self.ctol)
+        )
 
         self.beta *= self.sigma
 
@@ -282,6 +304,6 @@ def _update_duals(
     dampening: float,
     buffer: Tensor,
 ) -> None:
-    
-    update_mult = min(beta, gamma/(buffer @ buffer))
+
+    update_mult = min(beta, gamma / (buffer @ buffer))
     duals.add_(buffer, alpha=update_mult)

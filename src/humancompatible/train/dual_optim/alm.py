@@ -4,8 +4,9 @@ from torch.optim import Optimizer
 from typing import Any, Tuple
 from torch import clamp_, Tensor
 
-# cite: Stochastic Smoothed Primal-Dual Algorithms for Nonconvex Optimization with Linear Inequality Constraints 
+# cite: Stochastic Smoothed Primal-Dual Algorithms for Nonconvex Optimization with Linear Inequality Constraints
 # https://arxiv.org/pdf/2504.07607
+
 
 class ALM(Optimizer):
     def __init__(
@@ -143,11 +144,17 @@ class ALM(Optimizer):
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
             duals = group["params"][0]
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            group_constraints = (
+                constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            )
             lagrangian.add_(duals @ group_constraints)
 
         if self.penalty > 0:
-            lagrangian.add_(0.5 * self.penalty * torch.dot(constraints - self.ctol, constraints - self.ctol))
+            lagrangian.add_(
+                0.5
+                * self.penalty
+                * torch.dot(constraints - self.ctol, constraints - self.ctol)
+            )
 
         return lagrangian
 
@@ -167,7 +174,9 @@ class ALM(Optimizer):
                 group["dampening"],
                 group["momentum_buffer"],
             )
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            group_constraints = (
+                constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            )
             with torch.no_grad():
                 _update_duals(
                     duals, group_constraints, lr, momentum, dampening, momentum_buffer
@@ -196,7 +205,9 @@ class ALM(Optimizer):
                 group["dampening"],
                 group["momentum_buffer"],
             )
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            group_constraints = (
+                constraints[i * len(duals) : (i + 1) * len(duals)] - self.ctol
+            )
             with torch.no_grad():
                 _update_duals(
                     duals, group_constraints, lr, momentum, dampening, momentum_buffer
@@ -206,7 +217,11 @@ class ALM(Optimizer):
             lagrangian.add_(duals @ group_constraints)
 
         if self.penalty > 0:
-            lagrangian.add_(0.5 * self.penalty * torch.dot(constraints - self.ctol, constraints - self.ctol))
+            lagrangian.add_(
+                0.5
+                * self.penalty
+                * torch.dot(constraints - self.ctol, constraints - self.ctol)
+            )
 
         return lagrangian
 

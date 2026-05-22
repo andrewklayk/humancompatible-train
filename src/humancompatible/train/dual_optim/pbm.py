@@ -343,13 +343,13 @@ class PBM(Optimizer):
                     )
 
             cdivp = group_constraints.div(penalties)
-            pbf_val = penalty_barrier_funcs[pbf]['f'](cdivp)
+            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
 
             # change duals to 0 for them < 1e-4, but do not overwrite the actual duals to keep the momentum working
             active = duals >= 1e-5
             if active.any():
                 lagrangian.add_(duals[active].mul(penalties[active]) @ pbf_val[active])
-        
+
         # update the iter
         self.iter = (self.iter + 1) % primal_update_process_length
 
@@ -383,10 +383,10 @@ class PBM(Optimizer):
 
     def state_dict(self) -> dict[str, Any]:
         """
-                Returns the state of the optimizer as a dictionary, including dual and penalty ranges and all constraint groups.
-        PP
-                :return: Dictionary containing optimizer state with param groups and configuration.
-                :rtype: dict[str, Any]
+        Returns the state of the optimizer as a dictionary, including dual and penalty ranges and all constraint groups.
+
+        :return: Dictionary containing optimizer state with param groups and configuration.
+        :rtype: dict[str, Any]
         """
 
         state_dict = super().state_dict()
