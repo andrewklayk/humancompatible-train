@@ -23,6 +23,35 @@ class TestBalancedBatchSampler(unittest.TestCase):
             ]
         ).T
 
+
+    def test_extends_without_replacement(self):
+        for _ in range(10):  # Run multiple times to check randomness
+            sampler = BalancedBatchSampler(
+                group_indices=self.subset_indices,
+                batch_size=6,
+                drop_last=True,
+                extend_groups=[0, 1],
+            )
+            # Check that each extended group is sampled without replacement within a batch
+            batches = []
+            for i, batch in enumerate(sampler):
+                self.assertEqual(len(set(batch)), len(batch))
+                batches.extend(batch)
+
+
+    def test_extend_num_batches(self):
+        sampler = BalancedBatchSampler(
+            group_indices=self.subset_indices,
+            batch_size=6,
+            drop_last=True,
+            extend_groups=[0, 1],
+        )
+        # check correct number of batches in case of tiling
+        i = 0
+        for _ in iter(sampler):
+            i += 1
+        self.assertEqual(i, 2)
+
     def test_batch_size_divisible(self):
         with self.assertRaises(AssertionError):
             BalancedBatchSampler(
@@ -72,32 +101,7 @@ class TestBalancedBatchSampler(unittest.TestCase):
         self.assertEqual(len([i for i in batch if i in self.subset_indices[1]]), 2)
         self.assertEqual(len([i for i in batch if i in self.subset_indices[2]]), 2)
 
-    def test_extends_without_replacement(self):
-        sampler = BalancedBatchSampler(
-            group_indices=self.subset_indices,
-            batch_size=6,
-            drop_last=True,
-            extend_groups=[0, 1],
-        )
-        # Check that each extended group is sampled without replacement within a batch
-        batches = []
-        for i, batch in enumerate(sampler):
-            self.assertEqual(len(set(batch)), len(batch))
-            batches.extend(batch)
-
-
-    def test_extend_num_batches(self):
-        sampler = BalancedBatchSampler(
-            group_indices=self.subset_indices,
-            batch_size=6,
-            drop_last=True,
-            extend_groups=[0, 1],
-        )
-        # check correct number of batches in case of tiling
-        i = 0
-        for _ in iter(sampler):
-            i += 1
-        self.assertEqual(i, 2)
+    
 
     def test_extend_large_batchsize(self):
         # check AssertionError on batch_size / n_groups > size of one of the groups

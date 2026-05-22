@@ -71,12 +71,15 @@ class BalancedBatchSampler(Sampler):
             # determine number of tiles
             if not self._extend_groups or group_id not in self._extend_groups:
                 num_tiles = 1
+                tile_size = len(group_indices)
             else:
-                num_tiles = ceil(max(self._group_sizes) / self._group_sizes[group_id])
-            # tile with random reorderings of list of indices of the group
+                num_tiles = ceil(max(self._group_sizes) / self._n_samples_per_group)
+                tile_size = self._n_samples_per_group
+                # num_tiles = ceil(max(self._group_sizes) / self._group_sizes[group_id])
+            # tile with random n_samples_per_group-sized reorderings of list of indices of the group
             for _ in range(num_tiles):
-                # shuffle
-                indices_shuffled = torch.randperm(len(group_indices), generator=self.generator).tolist()
+                # shuffle within tile
+                indices_shuffled = torch.randperm(len(group_indices), generator=self.generator).tolist()[: tile_size]
                 # add new shuffled tile to the indices
                 group_indices_tiled_shuffled.extend(indices_shuffled)
             # cutoff at the length of max group
@@ -95,7 +98,6 @@ class BalancedBatchSampler(Sampler):
             for indices in self._group_indices
         ):
             max_batches += 1  # Include partial batches if drop_last is False
-
         # Yield balanced batches
         for batch_idx in range(max_batches):
             batch = []
