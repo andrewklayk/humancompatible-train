@@ -1,5 +1,0 @@
-,algorithm,primal__lr,primal__weight_decay
-320c69024dbe,adam,0.0005,0.01
-7c3fe4eff95d,adam,0.0001,0.01
-28191679ac49,adam,0.005,0.01
-cd4c2c95e1f2,adam,0.001,0.01
