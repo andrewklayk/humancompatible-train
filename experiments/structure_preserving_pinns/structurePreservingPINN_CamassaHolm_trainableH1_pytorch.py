@@ -152,7 +152,7 @@ def custom_loss(inputs, model, epoch):
 
 #### LOSS FUNCTION WITH H1 CONSTRAINT ####
 
-def lagrangian_loss(inputs, model, dual_opt, epoch):
+def lagrangian_loss(inputs, model, dual_opt, epoch, H0):
     x, t = inputs[:, 0:1], inputs[:, 1:2]
     x.requires_grad_(True)
     t.requires_grad_(True)
@@ -190,12 +190,12 @@ def lagrangian_loss(inputs, model, dual_opt, epoch):
     )
 
     # constraint
-    H0 = H(u_0(x_grid.flatten().reshape(-1, 1)), u_0_x(x_grid.flatten().reshape(-1, 1)), dx)
+    
 
     Hf = H(u_model.reshape(Nt, Nx), u_x.reshape(Nt, Nx), dx)
     H_constraint = torch.abs(Hf - H0)/torch.abs(H0)
 
-    eps = 5/(epoch+1)
+    eps = 1/(epoch+1)
     H_constraint = torch.max(H_constraint - eps, torch.zeros_like(H_constraint)).unsqueeze(0)
 
     loss = dual_opt.forward_update(loss, H_constraint)
@@ -219,13 +219,15 @@ t0 = time()
 
 
 # dual_opt = ALM(m=1, lr=5e-5, dual_range=(0.,100.), device=device, ctol=1e-3, penalty=0.)
-dual_opt = iALM(m=1, lr=0.1, beta=0.01, sigma=1.0001, gamma=1., dual_range=(0.,10.), ctol=1e-3)
+dual_opt = iALM(m=1, beta=0.01, sigma=1.0001, gamma=1., dual_range=(0.,10.), ctol=1e-3)
+
+H0 = H(u_0(x_grid.flatten().reshape(-1, 1)), u_0_x(x_grid.flatten().reshape(-1, 1)), dx)
 
 for epoch in range(epochs):
     optimizer.zero_grad()
     # loss, loss_type, pde_loss, data_loss_0, bc_loss, H_loss = custom_loss(inputs, model, epoch)
 
-    loss, loss_type, pde_loss, data_loss_0, bc_loss, H_loss = lagrangian_loss(inputs, model, dual_opt, epoch)
+    loss, loss_type, pde_loss, data_loss_0, bc_loss, H_loss = lagrangian_loss(inputs, model, dual_opt, epoch, H0)
     loss.backward()
     optimizer.step()
     
@@ -249,7 +251,7 @@ for epoch in range(epochs):
         H_losses_mean.append(H_loss_mean)
         H_losses_std.append(H_loss_std)
         
-        H0 = H(u_0(x_grid.flatten().reshape(-1, 1)), u_0_x(x_grid.flatten().reshape(-1, 1)), dx)
+        # H0 = H(u_0(x_grid.flatten().reshape(-1, 1)), u_0_x(x_grid.flatten().reshape(-1, 1)), dx)
         Hf = H_loss.detach()
         H_abs_error = torch.abs(Hf - H0)
         H_losses_abs_error.append(torch.max(H_abs_error).item())
