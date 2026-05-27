@@ -6,6 +6,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import os
+
+
 project = 'humancompatible-train'
 copyright = '2026, Andrii Kliachkin, Gilles Bareillies, Jana Lepsova, Jakub Marecek'
 author = 'Andrii Kliachkin, Gilles Bareillies, Jana Lepsova, Jakub Marecek'
@@ -26,3 +29,5 @@ exclude_patterns = []
 
 html_theme = 'alabaster'
 html_static_path = ['_static']
+
+html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "/")
