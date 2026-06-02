@@ -30,4 +30,4 @@ We implement several first-order Lagrangian-based methods for constrained optimi
    Constrained Optimization Overview <tutorials/copt_overview>
    Basic usage: Fairness <tutorials/basic_usage>
    Handling inequality constraints <tutorials/inequality_constraints>
-   Tips and Tricks <tutorials/tips_and_tricks>
+   Tips and Tricks <tutorials/tips>

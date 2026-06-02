@@ -17,7 +17,7 @@ In `humancompatible-train`, and in Constrained Machine Learning more generally, 
 where :math:`f` is the **objective function** we want to minimize, :math:`g` are the **inequality constraints**, and :math:`h` are the **equality constraints**. The expectation is taken over some random variable :math:`\xi`, which represents the data.
 
 You may recognize the first line of the above formula as the standard formulation of an optimization problem in machine learning, where we want to minimize the expected loss over the data. \
-The second line introduces a constraint -- this could be anything from some bound on the parameters of the model, or a requirement on the model's predictions to satisfy some fairness criterion, to the boundary conditions of a physical system.
+We then introduce constraints -- they could express anything from some bounds on the parameters of the model, or a requirement on the model's predictions to satisfy some fairness criterion, to the boundary conditions of a physical system.
 
 
 .. note::
@@ -48,9 +48,9 @@ It is then possible to show that the original constrained optimization problem i
 
 We refer to the original problem as the **primal problem**, with :math:`x` as the **primal variables**, and to the transformed problem as the **dual problem**, with :math:`\lambda` and :math:`\mu` as the **dual variables**. The dual problem is unconstrained, and can be solved using a clever application of standard optimization techniques.
 
-In particular, the most common approach is to use **alternating optimization**: we fix the primal variables, and optimize the dual variables using gradient ascent; then we fix the dual variables, and optimize the primal variables using gradient descent. This process is repeated until convergence.
+In particular, the most common approach is to use **alternating updates**: we fix the primal variables, and optimize the dual variables using gradient ascent; then we fix the dual variables, and optimize the primal variables using gradient descent. This process is repeated until convergence.
 
-In `humancompatible-train`, we implement several variants of this approach: the Augmented Lagrangian Method (ALM), the Inexact Augmented Lagrangian Method (iALM), and the Penalty-Barrier Method (PBM). For more details, see the corresponding documentation; for now, it is important to understand that they are all based on the same principle of alternating optimization of the primal and dual variables.
+In `humancompatible-train`, we implement several variants of this approach, based on methods present in the literature. For more details, see the corresponding documentation; for now, it is important to understand that they are all based on the same principle of alternating updates to the primal and dual variables.
 
 In the simplest case of the Lagrangian method, this gives us the following update rules:
 
@@ -63,3 +63,6 @@ where :math:`\alpha`, :math:`\beta`, and :math:`\gamma` are the learning rates f
 
 .. note::
     - The above update rules are for the simplest variant of the Lagrangian method. The methods implemented in this package are all more complex. Even beyond our implementation, one can (and sometimes should!) modify the update rules by e.g. tweaking the training loop code, as we show in the :doc:`tips` tutorial.
+    - The above update rules are for the deterministic case. In the stochastic case, the gradients are estimated using mini-batches of data, which introduces additional noise into the optimization process. This can make convergence more challenging, but we have some tricks up our sleeves, such as momentum, LR scheduling, and so on.
+
+In our package, the `dual optimizers` handle the updates to the dual variables, while the primal updates are handled by the standard PyTorch optimizers. This allows for seamless integration of constraints into the training loop, as we will see in the next tutorial.
