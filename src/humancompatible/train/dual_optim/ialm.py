@@ -12,16 +12,15 @@ class iALM(Optimizer):
     def __init__(
         self,
         m: int = None,
-        lr: float = 0.01,
-        init_duals: float | Tensor = None,
-        penalty: float = 1.0,
-        *,
-        dual_range: Tuple[float, float] = (0.0, 100.0),
-        momentum: float = 0.0,
-        dampening: float = 0.0,
         beta: float = 1.0,
         sigma: float = 1.0,
         gamma: float = 1.0,
+        init_duals: float | Tensor = None,
+        penalty: float = 1.0,
+        *,
+        dual_range: Tuple[float, float] = (-100., 100.),
+        momentum: float = 0.0,
+        dampening: float = 0.0,
         ctol: float = 1e-4,
         device=None,
     ) -> None:
@@ -30,8 +29,12 @@ class iALM(Optimizer):
 
         :param m: Number of constraints (determines the number of dual variables to create)
         :type m: int
-        :param lr: Dual variable update rate
-        :type lr: float
+        :param beta: Dual variable update rate.
+        :type beta: float
+        :param sigma: Multiplier for increasing`beta`.
+        :type sigma: float
+        :param gamma: Penalty update parameter.
+        :type gamma: float
         :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
         :type init_duals: float | Tensor
         :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
@@ -42,12 +45,6 @@ class iALM(Optimizer):
         :type momentum: float
         :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
         :type dampening: float
-        :param beta: Dual variable update rate
-        :type beta: float
-        :param sigma: Multiplier for increasing`beta`.
-        :type sigma: float
-        :param gamma: Penalty update parameter
-        :type gamma: float
         :param ctol: Constraint tolerance; value that allows tiny violations of constraints to account for noise.
         :type ctol: float
         """
@@ -57,14 +54,14 @@ class iALM(Optimizer):
 
         self.dual_range = dual_range
 
-        self.beta = beta
+        # self.beta = beta
         self.penalty = penalty
-        self.gamma = gamma
-        self.sigma = sigma
+        # self.gamma = gamma
+        # self.sigma = sigma
         self.ctol = ctol
 
         duals, defaults = self._init_constraint_group(
-            m, lr, momentum, dampening, init_duals, dual_range, device
+            m, beta, sigma, gamma, momentum, dampening, init_duals, dual_range, device
         )
 
         super().__init__(duals, defaults)
@@ -72,7 +69,9 @@ class iALM(Optimizer):
     @staticmethod
     def _init_constraint_group(
         m: int = None,
-        lr: float = None,
+        beta: float = None,
+        sigma: float = None,
+        gamma: float = None,
         momentum: float = None,
         dampening: float = None,
         init_duals: float | Tensor = None,
@@ -98,7 +97,9 @@ class iALM(Optimizer):
         duals = Parameter(init_duals, requires_grad=False)
 
         settings_dict = {
-            "lr": lr,
+            "beta": Parameter(torch.tensor(beta), requires_grad=False),
+            "sigma": Parameter(torch.tensor(sigma), requires_grad=False),
+            "gamma": Parameter(torch.tensor(gamma), requires_grad=False),
             "momentum": momentum,
             "dampening": dampening,
             "momentum_buffer": torch.zeros_like(
@@ -121,7 +122,9 @@ class iALM(Optimizer):
     def add_constraint_group(
         self,
         m: int = None,
-        lr: float = None,
+        beta: float = 1.0,
+        sigma: float = 1.0,
+        gamma: float = 1.0,
         momentum: float = None,
         dampening: float = None,
         init_duals: Tensor = None,
@@ -131,13 +134,21 @@ class iALM(Optimizer):
 
         :param m: Size of group (number of dual variables to add)
         :type m: int
-        :param lr: Dual variable update rate
-        :type lr: float
+        :param beta: Dual variable update rate
+        :type beta: float
+        :param sigma: Multiplier for increasing `beta`
+        :type sigma: float
+        :param gamma: Penalty update parameter
+        :type gamma: float
+        :param momentum: Momentum for dual variable updates
+        :type momentum: float
+        :param dampening: Dampening for momentum
+        :type dampening: float
         :param init_duals: Initial values for the new dual variables
         :type init_duals: Tensor
         """
         duals, settings_dict = self._init_constraint_group(
-            m, lr, momentum, dampening, init_duals, self.dual_range
+            m, beta, sigma, gamma, momentum, dampening, init_duals, self.dual_range, self.device
         )
         param_group_dict = {"params": duals, **settings_dict}
         self.add_param_group(param_group_dict)
@@ -156,9 +167,11 @@ class iALM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals, lr, momentum, dampening, momentum_buffer = (
+            duals, beta, _, _, momentum, dampening, momentum_buffer = (
                 group["params"][0],
-                group["lr"],
+                group["beta"],
+                group["sigma"],
+                group["gamma"],
                 group["momentum"],
                 group["dampening"],
                 group["momentum_buffer"],
@@ -170,7 +183,7 @@ class iALM(Optimizer):
 
             _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
 
-        lagrangian.add_(0.5 * self.beta * torch.dot(constraints, constraints))
+        lagrangian.add_(0.5 * beta * torch.dot(constraints, constraints))
 
         return lagrangian
 
@@ -182,9 +195,11 @@ class iALM(Optimizer):
         :type constraints: Tensor
         """
         for i, group in enumerate(self.param_groups):
-            duals, lr, momentum, dampening, momentum_buffer = (
+            duals, beta, sigma, gamma, momentum, dampening, momentum_buffer = (
                 group["params"][0],
-                group["lr"],
+                group["beta"],
+                group["sigma"],
+                group["gamma"],
                 group["momentum"],
                 group["dampening"],
                 group["momentum_buffer"],
@@ -196,16 +211,13 @@ class iALM(Optimizer):
                 _update_duals(
                     duals,
                     group_constraints,
-                    lr,
-                    self.beta,
-                    self.gamma,
-                    momentum,
-                    dampening,
+                    beta,
+                    gamma,
                     momentum_buffer,
                 )
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
 
-        self.beta *= self.sigma
+        beta.mul_(sigma)
 
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
@@ -222,9 +234,11 @@ class iALM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
         for i, group in enumerate(self.param_groups):
-            duals, lr, momentum, dampening, momentum_buffer = (
+            duals, beta, sigma, gamma, momentum, dampening, momentum_buffer = (
                 group["params"][0],
-                group["lr"],
+                group["beta"],
+                group["sigma"],
+                group["gamma"],
                 group["momentum"],
                 group["dampening"],
                 group["momentum_buffer"],
@@ -238,12 +252,8 @@ class iALM(Optimizer):
                 )
                 _update_duals(
                     duals,
-                    group_constraints,
-                    lr,
-                    self.beta,
-                    self.gamma,
-                    momentum,
-                    dampening,
+                    beta,
+                    gamma,
                     momentum_buffer,
                 )
                 clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
@@ -252,11 +262,11 @@ class iALM(Optimizer):
 
         lagrangian.add_(
             0.5
-            * self.beta
+            * beta
             * torch.dot(constraints - self.ctol, constraints - self.ctol)
         )
 
-        self.beta *= self.sigma
+        beta.mul_(sigma)
 
         return lagrangian
 
@@ -296,14 +306,10 @@ def _update_c_buffers(
 
 def _update_duals(
     duals: Tensor,
-    constraints: Tensor,
-    lr: float,
     beta: float,
     gamma: float,
-    momentum: float,
-    dampening: float,
     buffer: Tensor,
 ) -> None:
 
-    update_mult = min(beta, gamma / (buffer @ buffer))
+    update_mult = torch.min(beta, gamma / (buffer @ buffer))
     duals.add_(buffer, alpha=update_mult)

@@ -16,7 +16,7 @@ class ALM(Optimizer):
         init_duals: float | Tensor = None,
         penalty: float = 1.0,
         *,
-        dual_range: Tuple[float, float] = (0.0, 100.0),
+        dual_range: Tuple[float, float] = (-100.0, 100.0),
         momentum: float = 0.0,
         dampening: float = 0.0,
         ctol: float = 0.,
