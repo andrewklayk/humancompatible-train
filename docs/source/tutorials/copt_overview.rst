@@ -34,6 +34,13 @@ The Constrained Machine Learning field seems to have converged on **Lagrangian-b
 
 Going forward in this tutorial, we will focus on the **deterministic case** to simplify notation; the stochastic case is more complex, but utilizes the same principles (think full-batch vs. mini-batch Gradient Descent). For more rigorous mathematical treatment of the stochastic case, see **TODO**, as well as the references included in the documentation for each of the algorithms.
 
+So, we have the following constrained problem:
+
+.. math:: 
+    \min_{x\in\mathbb{R}^n} \quad & f(x,\xi) \\
+    \text{s.t.} \quad & g(x,\xi) \leq 0, \\
+    & h(x,\xi) = 0, \\
+
 In a deterministic case, the Lagrangian function is defined as follows:
 
 .. math::
@@ -41,7 +48,7 @@ In a deterministic case, the Lagrangian function is defined as follows:
 
 where :math:`\lambda` is the Lagrange multiplier associated with the constraint :math:`g(x) \leq 0`, and :math:`\mu` is the Lagrange multiplier associated with the constraint :math:`h(x) = 0`.
 
-It is then possible to show that the original constrained optimization problem is equivalent to the following unconstrained optimization problem:
+It is then possible to show that the original **constrained** problem is equivalent to the following **unconstrained** problem:
 
 .. math::
     \min_{x\in\mathbb{R}^n} \max_{\lambda \geq 0, \mu} \mathcal{L}(x, \lambda, \mu)
@@ -58,7 +65,7 @@ In the simplest case of the Lagrangian method, this gives us the following updat
 .. math::
     \lambda_{t+1} & = \lambda_t + \beta \nabla_\lambda \mathcal{L}(x_{t}, \lambda_t, \mu_t) = \lambda_t + \beta g(x_{t}) \\
     \mu_{t+1} & = \mu_t + \gamma \nabla_\mu \mathcal{L}(x_{t}, \lambda_t, \mu_t) = \mu_t + \gamma h(x_{t}) \\
-    x_{t+1} & = x_t - \alpha \nabla_x \mathcal{L}(x_t, \lambda_t, \mu_t)
+    x_{t+1} & = x_t - \alpha \nabla_x \mathcal{L}(x_t, \lambda_{t+1}, \mu_{t+1})
 
 where :math:`\alpha`, :math:`\beta`, and :math:`\gamma` are the learning rates for the primal and dual variables, respectively.
 

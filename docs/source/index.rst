@@ -1,8 +1,3 @@
-.. humancompatible-train documentation master file, created by
-   sphinx-quickstart on Tue May 26 14:11:39 2026.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 humancompatible-train documentation
 ===================================
 
@@ -33,8 +28,8 @@ We implement several first-order Lagrangian-based methods for constrained optimi
    Tips and Tricks <tutorials/tips>
 
 .. toctree::
-   :maxdepth: 1
    :caption: API reference
    :titlesonly:
 
-   api.rst
+   Dual Optimizers <api_reference/dual_optimizers>
+   Utils <api_reference/utils>

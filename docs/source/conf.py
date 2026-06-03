@@ -28,7 +28,7 @@ nb_toctree = False
 nb_number_headings = False
 nb_execution_show_tb = False
 nb_execution_mode = "cache"
-nb_execution_timeout = 60
+nb_execution_timeout = 180
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

@@ -33,13 +33,13 @@ They create, keep track of, and update the **dual parameters** of the constraine
 
 Let us demonstrate using a **fairness-constrained learning** task, where we want to learn a classifier that is accurate but also satisfies a **demographic parity constraint** - i.e. we would like
 
-$$ | P( Y = 1 | \text{X is Male}) - P ( Y = 1 | \text{X is Female} ) | = \epsilon $$
+$$ | P( Y = 1 | \text{X is Male}) - P ( Y = 1 | \text{X is Female} ) | \leq \epsilon $$
 
 where $ Y $ is the prediction given by our model for sample $ X $, and $ \epsilon $ is some small threshold.
 
-:::{note}
+<!-- :::{note}
 Note: Normally, this would be an inequality constraint, but for the sake of this example let us handle this case first.
-:::
+::: -->
 ---
 
 +++
@@ -111,7 +111,8 @@ def setup_model():
     return model, optimizer
 ```
 
-Next, we define the **constraint function** for demographic parity, which uses the `fairret.statistic.PositiveRate` class to evaluate positive rates for both groups.
+Next, we define the **constraint function** for demographic parity, which uses the `fairret.statistic.PositiveRate` class to evaluate positive rates for both groups. \
+As a reminder, we expect our constraints to be of the form $ g(...) \leq 0 $ or $ h(...) = 0 $. We want $ g(...) \leq \epsilon $, so we will subtract $ \epsilon $ in the training loop.
 
 ```{code-cell} ipython3
 from fairret.statistic import PositiveRate
@@ -125,17 +126,18 @@ def pr_diff(logit, groups):
     return stat_diff
 ```
 
-As a last step, we define our **dual optimizer**. To set it up, we only need to define the **number of constraints** -- in our case, it is 1 -- so it can create the corresponding dual variables.
+As a last step, we define our **dual optimizer**. To set it up, we only need to define the **number of constraints** -- in our case, it is 1 -- so it can create the corresponding dual variables, and the **type** of constraint -- equality or inequality. In a following tutorial, we will see how to create *constraint groups* with different types and hyperparameters.
 
 ```{code-cell} ipython3
 from humancompatible.train.dual_optim import ALM
 
-dual_optimizer = ALM(m=1, lr=0.01)
+dual_optimizer = ALM(m=1, lr=0.01, is_ineq=True)
 ```
 
 Finally, we write our training loop. In addition to the forward pass and loss calculation, we add a constraint calculation step (0.05 is our $ \epsilon $ threshold).
 
 Then, the `forward_update` step does two things:
+
 - Updates the dual variables based on the constraint violation,
 - Calculates the Lagrangian based on loss and constraint violation.
 
@@ -169,7 +171,7 @@ for epoch in range(epochs):
         optimizer.step()
 ```
 
-Due to noise, it is difficult to obtain the exact correct value, but the method attempts to keep the constraint around 0.05!
+We obtain a respectable loss value, while keeping the fairness violation below the threshold!
 
 +++
 
