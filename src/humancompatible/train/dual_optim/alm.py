@@ -239,7 +239,7 @@ def _init_constraint_group(
 
         if init_duals is None:  # initialize duals if not set or set to scalar
             init_duals = (
-                torch.zeros(m, requires_grad=False, device=device) + dual_range[0]
+                torch.zeros(m, requires_grad=False, device=device)
             )
         elif isinstance(init_duals, float):
             init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
