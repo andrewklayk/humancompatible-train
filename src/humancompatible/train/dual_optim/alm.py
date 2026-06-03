@@ -9,6 +9,28 @@ from torch import clamp_, Tensor
 
 
 class ALM(Optimizer):
+    r"""
+    A Dual Optimizer that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables.
+
+    :param m: Number of constraints (determines the number of dual variables to create)
+    :type m: int
+    :param lr: Dual variable update rate.
+    :type lr: float
+    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
+    :type init_duals: float | Tensor
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
+    :type penalty: float
+    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :type dual_range: Tuple[float, float]
+    :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+    :type momentum: float
+    :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+    :type dampening: float
+    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
+    :type is_ineq: bool
+    :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
+    :type ctol: float
+    """
     def __init__(
         self,
         m: int = None,
@@ -23,28 +45,6 @@ class ALM(Optimizer):
         ctol: float = 0.,
         device=None,
     ) -> None:
-        """
-        A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables.
-
-        :param m: Number of constraints (determines the number of dual variables to create)
-        :type m: int
-        :param lr: Dual variable update rate
-        :type lr: float
-        :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
-        :type init_duals: float | Tensor
-        :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
-        :type penalty: float
-        :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
-        :type dual_range: Tuple[float, float]
-        :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
-        :type momentum: float
-        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
-        :type dampening: float
-        :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
-        :type is_ineq: bool
-        :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
-        :type ctol: float
-        """
 
         if momentum > 0 and dampening == 0:
             dampening = momentum
@@ -69,7 +69,7 @@ class ALM(Optimizer):
 
     def add_constraint_group(
         self,
-        m: int = None,
+        m: int,
         lr: float = None,
         momentum: float = None,
         dampening: float = None,
@@ -83,14 +83,22 @@ class ALM(Optimizer):
 
         :param m: Size of group (number of dual variables to add)
         :type m: int
-        :param lr: Dual variable update rate
+        :param lr: Dual variable update rate.
         :type lr: float
-        :param init_duals: Initial values for the new dual variables
+        :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+        :type momentum: float
+        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+        :type dampening: float
+        :param init_duals: Initial values for the new dual variables. Defaults to the value set when creating the optimizer.
         :type init_duals: Tensor
         :param dual_range: After each dual update, the dual variables will be clamped to this range.
         :type dual_range: Tuple[float, float]
         :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be relaxed on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
         :type is_ineq: bool
+
+        .. note::
+            Parameters here will default to values set when initializing the dual optimizer.
+
         """
         duals, settings_dict = _init_constraint_group(
             m, lr, momentum, dampening, init_duals, dual_range, is_ineq, device
@@ -100,11 +108,19 @@ class ALM(Optimizer):
 
     def _add_penalty_term(self, lagrangian: Tensor, constraints: Tensor) -> None:
         """Add penalty term to lagrangian in-place."""
-        if self.penalty > 0:
+        if self.penalty == 0:
+            return
+        elif constraints.ndim > 0:
             lagrangian.add_(
                 0.5
                 * self.penalty
                 * torch.dot(constraints, constraints)
+            )
+        else:
+            lagrangian.add_(
+                0.5
+                * self.penalty
+                * torch.square(constraints)
             )
 
 
@@ -169,7 +185,7 @@ class ALM(Optimizer):
         return lagrangian
 
     def state_dict(self) -> dict[str, Any]:
-
+        """"""
         state_dict = super().state_dict()
         state_dict["state"]["penalty"] = self.penalty
         # save params themselves in state_dict instead of param ID in default PyTorch
@@ -181,6 +197,7 @@ class ALM(Optimizer):
         return state_dict
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """"""
         self.penalty = state_dict["state"]["penalty"]
         # self.dual_range = state_dict["state"]["dual_range"]
         params = state_dict["param_groups"]
@@ -205,10 +222,13 @@ def _process_constraint_group(
     :return: Tuple of (duals, group_constraints)
     """
     duals = group["params"][0]
-    group_constraints = (
-        constraints[group_idx * len(duals) : (group_idx + 1) * len(duals)]
-    )
-
+    if constraints.ndim > 0:
+        group_constraints = (
+            constraints[group_idx * len(duals) : (group_idx + 1) * len(duals)]
+        )
+    else:
+        group_constraints = constraints.unsqueeze(0)
+    
     lr = group.get("lr")
     momentum = group.get("momentum", 0.0)
     dampening = group.get("dampening", 0.0)
@@ -257,8 +277,10 @@ def _init_constraint_group(
 
     duals = Parameter(init_duals, requires_grad=False)
 
-    if dual_range is None:
+    if dual_range is None and not is_ineq:
         dual_range = (None, None)
+    elif dual_range is None and is_ineq:
+        dual_range = (0, None)
 
     settings_dict = {
         "lr": lr,

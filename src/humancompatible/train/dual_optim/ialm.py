@@ -284,8 +284,10 @@ def _init_constraint_group(
 
     duals = Parameter(init_duals, requires_grad=False)
 
-    if dual_range is None:
+    if dual_range is None and not is_ineq:
         dual_range = (None, None)
+    elif dual_range is None and is_ineq:
+        dual_range = (0, None)
 
     settings_dict = {
         "beta": Parameter(torch.tensor(beta), requires_grad=False),
