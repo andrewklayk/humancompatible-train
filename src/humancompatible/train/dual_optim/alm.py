@@ -19,6 +19,7 @@ class ALM(Optimizer):
         dual_range: Tuple[float, float] = (-100.0, 100.0),
         momentum: float = 0.0,
         dampening: float = 0.0,
+        is_ineq: bool = False,
         ctol: float = 0.,
         device=None,
     ) -> None:
@@ -39,6 +40,8 @@ class ALM(Optimizer):
         :type momentum: float
         :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
         :type dampening: float
+        :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
+        :type is_ineq: bool
         :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
         :type ctol: float
         """
@@ -46,12 +49,12 @@ class ALM(Optimizer):
         if momentum > 0 and dampening == 0:
             dampening = momentum
 
-        self.dual_range = dual_range
-        self.ctol = ctol
+        # self.dual_range = dual_range
+        # self.ctol = ctol
 
         self.penalty = penalty
         duals, defaults = _init_constraint_group(
-            m, lr, momentum, dampening, init_duals, dual_range, device
+            m, lr, momentum, dampening, init_duals, dual_range, is_ineq, device
         )
 
         super().__init__(duals, defaults)
@@ -71,6 +74,9 @@ class ALM(Optimizer):
         momentum: float = None,
         dampening: float = None,
         init_duals: Tensor = None,
+        dual_range: tuple[float, float] = None,
+        is_ineq: bool = False,
+        device = None
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
@@ -81,9 +87,13 @@ class ALM(Optimizer):
         :type lr: float
         :param init_duals: Initial values for the new dual variables
         :type init_duals: Tensor
+        :param dual_range: After each dual update, the dual variables will be clamped to this range.
+        :type dual_range: Tuple[float, float]
+        :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be relaxed on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
+        :type is_ineq: bool
         """
         duals, settings_dict = _init_constraint_group(
-            m, lr, momentum, dampening, init_duals, self.dual_range
+            m, lr, momentum, dampening, init_duals, dual_range, is_ineq, device
         )
         param_group_dict = {"params": duals, **settings_dict}
         self.add_param_group(param_group_dict)
@@ -94,7 +104,7 @@ class ALM(Optimizer):
             lagrangian.add_(
                 0.5
                 * self.penalty
-                * torch.dot(constraints - self.ctol, constraints - self.ctol)
+                * torch.dot(constraints, constraints)
             )
 
 
@@ -114,7 +124,7 @@ class ALM(Optimizer):
 
         for i in range(len(self.param_groups)):
             duals, group_constraints = _process_constraint_group(
-                self.param_groups[i], i, constraints, self.ctol, self.dual_range, update_duals=False
+                self.param_groups[i], i, constraints, update_duals=False
             )
             lagrangian.add_(duals @ group_constraints)
 
@@ -131,7 +141,7 @@ class ALM(Optimizer):
         """
         for i in range(len(self.param_groups)):
             _process_constraint_group(
-                self.param_groups[i], i, constraints, self.ctol, self.dual_range, update_duals=True
+                self.param_groups[i], i, constraints, update_duals=True
             )
 
     # evaluate the Lagrangian and update the dual variables
@@ -151,7 +161,7 @@ class ALM(Optimizer):
 
         for i in range(len(self.param_groups)):
             duals, group_constraints = _process_constraint_group(
-                self.param_groups[i], i, constraints, self.ctol, self.dual_range, update_duals=True
+                self.param_groups[i], i, constraints, update_duals=True
             )
             lagrangian.add_(duals @ group_constraints)
 
@@ -162,7 +172,6 @@ class ALM(Optimizer):
 
         state_dict = super().state_dict()
         state_dict["state"]["penalty"] = self.penalty
-        state_dict["state"]["dual_range"] = self.dual_range
         # save params themselves in state_dict instead of param ID in default PyTorch
         for id_pg, pg in enumerate(state_dict["param_groups"]):
             pg["params"] = [
@@ -173,7 +182,7 @@ class ALM(Optimizer):
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         self.penalty = state_dict["state"]["penalty"]
-        self.dual_range = state_dict["state"]["dual_range"]
+        # self.dual_range = state_dict["state"]["dual_range"]
         params = state_dict["param_groups"]
         self.param_groups = []
         for param in params:
@@ -184,8 +193,6 @@ def _process_constraint_group(
     group: dict[str, Any],
     group_idx: int,
     constraints: Tensor,
-    ctol: float,
-    dual_range: Tuple[float, float],
     update_duals: bool = False,
 ) -> Tuple[Tensor, Tensor]:
     """
@@ -194,82 +201,99 @@ def _process_constraint_group(
     :param group: The constraint group dictionary
     :param group_idx: Index of the constraint group
     :param constraints: Full constraints tensor
-    :param ctol: Constraint tolerance
-    :param dual_range: Safeguarding range for dual variables
     :param update_duals: Whether to update dual variables
     :return: Tuple of (duals, group_constraints)
     """
     duals = group["params"][0]
     group_constraints = (
-        constraints[group_idx * len(duals) : (group_idx + 1) * len(duals)] - ctol
+        constraints[group_idx * len(duals) : (group_idx + 1) * len(duals)]
     )
 
-    if update_duals:
-        lr = group.get("lr")
-        momentum = group.get("momentum", 0.0)
-        dampening = group.get("dampening", 0.0)
-        momentum_buffer = group["momentum_buffer"]
+    lr = group.get("lr")
+    momentum = group.get("momentum", 0.0)
+    dampening = group.get("dampening", 0.0)
+    momentum_buffer = group["momentum_buffer"]
+    dual_lb = group.get("lower_bound")
+    dual_ub = group.get("upper_bound")
+    is_ineq = group.get("is_ineq")
 
-        with torch.no_grad():
-            _update_duals(
-                duals, group_constraints, lr, momentum, dampening, momentum_buffer
-            )
-            clamp_(duals, min=dual_range[0], max=dual_range[1])
+    with torch.no_grad():
+        if momentum > 0:
+            _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
+        if update_duals:
+            _update_duals(duals, momentum_buffer if momentum > 0 else group_constraints, lr)
+            clamp_(duals, min=dual_lb, max=dual_ub)
+
 
     return duals, group_constraints
 
 
 def _init_constraint_group(
-        m: int = None,
-        lr: float = None,
-        momentum: float = None,
-        dampening: float = None,
-        init_duals: float | Tensor = None,
-        dual_range: Tuple[float, float] = None,
-        device=None,
-    ):
-        ## checks ##
-        if init_duals is None and m is None:
-            raise ValueError("At least one of`m`,`init_duals` must be set")
+    m: int = None,
+    lr: float = None,
+    momentum: float = None,
+    dampening: float = None,
+    init_duals: float | Tensor = None,
+    dual_range: Tuple[float, float] = None,
+    is_ineq: bool = None,
+    device = None,
+):
+    ## checks ##
+    if init_duals is None and m is None:
+        raise ValueError("At least one of m, init_duals must be set")
 
-        if momentum is not None and (momentum < 0 or momentum > 1):
-            raise ValueError(f"`momentum`must be within [0,1]; got {momentum}")
+    if momentum is not None and (momentum < 0 or momentum > 1):
+        raise ValueError(f"momentum must be within [0,1]; got {momentum}")
 
-        m = m if m is not None else len(init_duals)
+    if not isinstance(is_ineq, bool):
+        raise ValueError(f"Expected a Boolean value for is_ineq, got {is_ineq}")
 
-        if init_duals is None:  # initialize duals if not set or set to scalar
-            init_duals = (
-                torch.zeros(m, requires_grad=False, device=device)
-            )
-        elif isinstance(init_duals, float):
-            init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
+    m = m if m is not None else len(init_duals)
 
-        duals = Parameter(init_duals, requires_grad=False)
+    if init_duals is None:  # initialize duals if not set or set to scalar
+        init_duals = torch.zeros(m, requires_grad=False, device=device)
+    elif isinstance(init_duals, float):
+        init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
 
-        settings_dict = {
-            "lr": lr,
-            "momentum": momentum,
-            "dampening": dampening,
-            "momentum_buffer": torch.zeros_like(
-                init_duals, requires_grad=False, device=device
-            ),
-        }
-        settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
+    duals = Parameter(init_duals, requires_grad=False)
 
-        param_group = ([duals], settings_dict)
-        return param_group
+    if dual_range is None:
+        dual_range = (None, None)
+
+    settings_dict = {
+        "lr": lr,
+        "momentum": momentum,
+        "dampening": dampening,
+        "momentum_buffer": torch.zeros_like(
+            init_duals, requires_grad=False, device=device
+        ),
+        "lower_bound": max(dual_range[0], 0) if is_ineq else dual_range[0],
+        "upper_bound": dual_range[1],
+        "is_ineq": is_ineq
+    }
+    settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
+
+    param_group = ([duals], settings_dict)
+    return param_group
 
 
-def _update_duals(
-    duals: Tensor,
+def _update_c_buffers(
     constraints: Tensor,
-    lr: float,
     momentum: float,
     dampening: float,
     buffer: Tensor,
 ) -> None:
+    """Update the constraint buffer with momentum."""
     if momentum == 0:
         buffer = constraints
     else:
         buffer.mul_(momentum).add_(constraints, alpha=1 - dampening)
+
+
+def _update_duals(
+    duals: Tensor,
+    buffer: Tensor,
+    lr: float,
+) -> None:
+    """Update duals using the buffered constraint gradients."""
     duals.add_(buffer, alpha=lr)
