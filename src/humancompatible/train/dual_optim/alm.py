@@ -9,28 +9,6 @@ from torch import clamp_, Tensor
 
 
 class ALM(Optimizer):
-    r"""
-    A Dual Optimizer that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables.
-
-    :param m: Number of constraints (determines the number of dual variables to create)
-    :type m: int
-    :param lr: Dual variable update rate.
-    :type lr: float
-    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
-    :type init_duals: float | Tensor
-    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
-    :type penalty: float
-    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
-    :type dual_range: Tuple[float, float]
-    :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
-    :type momentum: float
-    :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
-    :type dampening: float
-    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
-    :type is_ineq: bool
-    :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
-    :type ctol: float
-    """
     def __init__(
         self,
         m: int = None,
@@ -128,6 +106,13 @@ class ALM(Optimizer):
         """
         Calculates and returns the Augmented Lagrangian.
 
+        Computes the augmented Lagrangian::
+
+            L = loss + sum(duals_i @ constraints_i for all groups) + 0.5 * penalty * ||constraints||^2
+
+        where `loss` is the objective value, `duals_i` are the dual variables, `constraints_i` are constraint values,
+        `penalty` is the penalty parameter, and the sum is over all constraint groups.
+
         :param loss: Loss (objective function) value
         :type loss: Tensor
         :param constraints: Tensor of constraint values
@@ -150,7 +135,23 @@ class ALM(Optimizer):
 
     def update(self, constraints: Tensor) -> None:
         """
-        Updates the dual variables
+        Updates the dual variables using constrained gradient ascent with optional momentum.
+
+        For each constraint group, performs the dual variable update.
+
+        First, update the momentum buffer (if momentum > 0)::
+
+            if momentum > 0:
+                buffer_i = momentum * buffer_i + (1 - dampening) * constraints_i
+            else:
+                buffer_i = constraints_i
+
+        Then, update the dual variables with clamping::
+
+            duals_i = clamp(duals_i + lr * buffer_i, lower_bound, upper_bound)
+
+        where `buffer_i` is the momentum buffer, `constraints_i` are constraint values, `duals_i` are dual variables,
+        and `clamp(x, lb, ub)` projects to the dual range.
 
         :param constraints: Tensor of constraint values
         :type constraints: Tensor
@@ -163,7 +164,18 @@ class ALM(Optimizer):
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
         """
-        Combines `forward` and `update`; slightly faster.
+        Combines `forward` and `update`; slightly faster than calling both separately.
+        
+        Updates dual variables::
+
+            duals_i = clamp(duals_i + lr * buffer_i, lower_bound, upper_bound)
+
+        Then computes the augmented Lagrangian::
+
+            L = loss + sum(duals_i @ constraints_i for all groups) + 0.5 * penalty * ||constraints||^2
+
+
+        where the momentum buffer is updated as in :meth:`update`.
 
         :param loss: Loss (objective function) value
         :type loss: Tensor
@@ -319,3 +331,39 @@ def _update_duals(
 ) -> None:
     """Update duals using the buffered constraint gradients."""
     duals.add_(buffer, alpha=lr)
+
+
+
+ALM.__doc__ = (
+
+        # \textbf{input}: \gamma \text{ (lr) }, \pmb{\lambda}_t \text{ (dual variables, created by method) }, \\
+        # \mathbf{c}(\theta) \text{ (constraints) }, f(\theta) \text{ (objective) }, \rho \text{ (penalty coefficient) } \\
+    r"""
+    A Dual Optimizer that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2504.07607
+    
+    .. math::
+                
+        \pmb{\lambda}_{t+1} & \leftarrow \pmb{\lambda}_t + \gamma \mathbf{c}_t(\theta_{t})
+
+        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
+
+    :param m: Number of constraints (determines the number of dual variables to create)
+    :type m: int
+    :param lr: Dual variable update rate.
+    :type lr: float
+    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
+    :type init_duals: float | Tensor
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
+    :type penalty: float
+    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :type dual_range: Tuple[float, float]
+    :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+    :type momentum: float
+    :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+    :type dampening: float
+    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
+    :type is_ineq: bool
+    :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
+    :type ctol: float
+    """
+)

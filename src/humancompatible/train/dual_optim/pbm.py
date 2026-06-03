@@ -23,28 +23,7 @@ class PBM(Optimizer):
         device=None,
         primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm
     ) -> None:
-        """
-        A wrapper over a PyTorch`Optimizer` that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables.
-
-        :param m: Number of constraints (determines the number of dual variables to create)
-        :type m: int
-        :param penalty_mult: Multiplier for penalty update (K1 or K2). For K2 (adaptive penalty update), values close to 1 correspond to a high "momentum".
-        :type penalty_mult: float
-        :param gamma: Multiplier for dual parameter update. Values close to 1 correspond to a high "momentum".
-        :type gamma: float
-        :param delta: Violation/satisfaction parameter for penalty update; values > 1 make the penalties decrease faster on violated constraints and vice versa.
-        :type delta: float
-        :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`dimin_adapt`,`const`. Defaults to`dimin_adapt`.
-        :type penalty_update: str
-        :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`,`quadratic_reciprocal`
-        :type pbf: str
-        :param init_duals: Initial values for the dual variables. Defaults to dual lower bound for all.
-        :type init_duals: float | Tensor
-        :param init_penalties: Initial values for the penalty variables. Defaults to the penalty upper bound for all.
-        :type init_penalties: float | Tensor
-        :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
-        :type dual_range: Tuple[float, float]
-        """
+        
 
         self.dual_range = dual_range
         self.penalty_range = penalty_range
@@ -486,3 +465,39 @@ penalty_update_funcs = {
     "adapt": _update_penalties_adapt,
     "dimin_dual": _update_penalties_dimin_dual,
 }
+
+
+PBM.__doc__ = (
+
+    r"""
+    A Dual Optimizer that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2605.18618
+    
+    .. note::
+        
+        Natively, this method only supports inequality constraints (see reference). However, it is easy to transform one into the other:
+
+        .. math::
+            g(x) = |h(x)| \leq 0
+
+        We suggest using a small tolerance parameter on the right-hand side instead of 0.
+
+    :param m: Number of constraints (determines the number of dual variables to create)
+    :type m: int
+    :param penalty_mult: Multiplier for penalty update (K1 or K2). For K2 (adaptive penalty update), values close to 1 correspond to a high "momentum".
+    :type penalty_mult: float
+    :param gamma: Multiplier for dual parameter update. Values close to 1 correspond to a high "momentum".
+    :type gamma: float
+    :param delta: Violation/satisfaction parameter for penalty update; values > 1 make the penalties decrease faster on violated constraints and vice versa.
+    :type delta: float
+    :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`dimin_adapt`,`const`. Defaults to`dimin_adapt`.
+    :type penalty_update: str
+    :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`,`quadratic_reciprocal`
+    :type pbf: str
+    :param init_duals: Initial values for the dual variables. Defaults to dual lower bound for all.
+    :type init_duals: float | Tensor
+    :param init_penalties: Initial values for the penalty variables. Defaults to the penalty upper bound for all.
+    :type init_penalties: float | Tensor
+    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :type dual_range: Tuple[float, float]
+    """
+)
