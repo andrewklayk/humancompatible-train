@@ -2,3 +2,4 @@ sphinx
 myst-nb
 .
 furo
+sphinx_rtd_theme

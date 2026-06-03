@@ -30,10 +30,10 @@ kliacand@fel.cvut.cz
 Documentation
 ~~~~~~~~~~~~~
 
-- Check the :doc:`getting_started` guide for basic information
-- Review the :doc:`examples/basic_usage` for common usage patterns
-- Consult the :doc:`troubleshooting` page for known issues and solutions
-- See the :doc:`examples/api_reference` for API documentation
+.. - Check the :doc:`getting_started` guide for basic information
+.. - Review the :doc:`examples/basic_usage` for common usage patterns
+.. - Consult the :doc:`troubleshooting` page for known issues and solutions
+.. - See the :doc:`examples/api_reference` for API documentation
 
 Contributing
 ~~~~~~~~~~~~

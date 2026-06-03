@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-extensions = ["myst_nb"]
+extensions = ["myst_nb", "sphinx.ext.autodoc"]
 
 
 import os
@@ -33,7 +33,8 @@ nb_execution_timeout = 60
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'furo'
+# html_theme = 'furo'
+html_theme = 'sphinx_rtd_theme'
 
 html_static_path = ['_static']
 
@@ -55,3 +56,7 @@ source_suffix = {
 }
 
 nb_execution_mode = "cache"
+
+import sys 
+
+sys.path.insert(0, os.path.abspath('./../..'))

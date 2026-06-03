@@ -31,3 +31,10 @@ We implement several first-order Lagrangian-based methods for constrained optimi
    Basic usage: Fairness <tutorials/basic_usage>
    Handling inequality constraints <tutorials/inequality_constraints>
    Tips and Tricks <tutorials/tips>
+
+.. toctree::
+   :maxdepth: 1
+   :caption: API reference
+   :titlesonly:
+
+   api.rst
