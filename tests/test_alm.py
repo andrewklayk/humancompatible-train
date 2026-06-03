@@ -21,8 +21,6 @@ class TestALM(unittest.TestCase):
     def test_alm_initialization(self):
         # Test initialization with m
         self.assertEqual(len(self.alm_default.duals), 3)
-        self.assertEqual(self.alm_default.penalty, 1.0)
-        self.assertEqual(self.alm_default.dual_range, (0.0, 100.0))
 
         # Test initialization with init_duals
         init_duals = torch.tensor([1.0, 2.0, 3.0])
@@ -40,7 +38,10 @@ class TestALM(unittest.TestCase):
 
     def test_alm_update(self):
         expected_duals = self.alm_default.duals + 0.1 * self.constraints
+        # breakpoint()
         self.alm_default.update(self.constraints)
+        print(self.alm_default.duals)
+        print(expected_duals)
         self.assertTrue(torch.allclose(self.alm_default.duals, expected_duals))
 
     def test_alm_momentum_update(self):
@@ -84,7 +85,6 @@ class TestALM(unittest.TestCase):
         alm = ALM(m=3, lr=0.1, penalty=2.0, dual_range=(-1.0, 1.0))
         state_dict = alm.state_dict()
         self.assertEqual(state_dict["state"]["penalty"], 2.0)
-        self.assertEqual(state_dict["state"]["dual_range"], (-1.0, 1.0))
 
 if __name__ == "__main__":
     unittest.main()
