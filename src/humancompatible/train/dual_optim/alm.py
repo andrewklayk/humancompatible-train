@@ -182,7 +182,7 @@ class ALM(Optimizer):
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         self.penalty = state_dict["state"]["penalty"]
-        self.dual_range = state_dict["state"]["dual_range"]
+        # self.dual_range = state_dict["state"]["dual_range"]
         params = state_dict["param_groups"]
         self.param_groups = []
         for param in params:
@@ -229,52 +229,52 @@ def _process_constraint_group(
 
 
 def _init_constraint_group(
-        m: int = None,
-        lr: float = None,
-        momentum: float = None,
-        dampening: float = None,
-        init_duals: float | Tensor = None,
-        dual_range: Tuple[float, float] = None,
-        is_ineq: bool = False,
-        device = None,
-    ):
-        ## checks ##
-        if init_duals is None and m is None:
-            raise ValueError("At least one of m, init_duals must be set")
+    m: int = None,
+    lr: float = None,
+    momentum: float = None,
+    dampening: float = None,
+    init_duals: float | Tensor = None,
+    dual_range: Tuple[float, float] = None,
+    is_ineq: bool = None,
+    device = None,
+):
+    ## checks ##
+    if init_duals is None and m is None:
+        raise ValueError("At least one of m, init_duals must be set")
 
-        if momentum is not None and (momentum < 0 or momentum > 1):
-            raise ValueError(f"momentum must be within [0,1]; got {momentum}")
+    if momentum is not None and (momentum < 0 or momentum > 1):
+        raise ValueError(f"momentum must be within [0,1]; got {momentum}")
 
-        if not isinstance(is_ineq, bool):
-            raise ValueError(f"Expected a Boolean value for is_ineq, got {is_ineq}")
+    if not isinstance(is_ineq, bool):
+        raise ValueError(f"Expected a Boolean value for is_ineq, got {is_ineq}")
 
-        m = m if m is not None else len(init_duals)
+    m = m if m is not None else len(init_duals)
 
-        if init_duals is None:  # initialize duals if not set or set to scalar
-            init_duals = torch.zeros(m, requires_grad=False, device=device)
-        elif isinstance(init_duals, float):
-            init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
+    if init_duals is None:  # initialize duals if not set or set to scalar
+        init_duals = torch.zeros(m, requires_grad=False, device=device)
+    elif isinstance(init_duals, float):
+        init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
 
-        duals = Parameter(init_duals, requires_grad=False)
+    duals = Parameter(init_duals, requires_grad=False)
 
-        if dual_range is None:
-            dual_range = (None, None)
+    if dual_range is None:
+        dual_range = (None, None)
 
-        settings_dict = {
-            "lr": lr,
-            "momentum": momentum,
-            "dampening": dampening,
-            "momentum_buffer": torch.zeros_like(
-                init_duals, requires_grad=False, device=device
-            ),
-            "lower_bound": max(dual_range[0], 0) if is_ineq else dual_range[0],
-            "upper_bound": dual_range[1],
-            "is_ineq": is_ineq
-        }
-        settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
+    settings_dict = {
+        "lr": lr,
+        "momentum": momentum,
+        "dampening": dampening,
+        "momentum_buffer": torch.zeros_like(
+            init_duals, requires_grad=False, device=device
+        ),
+        "lower_bound": max(dual_range[0], 0) if is_ineq else dual_range[0],
+        "upper_bound": dual_range[1],
+        "is_ineq": is_ineq
+    }
+    settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
 
-        param_group = ([duals], settings_dict)
-        return param_group
+    param_group = ([duals], settings_dict)
+    return param_group
 
 
 def _update_c_buffers(
