@@ -152,15 +152,17 @@ def custom_loss(inputs, model, epoch):
 
 #### LOSS FUNCTION WITH H1 CONSTRAINT ####
 
-def lagrangian_loss(inputs, model, dual_opt, epoch, H0):
+def lagrangian_loss(inputs, model, dual_opt, epoch, H0=None):
     x, t = inputs[:, 0:1], inputs[:, 1:2]
     x.requires_grad_(True)
     t.requires_grad_(True)
     
     u_model = model(torch.cat([x, t], dim=1))
+    u_model_0 = model(torch.cat([x, torch.zeros_like(t)], dim=1))
     
     u_t = torch.autograd.grad(u_model.sum(), t, create_graph=True)[0]
     u_x = torch.autograd.grad(u_model.sum(), x, create_graph=True)[0]
+    u_x_0 = torch.autograd.grad(u_model_0.sum(), x, create_graph=True)[0]
     
     u_xx = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0]
     u_xxt = torch.autograd.grad(u_xx.sum(), t, create_graph=True)[0]
@@ -193,14 +195,16 @@ def lagrangian_loss(inputs, model, dual_opt, epoch, H0):
     
 
     Hf = H(u_model.reshape(Nt, Nx), u_x.reshape(Nt, Nx), dx)
-    H_constraint = torch.abs(Hf - H0)/torch.abs(H0)
+    H0 = H(u_model_0.reshape(Nt, Nx), u_x_0.reshape(Nt, Nx), dx)
 
-    eps = 1/(epoch+1)
-    H_constraint = torch.max(H_constraint - eps, torch.zeros_like(H_constraint)).unsqueeze(0)
+    H_constraint = (torch.abs(Hf - H0)/torch.abs(H0)).unsqueeze(0)
+
+    eps = 1/(epoch+1)**2
+    H_constraint = H_constraint - eps
 
     loss = dual_opt.forward_update(loss, H_constraint)
     
-    return loss, loss_type, pde_loss_L2, data_fitting_loss_0, data_fitting_loss_l_r, Hf
+    return loss, loss_type, pde_loss_L2, data_fitting_loss_0, data_fitting_loss_l_r, Hf, H0
 
 
 ####### TRAINING LOOP #######
@@ -218,8 +222,8 @@ H_losses_abs_error, H_losses_rel_error = [], []
 t0 = time()
 
 
-# dual_opt = ALM(m=1, lr=5e-5, dual_range=(0.,100.), device=device, ctol=1e-3, penalty=0.)
-dual_opt = iALM(m=1, beta=0.01, sigma=1.0001, gamma=1., dual_range=(0.,10.), ctol=1e-3)
+# dual_opt = ALM(m=1, lr=1e-3, device=device, penalty=0., is_ineq=True)
+dual_opt = iALM(m=1, beta=0.001, sigma=1.001, gamma=1., dual_range=(-10.,10.), is_ineq=True)
 
 H0 = H(u_0(x_grid.flatten().reshape(-1, 1)), u_0_x(x_grid.flatten().reshape(-1, 1)), dx)
 
@@ -227,13 +231,11 @@ for epoch in range(epochs):
     optimizer.zero_grad()
     # loss, loss_type, pde_loss, data_loss_0, bc_loss, H_loss = custom_loss(inputs, model, epoch)
 
-    loss, loss_type, pde_loss, data_loss_0, bc_loss, H_loss = lagrangian_loss(inputs, model, dual_opt, epoch, H0)
+    loss, loss_type, pde_loss, data_loss_0, bc_loss, H_loss, H0 = lagrangian_loss(inputs, model, dual_opt, epoch, H0)
     loss.backward()
     optimizer.step()
     
-    
-    if epoch % 1 == 0:
-        lr_schedule.step()
+    lr_schedule.step()
     
     with torch.no_grad():
 
@@ -340,6 +342,7 @@ plt.show()
 H_losses_rel_error = np.array(H_losses_rel_error)
 plt.figure(figsize=(10, 6))
 plt.plot(H_losses_rel_error)
+# plt.plot()
 plt.xlabel('Epoch')
 plt.ylabel('Hamiltonian relative error')
 plt.title('Hamiltonian relative error over epochs')
