@@ -328,3 +328,38 @@ def _update_duals(
 
     update_mult = torch.min(beta, gamma / torch.linalg.norm(buffer))
     duals.add_(buffer, alpha=update_mult)
+
+
+iALM.__doc__ = (
+
+        # \textbf{input}: \gamma \text{ (lr) }, \pmb{\lambda}_t \text{ (dual variables, created by method) }, \\
+        # \mathbf{c}(\theta) \text{ (constraints) }, f(\theta) \text{ (objective) }, \rho \text{ (penalty coefficient) } \\
+    r"""
+    A Dual Optimizer that works on the dual maximization tasks according to the Augmented Lagrangian rule, with adaptive stepsize based on https://doi.org/10.1007/s10589-023-00521-z, Algorithm 1. Creates and updates dual variables.
+    
+    .. math::
+
+        \pmb{\lambda}_{t+1} & \leftarrow \pmb{\lambda}_t + \min\left\{ \beta_k, \frac{\gamma_k}{\|\mathbf{c}_t(\theta_t)\|} \right\} \mathbf{c}_t(\theta_{t})
+
+        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
+
+    :param m: Number of constraints (determines the number of dual variables to create)
+    :type m: int
+    :param lr: Dual variable update rate.
+    :type lr: float
+    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
+    :type init_duals: float | Tensor
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
+    :type penalty: float
+    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :type dual_range: Tuple[float, float]
+    :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+    :type momentum: float
+    :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+    :type dampening: float
+    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
+    :type is_ineq: bool
+    :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
+    :type ctol: float
+    """
+)
