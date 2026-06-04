@@ -15,18 +15,18 @@ class nuPI(Optimizer):
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int
-    :param lr: Dual variable update rate.
-    :type lr: float
+    :param nu: Momentum parameter.
+    :type nu: float
     :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
     :type init_duals: float | Tensor
     :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
     :type penalty: float
     :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
     :type dual_range: Tuple[float, float]
-    :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
-    :type momentum: float
-    :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
-    :type dampening: float
+    :param ki: Momentum parameter.
+    :type ki: float
+    :param kp: Momentum parameter.
+    :type kp: float
     :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
     :type is_ineq: bool
     :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
@@ -35,27 +35,25 @@ class nuPI(Optimizer):
     def __init__(
         self,
         m: int = None,
-        lr: float = 0.01,
+        nu: float = 0.01,
         init_duals: float | Tensor = None,
         penalty: float = 1.0,
         *,
         dual_range: Tuple[float, float] = (-100.0, 100.0),
-        momentum: float = 0.0,
-        dampening: float = 0.0,
+        ki: float = 0.0,
+        kp: float = 0.0,
         is_ineq: bool = False,
         ctol: float = 0.,
         device=None,
     ) -> None:
 
-        if momentum > 0 and dampening == 0:
-            dampening = momentum
-
         # self.dual_range = dual_range
         # self.ctol = ctol
 
         self.penalty = penalty
+        self._is_initialized = False
         duals, defaults = _init_constraint_group(
-            m, lr, momentum, dampening, init_duals, dual_range, is_ineq, device
+            m, nu, ki, kp, init_duals, dual_range, is_ineq, device
         )
 
         super().__init__(duals, defaults)
@@ -71,9 +69,9 @@ class nuPI(Optimizer):
     def add_constraint_group(
         self,
         m: int,
-        lr: float = None,
-        momentum: float = None,
-        dampening: float = None,
+        nu: float = None,
+        ki: float = None,
+        kp: float = None,
         init_duals: Tensor = None,
         dual_range: tuple[float, float] = None,
         is_ineq: bool = False,
@@ -84,12 +82,12 @@ class nuPI(Optimizer):
 
         :param m: Size of group (number of dual variables to add)
         :type m: int
-        :param lr: Dual variable update rate.
-        :type lr: float
-        :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
-        :type momentum: float
-        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
-        :type dampening: float
+        :param nu: Momentum parameter.
+        :type nu: float
+        :param ki: Momentum parameter.
+        :type ki: float
+        :param kp: Momentum parameter.
+        :type kp: float
         :param init_duals: Initial values for the new dual variables. Defaults to the value set when creating the optimizer.
         :type init_duals: Tensor
         :param dual_range: After each dual update, the dual variables will be clamped to this range.
@@ -102,7 +100,7 @@ class nuPI(Optimizer):
 
         """
         duals, settings_dict = _init_constraint_group(
-            m, lr, momentum, dampening, init_duals, dual_range, is_ineq, device
+            m, nu, ki, kp, init_duals, dual_range, is_ineq, device
         )
         param_group_dict = {"params": duals, **settings_dict}
         self.add_param_group(param_group_dict)
@@ -244,7 +242,7 @@ def _process_constraint_group(
     group: dict[str, Any],
     group_idx: int,
     constraints: Tensor,
-    update_duals: bool = False,
+    update_duals: bool = False
 ) -> Tuple[Tensor, Tensor]:
     """
     Process a single constraint group: extract duals/constraints and optionally update duals.
@@ -263,30 +261,31 @@ def _process_constraint_group(
     else:
         group_constraints = constraints.unsqueeze(0)
     
-    lr = group.get("lr")
-    momentum = group.get("momentum", 0.0)
-    dampening = group.get("dampening", 0.0)
+    nu = group.get("nu")
+    ki = group.get("ki", 0.0)
+    kp = group.get("kp", 0.0)
     momentum_buffer = group["momentum_buffer"]
     dual_lb = group.get("lower_bound")
     dual_ub = group.get("upper_bound")
     is_ineq = group.get("is_ineq")
+    _momentum_initialized = group.get("_momentum_initialized")
 
     with torch.no_grad():
-        if momentum > 0:
-            _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
-        if update_duals:
-            _update_duals(duals, momentum_buffer if momentum > 0 else group_constraints, lr)
-            clamp_(duals, min=dual_lb, max=dual_ub)
 
+        if update_duals:
+            _update_duals(duals, momentum_buffer, group_constraints, nu, ki, kp)
+            clamp_(duals, min=dual_lb, max=dual_ub)
+            
+        _update_c_buffers(group_constraints, nu, momentum_buffer)
 
     return duals, group_constraints
 
 
 def _init_constraint_group(
     m: int = None,
-    lr: float = None,
-    momentum: float = None,
-    dampening: float = None,
+    nu: float = None,
+    ki: float = None,
+    kp: float = None,
     init_duals: float | Tensor = None,
     dual_range: Tuple[float, float] = None,
     is_ineq: bool = None,
@@ -295,9 +294,6 @@ def _init_constraint_group(
     ## checks ##
     if init_duals is None and m is None:
         raise ValueError("At least one of m, init_duals must be set")
-
-    if momentum is not None and (momentum < 0 or momentum > 1):
-        raise ValueError(f"momentum must be within [0,1]; got {momentum}")
 
     if not isinstance(is_ineq, bool):
         raise ValueError(f"Expected a Boolean value for is_ineq, got {is_ineq}")
@@ -317,15 +313,16 @@ def _init_constraint_group(
         dual_range = (0, None)
 
     settings_dict = {
-        "lr": lr,
-        "momentum": momentum,
-        "dampening": dampening,
+        "nu": nu,
+        "ki": ki,
+        "kp": kp,
         "momentum_buffer": torch.zeros_like(
             init_duals, requires_grad=False, device=device
         ),
         "lower_bound": max(dual_range[0], 0) if is_ineq else dual_range[0],
         "upper_bound": dual_range[1],
-        "is_ineq": is_ineq
+        "is_ineq": is_ineq,
+        "_momentum_initialized": False
     }
     settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
 
@@ -335,23 +332,50 @@ def _init_constraint_group(
 
 def _update_c_buffers(
     constraints: Tensor,
-    momentum: float,
-    dampening: float,
+    nu: float,
     buffer: Tensor,
 ) -> None:
     """Update the constraint buffer with momentum."""
-    raise NotImplementedError
-    if momentum == 0:
-        buffer = constraints
-    else:
-        buffer.mul_(momentum).add_(constraints, alpha=1 - dampening)
+    buffer.mul_(nu).add_(constraints, alpha=1 - nu)
 
 
 def _update_duals(
     duals: Tensor,
     buffer: Tensor,
-    lr: float,
+    constraints: Tensor,
+    nu: float,
+    ki: float,
+    kp: float
 ) -> None:
-    raise NotImplementedError
     """Update duals using the buffered constraint gradients."""
-    duals.add_(buffer, alpha=lr)
+    # duals.add_(buffer, alpha=lr).add_()
+    duals.add_( constraints, alpha=ki + kp * (1-nu) ).add_( buffer, alpha = -kp * (1-nu) )
+
+
+nuPI.__doc__ = (
+
+        # \textbf{input}: \gamma \text{ (lr) }, \pmb{\lambda}_t \text{ (dual variables, created by method) }, \\
+        # \mathbf{c}(\theta) \text{ (constraints) }, f(\theta) \text{ (objective) }, \rho \text{ (penalty coefficient) } \\
+    r"""
+    A Dual Optimizer that works on the dual maximization tasks according to the nuPI Augmented Lagrangian rule, based on https://doi.org/10.48550/arXiv.2406.04558. Creates and updates dual variables.
+    
+    :param m: Number of constraints (determines the number of dual variables to create)
+    :type m: int
+    :param lr: Dual variable update rate.
+    :type lr: float
+    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
+    :type init_duals: float | Tensor
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
+    :type penalty: float
+    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :type dual_range: Tuple[float, float]
+    :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
+    :type momentum: float
+    :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+    :type dampening: float
+    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
+    :type is_ineq: bool
+    :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
+    :type ctol: float
+    """
+)
