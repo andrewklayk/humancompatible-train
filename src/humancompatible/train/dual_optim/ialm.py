@@ -345,8 +345,12 @@ iALM.__doc__ = (
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int
-    :param lr: Dual variable update rate.
-    :type lr: float
+    :param beta: Dual variable update rate.
+    :type beta: float
+    :param sigma: Multiplier for increasing`beta`.
+    :type sigma: float
+    :param gamma: Penalty update parameter.
+    :type gamma: float
     :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
     :type init_duals: float | Tensor
     :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
