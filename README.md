@@ -29,7 +29,7 @@ The only dependencies of this package are `numpy` and `torch`.
 
 ## Using the toolkit
 
-The toolkit implements algorithms for constrained training of neural networks based on PyTorch.
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch.  For the documentation, please visit [our Read the Docs page!](https://humancompatible-train.readthedocs.io?version=latest)
 
 The algorithms are intended for use in tandem with classic PyTorch optimizers, calculating the Lagrangian and keeping track of the dual variables.
 

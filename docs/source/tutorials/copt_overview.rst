@@ -21,7 +21,7 @@ We then introduce **constraints** -- they could express anything from some bound
 
 
 .. note::
-    - As is standard in the field, we adopt the convention of writing the constraints as :math:`g(x) \leq 0`, and :math:`h(x) = 0`. This is just a notational choice, and does not affect the generality of the formulation. It is trivial to transform :math:`g(x) \geq 0` into :math:`-g(x) \leq 0`, or :math:`g(x) \leq \epsilon` into :math:`g(x) - \epsilon \leq 0` for some non-zero bound. 
+    - As is standard in the field, we adopt the convention of writing the constraints as :math:`g(x) \leq 0`, and :math:`h(x) = 0`. This is just a notational choice, and does not affect the generality of the formulation. It is trivial to transform :math:`g(x) \geq 0` into :math:`-g(x) \leq 0`, or :math:`h(x) = \epsilon` into :math:`g(x) - \epsilon = 0` for some :math:`\epsilon`. We refer to this :math:`\epsilon` as the constraint **bound**, or **threshold**.
     - It is also easy to switch between equality and inequality constraints: to get :math:`g(x) = 0`, one can set :math:`-g(x) \leq 0` and :math:`g(x) \leq 0` simultaneously. In fact, different algorithms are designed to handle either equality or inequality constraints natively, but it is trivial to switch between the two. We shall see more concrete examples later on.
 
 
