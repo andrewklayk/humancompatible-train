@@ -1,6 +1,6 @@
 # humancompatible-train: a package for constrained machine learning
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Setup](https://github.com/humancompatible/train/actions/workflows/setup.yml/badge.svg)](https://github.com/humancompatible/train/actions/workflows/setup.yml) [![Docs](https://app.readthedocs.org/projects/humancompatible-train/badge/)]
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Setup](https://github.com/humancompatible/train/actions/workflows/setup.yml/badge.svg)](https://github.com/humancompatible/train/actions/workflows/setup.yml) ![Docs](https://app.readthedocs.org/projects/humancompatible-train/badge/)
 
 The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API.
 <!-- , as well as a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task in the `experiments` folder. -->
