@@ -15,7 +15,7 @@ import os
 project = 'humancompatible-train'
 copyright = '2026, Andrii Kliachkin, Gilles Bareillies, Jana Lepsova, Jakub Marecek'
 author = 'Andrii Kliachkin, Gilles Bareillies, Jana Lepsova, Jakub Marecek'
-release = '0.3.1'
+# release = '0.3.1'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
