@@ -130,11 +130,11 @@ class iALM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
 
-        for i in range(len(self.param_groups)):
-            duals, beta, group_constraints = _process_constraint_group_ialm(
-                self.param_groups, i, constraints, update_duals=False
-            )
+        offset = 0
+        for group in self.param_groups:
+            duals, beta, group_constraints = _process_constraint_group_ialm(group, offset, constraints, update_duals=False)
             lagrangian.add_(duals @ group_constraints)
+            offset += len(duals)
 
         # Use beta from first group for penalty term
         beta = self.param_groups[0]["beta"]
@@ -149,10 +149,10 @@ class iALM(Optimizer):
         :param constraints: Tensor of constraint values
         :type constraints: Tensor
         """
-        for i in range(len(self.param_groups)):
-            _process_constraint_group_ialm(
-                self.param_groups, i, constraints, update_duals=True
-            )
+        offset = 0
+        for group in self.param_groups:
+            _process_constraint_group_ialm(group, offset, constraints, update_duals=True)
+            offset += len(group["params"][0])
 
         # Update beta by sigma for each group
         for group in self.param_groups:
@@ -173,11 +173,11 @@ class iALM(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
 
-        for i in range(len(self.param_groups)):
-            duals, beta, group_constraints = _process_constraint_group_ialm(
-                self.param_groups, i, constraints, update_duals=True
-            )
+        offset = 0
+        for group in self.param_groups:
+            duals, beta, group_constraints = _process_constraint_group_ialm(group, offset, constraints, update_duals=True)
             lagrangian.add_(duals @ group_constraints)
+            offset += len(duals)
 
         # Use beta from first group for penalty term
         beta = self.param_groups[0]["beta"]
@@ -214,40 +214,36 @@ class iALM(Optimizer):
 
 
 def _process_constraint_group_ialm(
-    param_groups: list,
-    group_idx: int,
+    group: dict[str, Any],
+    offset: int,
     constraints: Tensor,
     update_duals: bool = False,
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """
     Process a single constraint group: extract parameters and optionally update duals.
 
-    :param param_groups: List of parameter groups from optimizer
-    :param group_idx: Index of the constraint group
+    :param group: The constraint group dictionary
+    :param offset: Start index of this group's slice within the full constraints tensor
     :param constraints: Full constraints tensor
-    :param ctol: Constraint tolerance
-    :param dual_range: Safeguarding range for dual variables
     :param update_duals: Whether to update dual variables
     :return: Tuple of (duals, beta, group_constraints)
     """
-    group = param_groups[group_idx]
     duals = group["params"][0]
+    n = len(duals)
     beta = group.get("beta")
-    sigma = group.get("sigma")
     gamma = group.get("gamma")
     momentum = group.get("momentum", 0.0)
     dampening = group.get("dampening", 0.0)
     momentum_buffer = group.get("momentum_buffer")
     dual_lb = group.get("lower_bound")
     dual_ub = group.get("upper_bound")
-    is_ineq = group.get("is_ineq")
 
-    group_constraints = constraints[group_idx * len(duals) : (group_idx + 1) * len(duals)]
+    group_constraints = constraints[offset : offset + n] if constraints.ndim > 0 else constraints.unsqueeze(0)
 
     with torch.no_grad():
-        if momentum > 0:
-            _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
         if update_duals:
+            if momentum > 0:
+                _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
             _update_duals(duals, beta, gamma, momentum_buffer if momentum > 0 else group_constraints)
             clamp_(duals, min=dual_lb, max=dual_ub)
 
@@ -276,9 +272,7 @@ def _init_constraint_group(
     m = m if m is not None else len(init_duals)
 
     if init_duals is None:  # initialize duals if not set or set to scalar
-        init_duals = (
-            torch.zeros(m, requires_grad=False, device=device) + dual_range[0]
-        )
+        init_duals = torch.zeros(m, requires_grad=False, device=device)
     elif isinstance(init_duals, float):
         init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
 

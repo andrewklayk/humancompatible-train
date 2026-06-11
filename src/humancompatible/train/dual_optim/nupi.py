@@ -144,11 +144,11 @@ class nuPI(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
 
-        for i in range(len(self.param_groups)):
-            duals, group_constraints = _process_constraint_group(
-                self.param_groups[i], i, constraints, update_duals=False
-            )
+        offset = 0
+        for group in self.param_groups:
+            duals, group_constraints = _process_constraint_group(group, offset, constraints, update_duals=False)
             lagrangian.add_(duals @ group_constraints)
+            offset += len(duals)
 
         self._add_penalty_term(lagrangian, constraints)
         return lagrangian
@@ -177,10 +177,10 @@ class nuPI(Optimizer):
         :param constraints: Tensor of constraint values
         :type constraints: Tensor
         """
-        for i in range(len(self.param_groups)):
-            _process_constraint_group(
-                self.param_groups[i], i, constraints, update_duals=True
-            )
+        offset = 0
+        for group in self.param_groups:
+            _process_constraint_group(group, offset, constraints, update_duals=True)
+            offset += len(group["params"][0])
 
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
@@ -207,11 +207,11 @@ class nuPI(Optimizer):
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
 
-        for i in range(len(self.param_groups)):
-            duals, group_constraints = _process_constraint_group(
-                self.param_groups[i], i, constraints, update_duals=True
-            )
+        offset = 0
+        for group in self.param_groups:
+            duals, group_constraints = _process_constraint_group(group, offset, constraints, update_duals=True)
             lagrangian.add_(duals @ group_constraints)
+            offset += len(duals)
 
         self._add_penalty_term(lagrangian, constraints)
         return lagrangian
@@ -240,7 +240,7 @@ class nuPI(Optimizer):
 
 def _process_constraint_group(
     group: dict[str, Any],
-    group_idx: int,
+    offset: int,
     constraints: Tensor,
     update_duals: bool = False
 ) -> Tuple[Tensor, Tensor]:
@@ -248,35 +248,27 @@ def _process_constraint_group(
     Process a single constraint group: extract duals/constraints and optionally update duals.
 
     :param group: The constraint group dictionary
-    :param group_idx: Index of the constraint group
+    :param offset: Start index of this group's slice within the full constraints tensor
     :param constraints: Full constraints tensor
     :param update_duals: Whether to update dual variables
     :return: Tuple of (duals, group_constraints)
     """
     duals = group["params"][0]
-    if constraints.ndim > 0:
-        group_constraints = (
-            constraints[group_idx * len(duals) : (group_idx + 1) * len(duals)]
-        )
-    else:
-        group_constraints = constraints.unsqueeze(0)
-    
+    n = len(duals)
+    group_constraints = constraints[offset : offset + n] if constraints.ndim > 0 else constraints.unsqueeze(0)
+
     nu = group.get("nu")
     ki = group.get("ki", 0.0)
     kp = group.get("kp", 0.0)
     momentum_buffer = group["momentum_buffer"]
     dual_lb = group.get("lower_bound")
     dual_ub = group.get("upper_bound")
-    is_ineq = group.get("is_ineq")
-    _momentum_initialized = group.get("_momentum_initialized")
 
     with torch.no_grad():
-
         if update_duals:
             _update_duals(duals, momentum_buffer, group_constraints, nu, ki, kp)
             clamp_(duals, min=dual_lb, max=dual_ub)
-            
-        _update_c_buffers(group_constraints, nu, momentum_buffer)
+            _update_c_buffers(group_constraints, nu, momentum_buffer)
 
     return duals, group_constraints
 
