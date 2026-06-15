@@ -165,7 +165,7 @@ for epoch in range(epochs):
         loss = criterion(logit, batch_label)
         
         constraint = pr_diff(logit, batch_groups) - 0.05
-        lagr = dual_optimizer.forward_update(loss, constraint.unsqueeze(0))
+        lagr = dual_optimizer.forward_update(loss, constraint)
         lagr.backward()
     
         optimizer.step()
