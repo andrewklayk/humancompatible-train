@@ -22,7 +22,7 @@ class iALM(Optimizer):
         momentum: float = 0.0,
         dampening: float = 0.0,
         is_ineq: bool = False,
-        ctol: float = 1e-4,
+        # ctol: float = 1e-4,
         device=None,
     ) -> None:
         """
@@ -157,6 +157,8 @@ class iALM(Optimizer):
         # Update beta by sigma for each group
         for group in self.param_groups:
             group["beta"].mul_(group["sigma"])
+
+    step = update
 
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:

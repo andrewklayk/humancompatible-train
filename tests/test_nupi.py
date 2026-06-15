@@ -100,5 +100,47 @@ class TestnuPIFixes(unittest.TestCase):
         self.assertTrue(torch.allclose(opt.param_groups[1]["params"][0], 0.2 * c[2:]))
 
 
+class TestnuPIFirstStep(unittest.TestCase):
+    """Tests for the first-step correction (paper Lemma 2, eq. 15a vs 15c)."""
+
+    def setUp(self):
+        self.loss = torch.tensor(5.0)
+
+    def test_first_step_no_proportional_term(self):
+        # With ξ₀=0 (default) the paper says θ₁ = θ₀ + κᵢe₀ + κₚ·0 = θ₀ + κᵢe₀.
+        # The old code wrongly applied the t≥1 formula: θ₁ = θ₀ + (κᵢ + κₚ(1−ν))e₀.
+        c = torch.tensor([1.0, 2.0, 3.0])
+        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5, penalty=1.0)
+        opt.update(c)
+        self.assertTrue(torch.allclose(opt.duals, 0.1 * c))
+
+    def test_second_step_uses_general_formula(self):
+        # After the first step, the t≥1 formula must kick in.
+        # With ki=0.1, kp=0.5, nu=0.9 and the same c both steps:
+        #   step 1: θ₁ = ki*c,  ξ₁ = (1-nu)*c = 0.1*c
+        #   step 2: θ₂ = θ₁ + (ki + kp*(1-nu))*c - kp*(1-nu)*ξ₁
+        c = torch.tensor([1.0, 2.0, 3.0])
+        ki, kp, nu = 0.1, 0.5, 0.9
+        opt = nuPI(m=3, nu=nu, ki=ki, kp=kp, penalty=1.0)
+        opt.update(c)   # step 1
+        theta1 = opt.duals.clone()  # = ki*c
+        xi1 = (1 - nu) * c          # buffer after step 1
+        opt.update(c)   # step 2
+        expected = theta1 + (ki + kp * (1 - nu)) * c - kp * (1 - nu) * xi1
+        self.assertTrue(torch.allclose(opt.duals, expected))
+
+    def test_initialized_flag_set_after_first_update(self):
+        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5, penalty=1.0)
+        self.assertFalse(opt.param_groups[0].get("_momentum_initialized", False))
+        opt.update(torch.tensor([1.0, 2.0, 3.0]))
+        self.assertTrue(opt.param_groups[0]["_momentum_initialized"])
+
+    def test_forward_does_not_set_initialized_flag(self):
+        # forward() must not advance state; the flag must remain False after a Lagrangian call.
+        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5, penalty=1.0)
+        opt.forward(self.loss, torch.tensor([1.0, 2.0, 3.0]))
+        self.assertFalse(opt.param_groups[0].get("_momentum_initialized", False))
+
+
 if __name__ == "__main__":
     unittest.main()

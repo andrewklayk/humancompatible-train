@@ -40,10 +40,9 @@ class nuPI(Optimizer):
         penalty: float = 1.0,
         *,
         dual_range: Tuple[float, float] = (-100.0, 100.0),
-        ki: float = 0.0,
-        kp: float = 0.0,
+        ki: float = 0.01,
+        kp: float = 1.0,
         is_ineq: bool = False,
-        ctol: float = 0.,
         device=None,
     ) -> None:
 
@@ -182,6 +181,8 @@ class nuPI(Optimizer):
             _process_constraint_group(group, offset, constraints, update_duals=True)
             offset += len(group["params"][0])
 
+    step = update
+
     # evaluate the Lagrangian and update the dual variables
     def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
         """
@@ -266,7 +267,13 @@ def _process_constraint_group(
 
     with torch.no_grad():
         if update_duals:
-            _update_duals(duals, momentum_buffer, group_constraints, nu, ki, kp)
+            if not group.get("_momentum_initialized", False):
+                # t=0: θ₁ = θ₀ + κᵢe₀ + κₚξ₀  (paper Lemma 2, eq. 15a)
+                duals.add_(group_constraints, alpha=ki).add_(momentum_buffer, alpha=kp)
+                group["_momentum_initialized"] = True
+            else:
+                # t≥1: general recursion (paper Lemma 2, eq. 15c)
+                _update_duals(duals, momentum_buffer, group_constraints, nu, ki, kp)
             clamp_(duals, min=dual_lb, max=dual_ub)
             _update_c_buffers(group_constraints, nu, momentum_buffer)
 

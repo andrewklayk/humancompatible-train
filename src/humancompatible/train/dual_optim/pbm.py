@@ -11,8 +11,8 @@ class PBM(Optimizer):
         self,
         m: int = None,
         penalty_mult: float = 0.1,
-        gamma: float = 0.9,
-        delta: float = 0.9,
+        gamma: float = 0.1,
+        delta: float = 1.0,
         penalty_update: str = "dimin_adapt",
         *,
         pbf: str = "quadratic_logarithmic",
@@ -105,9 +105,6 @@ class PBM(Optimizer):
             "pbf": pbf,
             "dual_momentum": dual_momentum,
             "primal_update_process_length": primal_update_process_length,
-            "dual_momentum_buffer": torch.zeros_like(
-                init_duals, requires_grad=False, device=device
-            ),
         }
         settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
 
@@ -230,6 +227,8 @@ class PBM(Optimizer):
                     delta,
                 )
                 clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
+
+    step = update
 
     def forward(self, loss: Tensor, constraints: Tensor) -> Tensor:
         """
@@ -457,14 +456,6 @@ def _update_penalties_dimin_dual(
     delta: float = None,
 ):
     penalties.mul_(p_mult).mul_(duals)
-
-
-penalty_update_funcs = {
-    "const": _update_penalties_const,
-    "dimin": _update_penalties_dimin,
-    "adapt": _update_penalties_adapt,
-    "dimin_dual": _update_penalties_dimin_dual,
-}
 
 
 PBM.__doc__ = (
