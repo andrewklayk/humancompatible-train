@@ -123,7 +123,7 @@ class PINNModel(nn.Module):
         x = self.ff(x)
         return self.net(x)
 
-def custom_loss(inputs, model):
+def custom_loss(inputs, model, dual_opt):
     x, y, t = inputs[:, 0:1], inputs[:, 1:2], inputs[:, 2:3]
     x.requires_grad_(True)
     y.requires_grad_(True)
@@ -153,6 +153,18 @@ def custom_loss(inputs, model):
     loss, loss_type = augmentedChebyshev_loss_function([pde_loss, data_fitting_loss_0, data_fitting_loss_l_r], lambdas)
     
     H_loss = H(u_model.reshape(Nx, Ny, Nt), u_x.reshape(Nx, Ny, Nt), u_y.reshape(Nx, Ny, Nt))
+    
+    # constraint
+    H0 = H(u_0(x_grid.flatten().reshape(-1, 1)), u_0_x(x_grid.flatten().reshape(-1, 1)), dx)
+
+    Hf = H(u_model.reshape(Nt, Nx), u_x.reshape(Nt, Nx), dx)
+    H_constraint = torch.abs(Hf - H0)/torch.abs(H0)
+
+    eps = 5/(epoch+1)
+    H_constraint = torch.max(H_constraint - eps, torch.zeros_like(H_constraint)).unsqueeze(0)
+
+    loss = dual_opt.forward_update(loss, H_constraint)
+    
     
     return loss, loss_type, pde_loss, data_fitting_loss_0, data_fitting_loss_l_r, H_loss
 

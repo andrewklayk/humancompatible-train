@@ -1,6 +1,6 @@
 # humancompatible-train: a package for constrained machine learning
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Setup](https://github.com/humancompatible/train/actions/workflows/setup.yml/badge.svg)](https://github.com/humancompatible/train/actions/workflows/setup.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Setup](https://github.com/humancompatible/train/actions/workflows/setup.yml/badge.svg)](https://github.com/humancompatible/train/actions/workflows/setup.yml) [![docs](https://app.readthedocs.org/projects/humancompatible-train/badge/?version=latest)](https://humancompatible-train.readthedocs.io/en/latest/?badge=latest)
 
 The toolkit implements algorithms for constrained training of neural networks based on PyTorch, and inspired by PyTorch's API.
 <!-- , as well as a tool to compare stochastic-constrained stochastic optimization algorithms on a _fair learning_ task in the `experiments` folder. -->
@@ -29,7 +29,7 @@ The only dependencies of this package are `numpy` and `torch`.
 
 ## Using the toolkit
 
-The toolkit implements algorithms for constrained training of neural networks based on PyTorch.
+The toolkit implements algorithms for constrained training of neural networks based on PyTorch.  For the documentation, please visit [our Read the Docs page!](https://humancompatible-train.readthedocs.io?version=latest)
 
 The algorithms are intended for use in tandem with classic PyTorch optimizers, calculating the Lagrangian and keeping track of the dual variables.
 
