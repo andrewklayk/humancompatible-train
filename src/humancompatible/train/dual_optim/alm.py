@@ -339,10 +339,7 @@ def _update_c_buffers(
     buffer: Tensor,
 ) -> None:
     """Update the constraint buffer with momentum."""
-    if momentum == 0:
-        buffer = constraints
-    else:
-        buffer.mul_(momentum).add_(constraints, alpha=1 - dampening)
+    buffer.mul_(momentum).add_(constraints, alpha=1 - dampening)
 
 
 def _update_duals(
