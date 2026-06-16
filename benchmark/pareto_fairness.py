@@ -141,7 +141,12 @@ def train_regularized(X_tr, y_tr, g_tr, X_val, y_val, g_val, X_te, y_te, g_te, l
                                             generator=torch.Generator().manual_seed(seed))
 
     epoch_log = []
-    for epoch in range(EPOCHS):
+    model.eval()
+    init_te_loss, init_te_viols = evaluate(model, X_te, y_te, g_te)
+    init_tr_loss, init_tr_viols = evaluate(model, X_tr, y_tr, g_tr)
+    epoch_log.append(_make_epoch_row(0, [init_tr_loss], [init_tr_viols], init_te_loss, init_te_viols, 0.0))
+
+    for epoch in range(1, EPOCHS + 1):
         t0 = time.perf_counter()
         model.train()
         tr_batch_losses, tr_batch_viols = [], []
@@ -175,7 +180,12 @@ def train_constrained(make_dual, X_tr, y_tr, g_tr, X_val, y_val, g_val, X_te, y_
                                              generator=torch.Generator().manual_seed(seed))
 
     epoch_log = []
-    for epoch in range(EPOCHS):
+    model.eval()
+    init_te_loss, init_te_viols = evaluate(model, X_te, y_te, g_te)
+    init_tr_loss, init_tr_viols = evaluate(model, X_tr, y_tr, g_tr)
+    epoch_log.append(_make_epoch_row(0, [init_tr_loss], [init_tr_viols], init_te_loss, init_te_viols, 0.0))
+
+    for epoch in range(1, EPOCHS + 1):
         t0 = time.perf_counter()
         model.train()
         tr_batch_losses, tr_batch_viols = [], []
@@ -226,7 +236,7 @@ def sweep(train_fn, hparams, X_tr, y_tr, g_tr, X_val, y_val, g_val, X_te, y_te, 
             te_losses.append(te_loss);   te_vs.append(te_viols)
             val_losses.append(val_loss); val_vs.append(val_viols)
             tr_losses.append(tr_loss);   tr_vs.append(tr_viols)
-            ep_times.append(np.mean([row["wall_time"] for row in epoch_log]))
+            ep_times.append(np.mean([row["wall_time"] for row in epoch_log if row["epoch"] > 0]))
 
         te_arr  = np.array(te_vs)   # (n_seeds, N_CONSTRAINTS)
         val_arr = np.array(val_vs)
