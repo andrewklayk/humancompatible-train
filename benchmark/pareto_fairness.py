@@ -25,7 +25,7 @@ from humancompatible.train.dual_optim import ALM, iALM, PBM, nuPI
 
 # ── config ──────────────────────────────────────────────────────────────────
 SEEDS       = [0, 1, 2]
-EPOCHS      = 20
+EPOCHS      = 50
 BATCH_SIZE  = 256
 LR_MODEL    = 1e-3
 LR_DUAL     = 0.01
