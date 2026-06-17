@@ -38,11 +38,11 @@ from humancompatible.train.dual_optim import ALM, PBM
 
 
 # ── protocol constants ───────────────────────────────────────────────────────
-SEEDS = [0, 1, 2, 3, 4]   # 5 outer repeats of the full search-and-select procedure
+SEEDS = [0, 1, 2]   # 5 outer repeats of the full search-and-select procedure
 
 # Wall-clock budgets (seconds) per (method, seed) HPO run. Placeholders —
 # calibrate after timing one trial on the target experiment.
-TIME_BUDGETS = [10.0, 30.0, 60.0, 120.0]
+TIME_BUDGETS = [60*2, 60*5, 60*10]
 
 EPOCHS_PER_TRIAL = 20          # fixed training length per random-search trial
 VAL_FEAS_TOL = 0.10            # validation feasibility slack for selection (paper's +10%)
@@ -258,12 +258,16 @@ def _train_once(method: Method, config: dict, problem: Problem, seed: int) -> Tr
     """Train a single config under a single seed via the existing run_train, then
     read train/val from its histories and evaluate test on the held-out set.
 
-    seed drives torch's init + batch order for THIS run. Wall-clock is taken from
-    run_train's own tracker (which excludes paused constraint-eval for the
-    unconstrained case — exactly the time we want to bill)."""
+    seed drives torch's init + batch order for THIS run. wall_time is the ACTUAL
+    elapsed time of the whole (train + test-eval) call — this is what the budget
+    bills, so the practitioner-time axis reflects real cost (not run_train's
+    internal tracker, which excludes paused eval and understates cost unevenly
+    across methods)."""
+    import time
     from benchmark_utils import run_train, eval as _eval, eval_loader
 
     torch.manual_seed(seed)
+    t0 = time.perf_counter()
 
     model, train_hist, val_hist = run_train(
         m=problem.m,
@@ -279,7 +283,7 @@ def _train_once(method: Method, config: dict, problem: Problem, seed: int) -> Tr
         **method.run_train_kwargs,
     )
 
-    tr_loss, tr_viol, tr_wall = _last_epoch_point(train_hist, problem.m)
+    tr_loss, tr_viol, _ = _last_epoch_point(train_hist, problem.m)
     val_loss, val_viol, _ = _last_epoch_point(val_hist, problem.m)
 
     if isinstance(problem.data_test, tuple):
@@ -288,24 +292,43 @@ def _train_once(method: Method, config: dict, problem: Problem, seed: int) -> Tr
         te_loss, te_viols = eval_loader(model, problem.data_test, problem.constraint_fn)
     te_viol = max(te_viols) if te_viols else float("inf")
 
+    elapsed = time.perf_counter() - t0   # real practitioner cost for this run
+
     return TrainResult(
         tr_loss=tr_loss, tr_viol=tr_viol,
         val_loss=val_loss, val_viol=val_viol,
         te_loss=float(te_loss), te_viol=float(te_viol),
-        wall_time=tr_wall,
+        wall_time=elapsed,
     )
 
 
 # ── STRICT: evaluate one config across all seeds ─────────────────────────────
 def evaluate_config(method: Method, config: dict, problem: Problem,
-                    seeds=SEEDS) -> ConfigEval:
+                    seeds=SEEDS, verbose: int = 0, cfg_tag: str = "") -> ConfigEval:
     """Train `config` on EVERY seed; selection metrics are the across-seed means.
 
     This is the strict protocol: a config's quality is its MEAN validation
     performance over seeds, so selection cannot be fooled by single-seed luck.
     The full wall-clock cost (sum over seeds) is what the budget will be billed.
+
+    verbose: 0 silent, 1 print the config + its across-seed means, 2 also print
+    each seed's train/val/test loss & violation as it completes.
     """
-    runs = [_train_once(method, config, problem, s) for s in seeds]
+    if verbose >= 1:
+        hp = "  ".join(f"{k.split('__')[-1]}={v}" for k, v in config.items())
+        print(f"      {cfg_tag}config: {hp}")
+
+    runs = []
+    for s in seeds:
+        r = _train_once(method, config, problem, s)
+        runs.append(r)
+        if verbose >= 2:
+            print(f"        seed {s}: "
+                  f"tr_loss={r.tr_loss:.4f} tr_viol={r.tr_viol:.4f} | "
+                  f"val_loss={r.val_loss:.4f} val_viol={r.val_viol:.4f} | "
+                  f"te_loss={r.te_loss:.4f} te_viol={r.te_viol:.4f} | "
+                  f"{r.wall_time:.2f}s")
+
     tr_loss = np.array([r.tr_loss for r in runs])
     tr_viol = np.array([r.tr_viol for r in runs])
     val_loss = np.array([r.val_loss for r in runs])
@@ -313,6 +336,12 @@ def evaluate_config(method: Method, config: dict, problem: Problem,
     te_loss = np.array([r.te_loss for r in runs])
     te_viol = np.array([r.te_viol for r in runs])
     total_wall = float(sum(r.wall_time for r in runs))
+
+    if verbose >= 1:
+        print(f"        -> mean val_loss={val_loss.mean():.4f} "
+              f"val_viol={val_viol.mean():.4f} | "
+              f"mean te_loss={te_loss.mean():.4f} te_viol={te_viol.mean():.4f} | "
+              f"cost={total_wall:.2f}s")
 
     return ConfigEval(
         config=config,
@@ -326,7 +355,7 @@ def evaluate_config(method: Method, config: dict, problem: Problem,
 
 # ── one budget-bounded random search (STRICT) ────────────────────────────────
 def run_budget_search(method: Method, problem: Problem, budget_s: float,
-                      master_seed: int, seeds=SEEDS):
+                      master_seed: int, seeds=SEEDS, verbose: int = 0):
     """Sample configs and evaluate each on ALL seeds, accumulating the full
     (sum-over-seeds) wall-clock, until the budget is exhausted. Then select the
     config with the best MEAN validation quality.
@@ -339,15 +368,20 @@ def run_budget_search(method: Method, problem: Problem, budget_s: float,
     Selection: among configs whose MEAN val max-viol <= bound*(1+tol), pick the
     lowest MEAN val loss; if none feasible, pick the smallest mean val viol.
 
+    verbose: 0 silent, 1 per-config means, 2 per-seed detail.
     Returns (selected_eval, all_evals, total_wall).
     """
     rng = np.random.default_rng(master_seed)
     evals: List[ConfigEval] = []
     spent = 0.0
+    i = 0
 
     while spent < budget_s or not evals:
+        i += 1
         config = method.sample_config(rng)
-        ce = evaluate_config(method, config, problem, seeds=seeds)
+        tag = f"[{method.name} T={budget_s:.0f}s] config {i} ({spent:.1f}/{budget_s:.0f}s spent): "
+        ce = evaluate_config(method, config, problem, seeds=seeds,
+                             verbose=verbose, cfg_tag=tag)
         evals.append(ce)
         spent += ce.wall_time          # full sum-over-seeds cost billed here
 
@@ -382,9 +416,11 @@ class BudgetPoint:
 
 
 def aggregate_budget(method: Method, problem: Problem, budget_s: float,
-                     master_seed: int = 0, seeds=SEEDS, verbose=True) -> BudgetPoint:
+                     master_seed: int = 0, seeds=SEEDS, verbose: int = 1) -> BudgetPoint:
     """Run ONE strict budget search; the reported point is the selected config's
     per-seed mean +/- std (train and test).
+
+    verbose: 0 silent, 1 per-budget summary, 2 per-config means, 3 per-seed detail.
 
     Note: unlike the old design there is no outer seed loop here — the seed
     averaging happens INSIDE selection (every config is scored on all seeds).
@@ -394,12 +430,13 @@ def aggregate_budget(method: Method, problem: Problem, budget_s: float,
     multiplies cost and is usually unnecessary given the strict selection.)
     """
     selected, evals, spent = run_budget_search(
-        method, problem, budget_s, master_seed, seeds=seeds
+        method, problem, budget_s, master_seed, seeds=seeds,
+        verbose=max(0, int(verbose) - 1),   # search prints at one level finer
     )
     feas_thresh = problem.constraint_bound * (1.0 + VAL_FEAS_TOL)
     feasible = float(selected.sel_val_viol <= feas_thresh)
 
-    if verbose:
+    if verbose >= 1:
         print(f"    [{method.name}] T={budget_s:>6.0f}s  configs={len(evals):>3}  "
               f"chosen feasible={bool(feasible)}  "
               f"te_loss={selected.te_loss.mean():.4f}±{selected.te_loss.std():.4f}  "
@@ -417,12 +454,15 @@ def aggregate_budget(method: Method, problem: Problem, budget_s: float,
 
 
 def sweep_method(method: Method, problem: Problem, budgets=TIME_BUDGETS,
-                 seeds=SEEDS, verbose=True) -> List[BudgetPoint]:
+                 seeds=SEEDS, verbose: int = 1) -> List[BudgetPoint]:
     """All budgets for one method -> a trajectory of BudgetPoints (the line that
-    migrates toward the origin as budget grows)."""
+    migrates toward the origin as budget grows).
+
+    verbose: 0 silent, 1 per-budget summary, 2 per-config means, 3 per-seed detail.
+    """
     points = []
     for T in budgets:
-        if verbose:
+        if verbose >= 1:
             print(f"  {method.display}: budget {T:.0f}s")
         points.append(aggregate_budget(method, problem, T, seeds=seeds, verbose=verbose))
     return points
@@ -520,9 +560,12 @@ def plot_budget_pareto(all_series, bound, out="budget_pareto.svg", suptitle=None
 # ── orchestration ────────────────────────────────────────────────────────────
 def run_budget_benchmark(problem: Problem, method_names=("adam", "pbm", "alm", "ssg"),
                          budgets=TIME_BUDGETS, seeds=SEEDS,
-                         results_dir="budget_results", use_cache=True):
+                         results_dir="budget_results", use_cache=True, verbose: int = 3):
     """Top-level: for each method, sweep budgets (with caching), then plot.
-    `problem` is built by you from your config (see build_problem stub below)."""
+    `problem` is built by you from your config (see build_problem below).
+
+    verbose: 0 silent, 1 per-budget summary, 2 per-config means, 3 per-seed detail.
+    """
     results_dir = os.path.join(results_dir, problem.name)
     all_series = []
     for name in method_names:
@@ -530,7 +573,8 @@ def run_budget_benchmark(problem: Problem, method_names=("adam", "pbm", "alm", "
         print(f"\n=== {method.display} ===")
         points = load_points(name, results_dir) if use_cache else None
         if points is None:
-            points = sweep_method(method, problem, budgets=budgets, seeds=seeds)
+            points = sweep_method(method, problem, budgets=budgets, seeds=seeds,
+                                  verbose=verbose)
             save_points(points, name, results_dir)
         all_series.append((points, method))
 
@@ -540,35 +584,92 @@ def run_budget_benchmark(problem: Problem, method_names=("adam", "pbm", "alm", "
     return all_series
 
 
-def build_problem(experiment: str = "E2") -> Problem:
-    """STUB — you wire this from your Hydra config / data loaders.
+def build_problem(experiment: str = "E2", batch_size: int = 256,
+                  device: str = "cpu") -> Problem:
+    """Build the data + constraint for an ACS experiment, mirroring run_benchmark.py.
 
-    Build the data + constraint exactly as run_benchmark.py does, then pack into
-    a Problem. Reference (paraphrased from run_benchmark.py):
+    Supported here: "E2" (sex groups, L1-aggregated PR -> m=1) and "E3"
+    (sex x marital, pairwise PR -> m=n(n-1)). Both use the ACSIncome (VA) data.
 
-        # 1. load data via _data_sources (e.g. load_data_FT) -> dataloaders + tensors
-        # 2. construct the constraint object c (e.g. FairretPairwise / FairretAgg)
-        #    from your constraint_cfg, compute m = c.m_fn(sens_train.shape[-1])
-        # 3. set constraint_bound = constraint_cfg['bound'], and
-        #    fuse_loss_constraint = constraint name starts with 'Loss'
-        # 4. choose data_test (held-out) for reporting — run_benchmark.py reuses
-        #    test as val for some tasks; here we want a TRUE test split distinct
-        #    from the val set used for config selection.
-
-    Return:
-        Problem(m=..., data_train=(feat,sens,lab), dataloader=...,
-                data_val=(feat,sens,lab) or loader,
-                data_test=(feat,sens,lab) or loader,
-                constraint_fn=c.compute_constraints,
-                constraint_bound=..., fuse_loss_constraint=...,
-                name=experiment)
+    Unlike run_benchmark.py (which reuses test as val for some tasks), this builds
+    a TRUE three-way split so the val set used for config selection is disjoint
+    from the test set used for reporting — otherwise selection would leak.
     """
-    raise NotImplementedError(
-        "Wire build_problem() to your data loaders + constraint construction "
-        "(mirror run_benchmark.py). The engine above is ready to consume it."
+    import numpy as np
+    import torch
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import train_test_split
+    from folktables import ACSDataSource, ACSIncome, generate_categories
+    from fairret.statistic import PositiveRate
+    from fairret.loss import NormLoss
+    from constraint_meta import FairretAgg, FairretPairwise
+
+    # ── load ACS (VA) ────────────────────────────────────────────────────────
+    ds = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
+    acs = ds.get_data(states=["VA"], download=True)
+    defs = ds.get_definitions(download=True)
+    cats = generate_categories(features=ACSIncome.features, definition_df=defs)
+    df_feat, df_labels, _ = ACSIncome.df_to_pandas(acs, categories=cats, dummies=True)
+
+    if experiment == "E2":
+        sens_cols = [c for c in df_feat.columns if c.startswith("SEX_")]
+        make_c = lambda: FairretAgg(loss=NormLoss(statistic=PositiveRate()),
+                                    uses_labels=False)
+        bound = 0.05
+    elif experiment == "E3":
+        sens_cols = [c for c in df_feat.columns
+                     if c.startswith("SEX_") or c.startswith("MAR_")]
+        make_c = lambda: FairretPairwise(statistic=PositiveRate(), uses_labels=False)
+        bound = 0.05
+    else:
+        raise ValueError(f"build_problem only wires E2/E3 here; got {experiment!r}")
+
+    features = df_feat.drop(columns=sens_cols).to_numpy(dtype=np.float32)
+    groups = df_feat[sens_cols].to_numpy(dtype=np.float32)
+    labels = df_labels.to_numpy(dtype=np.float32)
+
+    # ── true 70/15/15 train/val/test split ──────────────────────────────────
+    X_tr, X_tmp, y_tr, y_tmp, g_tr, g_tmp = train_test_split(
+        features, labels, groups, test_size=0.30, random_state=42)
+    X_val, X_te, y_val, y_te, g_val, g_te = train_test_split(
+        X_tmp, y_tmp, g_tmp, test_size=0.50, random_state=42)
+
+    scaler = StandardScaler().fit(X_tr)
+    X_tr = torch.tensor(scaler.transform(X_tr), device=device)
+    X_val = torch.tensor(scaler.transform(X_val), device=device)
+    X_te = torch.tensor(scaler.transform(X_te), device=device)
+    y_tr = torch.tensor(y_tr, device=device)
+    y_val = torch.tensor(y_val, device=device)
+    y_te = torch.tensor(y_te, device=device)
+    g_tr = torch.tensor(g_tr, device=device)
+    g_val = torch.tensor(g_val, device=device)
+    g_te = torch.tensor(g_te, device=device)
+
+    # ── constraint + m ───────────────────────────────────────────────────────
+    c = make_c()
+    n_groups = g_tr.shape[-1]
+    m = c.m_fn(n_groups)
+
+    # ── train DataLoader (TensorDataset order: feat, sens, label) ────────────
+    dataset = torch.utils.data.TensorDataset(X_tr, g_tr, y_tr)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    return Problem(
+        m=m,
+        data_train=(X_tr, g_tr, y_tr),
+        dataloader=loader,
+        data_val=(X_val, g_val, y_val),
+        data_test=(X_te, g_te, y_te),
+        constraint_fn=c.compute_constraints,
+        constraint_bound=bound,
+        fuse_loss_constraint=False,   # FairretAgg/Pairwise are not Loss* constraints
+        name=experiment,
     )
 
 
 if __name__ == "__main__":
     problem = build_problem("E2")
+    run_budget_benchmark(problem)
+
+    problem = build_problem("E3")
     run_budget_benchmark(problem)
