@@ -50,12 +50,11 @@ def extract_best_params(runs, param_grid, val_c_tolerance, filter='upper'):
 
 
 def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
-    seed = 0
     torch.manual_seed(seed)
     
     dataset = data_cfg['name']
     task = task_cfg.task
-    result_dir = dataset + '_' + task + seed
+    result_dir = "results/" + dataset + '_' + task + str(seed)
     
     os.makedirs(result_dir, exist_ok=True)
 
@@ -125,8 +124,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [0., 0.1, 0.2, 0.5],
             ["dimin_adapt"],
             ["quadratic_logarithmic"],
-            [[1e-1, 1.], [1e-1, 100.]],
-            [0., 0.1, 0.2, 0.5],
+            [[1e-1, 1.], [1e-2, 1.]],
+            [0.1, 0.9],
             # [0.9, 1.0, 1.1],
             [2.]
             )
@@ -175,7 +174,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
     alm_max_grid = alm_grid
     alm_slack_grid = alm_grid
 
-    adam_grid = [{"lr": lr} for lr in [0.001, 0.005, 0.01, 0.05]]
+    adam_grid = [{"primal__lr": lr} for lr in [0.001, 0.005, 0.01, 0.05]]
 
     # Determine constraint function and parameters based on task
     fuse_loss_constraint = False
@@ -281,7 +280,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             device=device,
             criterion=criterion)
 
-        best_pbm_params = extract_best_params(pbm_history_val, pbm_grid, constraint_bound*1.1, filter='both')
+        best_pbm_params = extract_best_params(pbm_history_val, pbm_grid, constraint_bound*1.1, filter='upper')
 
         print('\n------------\n')
         print('PBM')
@@ -321,7 +320,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             device=device,
             criterion = criterion)
 
-        best_alm_params = extract_best_params(alm_history_val, alm_grid, constraint_bound*1.1, filter='both')
+        best_alm_params = extract_best_params(alm_history_val, alm_grid, constraint_bound*1.1, filter='upper')
 
         print('\n------------\n')
         print('ALM')
@@ -361,7 +360,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             device=device,
             criterion=criterion)
 
-        best_alm_params = extract_best_params(alm_history_val, alm_grid, constraint_bound*1.1, filter='both')
+        best_alm_params = extract_best_params(alm_history_val, alm_grid, constraint_bound*1.1, filter='upper')
 
         print('\n------------\n')
         print('ALM')
@@ -401,7 +400,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             device=device,
             criterion=criterion)
 
-        best_ssg_params = extract_best_params(ssg_history_val, ssg_grid, constraint_bound*1.1, filter='both')
+        best_ssg_params = extract_best_params(ssg_history_val, ssg_grid, constraint_bound*1.1, filter='upper')
 
         print('\n------------\n')
         print('SSG')

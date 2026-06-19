@@ -19,6 +19,9 @@ benchmark/cache
 benchmark/data
 data/
 
+NOTES.txt
+benchmark/run_bench_pareto.sh
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

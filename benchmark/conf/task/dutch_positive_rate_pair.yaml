@@ -1,44 +1,14 @@
 task: equalized_odds_pairwise
-
 seed: 0
-
 batch_size: 72
+algorithms: [adam, pbm, alm_slack, alm_max, ssg]
 
-# TODO: rework to list (constraints: [(name: ...), (name: ...), ...])
 constraint:
   name: FairretPairwise
   bound: 0.1
   statistic: PositiveRate
   kwargs:
     uses_labels: false
-
-pbm_params:
-  primal__lr: 0.005
-  primal__weight_decay: 0.01
-  dual__penalty_mult: 0.8
-  dual__penalty_update: dimin_adapt
-  dual__penalty_range: [1e-1, 1.]
-  dual__pbf: quadratic_logarithmic
-  dual__gamma: 0.5
-  dual__delta: 1.0
-  moreau__mu: 1.0
-
-alm_params:
-  primal__lr: 0.001
-  primal__weight_decay: 0.01
-  dual__lr: 0.005
-  dual__penalty: 0.0
-  moreau__mu: 1.0
-
-ssg_params:
-  primal__lr: 0.005
-  primal__weight_decay: 0.01
-  dual__lr: 0.005
-  moreau__mu: 1.0
-
-adam_params:
-  lr: 0.0001
-  weight_decay: 0.01
 
 hydra:
   run:

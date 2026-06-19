@@ -50,7 +50,7 @@ def u_0_x(x):
 def periodic_boundary_conditions(model, Nbc=2000):
     x = torch.rand(Nbc, 1, device=device) * (xMax - xMin) + xMin
     t = torch.rand(Nbc, 1, device=device) * tMax
-    
+
     xL = torch.full_like(x, xMin)
     xR = torch.full_like(x, xMax)
     
@@ -192,8 +192,6 @@ def lagrangian_loss(inputs, model, dual_opt, epoch, H0=None):
     )
 
     # constraint
-    
-
     Hf = H(u_model.reshape(Nt, Nx), u_x.reshape(Nt, Nx), dx)
     H0 = H(u_model_0.reshape(Nt, Nx), u_x_0.reshape(Nt, Nx), dx)
 

@@ -6,9 +6,12 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+<<<<<<< HEAD
+=======
 extensions = ["myst_nb", "sphinx.ext.autodoc"]
 
 
+>>>>>>> b54b13db327489065b3ec3c95872c84428cb2883
 import os
 
 
@@ -39,6 +42,8 @@ html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 
 html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "/")
+<<<<<<< HEAD
+=======
 
 myst_enable_extensions = [
     "amsmath",
@@ -60,3 +65,4 @@ nb_execution_mode = "cache"
 import sys 
 
 sys.path.insert(0, os.path.abspath('./../..'))
+>>>>>>> b54b13db327489065b3ec3c95872c84428cb2883

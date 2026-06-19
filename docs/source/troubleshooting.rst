@@ -73,9 +73,15 @@ FAQ
 
 A: Python 3.8 and higher. We recommend using Python 3.9 or later.
 
+<<<<<<< HEAD
+**Q: Can I use my custom model architecture?**
+
+A: Yes, see the :doc:`Advanced Usage <examples/advanced_usage>` section for details on custom constraints and models.
+=======
 .. **Q: Can I use my custom model architecture?**
 
 .. A: Yes, see the :doc:`Advanced Usage <examples/advanced_usage>` section for details on custom constraints and models.
+>>>>>>> b54b13db327489065b3ec3c95872c84428cb2883
 
 **Q: How do I report a bug?**
 
