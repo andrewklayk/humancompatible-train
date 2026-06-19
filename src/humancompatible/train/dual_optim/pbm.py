@@ -27,6 +27,7 @@ class PBM(Optimizer):
 
         self.dual_range = dual_range
         self.penalty_range = penalty_range
+        self.primal_update_process_length = primal_update_process_length
 
         params, defaults = self._init_constraint_group(
             m,
@@ -194,7 +195,8 @@ class PBM(Optimizer):
         :rtype: None
         """
 
-        for i, group in enumerate(self.param_groups):
+        _last_c_group_index = 0
+        for group in self.param_groups:
             (
                 duals,
                 penalties,
@@ -214,7 +216,8 @@ class PBM(Optimizer):
                 group["dual_momentum"],
                 group["primal_update_process_length"],
             )
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            group_constraints = constraints[_last_c_group_index : _last_c_group_index + len(duals)]
+            _last_c_group_index += len(duals)
             cdivp = group_constraints.div(penalties)
             with torch.no_grad():
                 _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], momentum)
@@ -225,6 +228,7 @@ class PBM(Optimizer):
                     duals,
                     penalty_barrier_funcs[pbf]["d"](group_constraints),
                     delta,
+                    cdivp,
                 )
                 clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
@@ -315,7 +319,8 @@ class PBM(Optimizer):
                         duals,
                         penalty_barrier_funcs[pbf]["d"](group_constraints),
                         delta,
-                    )  # , cdivp)
+                        cdivp,
+                    )
                     clamp_(
                         penalties, min=self.penalty_range[0], max=self.penalty_range[1]
                     )
@@ -329,7 +334,7 @@ class PBM(Optimizer):
                 lagrangian.add_(duals[active].mul(penalties[active]) @ pbf_val[active])
 
         # update the iter
-        self.iter = (self.iter + 1) % primal_update_process_length
+        self.iter = (self.iter + 1) % self.primal_update_process_length
 
         return lagrangian
 
@@ -342,20 +347,26 @@ class PBM(Optimizer):
         :return: None
         :rtype: None
         """
-        for i, group in enumerate(self.param_groups):
-            duals, penalties, p_mult, _update_penalties, pbf = (
+        _last_c_group_index = 0
+        for group in self.param_groups:
+            duals, penalties, p_mult, _update_penalties, delta, pbf = (
                 group["params"][0],
                 group["params"][1],
                 group["p_mult"],
                 group["penalty_update"],
+                group["delta"],
                 group["pbf"],
             )
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            group_constraints = constraints[_last_c_group_index : _last_c_group_index + len(duals)]
+            _last_c_group_index += len(duals)
+            cdivp = group_constraints.div(penalties)
             _update_penalties(
                 penalties,
                 p_mult,
                 duals,
                 penalty_barrier_funcs[pbf]["d"](group_constraints),
+                delta,
+                cdivp,
             )
             clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
@@ -412,6 +423,7 @@ def _update_penalties_const(
     duals: Tensor = None,
     phi_der: Tensor = None,
     delta: float = None,
+    _cdivp: Tensor = None,
 ):
     pass
 
@@ -422,12 +434,18 @@ def _update_penalties_dimin(
     duals: Tensor = None,
     phi_der: Tensor = None,
     delta: float = None,
+    _cdivp: Tensor = None,
 ):
     penalties.mul_(p_mult)
 
 
 def _update_penalties_adapt(
-    penalties: Tensor, p_mult: Tensor, duals: Tensor, phi_der: Tensor, delta: float
+    penalties: Tensor,
+    p_mult: Tensor,
+    duals: Tensor,
+    phi_der: Tensor,
+    delta: float,
+    _cdivp: Tensor = None,
 ):
     d_phd = torch.where(phi_der < 1.0, phi_der, delta * phi_der)
     b = (1 - p_mult) * penalties / (d_phd + 1e-8)
@@ -454,6 +472,7 @@ def _update_penalties_dimin_dual(
     duals: Tensor,
     phi_der: Tensor = None,
     delta: float = None,
+    cdivp: Tensor = None,
 ):
     penalties.mul_(p_mult).mul_(duals)
 
