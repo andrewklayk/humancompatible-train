@@ -15,4 +15,4 @@ ml Hydra/1.3.2-GCCcore-14.3.0
 ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
 source ../env_humancompatible/bin/activate
 
-python3 -u run_gridsearch.py task=folktables_positive_rate_pair data=income n_epochs=10 task.seed=$SLURM_ARRAY_TASK_ID
+python3 -u run_gridsearch.py task=folktables_positive_rate_pair data=income n_epochs=30 task.seed=$SLURM_ARRAY_TASK_ID

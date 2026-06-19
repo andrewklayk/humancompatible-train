@@ -161,8 +161,8 @@ def load_best_config(spec: ExperimentSpec, method: str, seed: int) -> Optional[d
 if __name__ == "__main__":
     # Example: edit to your actual experiment, then run to sanity-check aggregation.
     spec = ExperimentSpec(
-        name="income_pairwise",
-        data="income",
+        name="E3",
+        data="folktables",
         task="folktables_positive_rate_pair",
         bound=0.1,
         seeds=(0, 1, 2),
