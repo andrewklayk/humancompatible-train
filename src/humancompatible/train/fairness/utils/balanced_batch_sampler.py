@@ -6,6 +6,21 @@ from typing import Iterable, Optional
 
 
 class BalancedBatchSampler(Sampler):
+    """
+    A Sampler that yields an equal number of samples from each groups specified with either one-hot encoding or indices.
+    Specifically, if given`S`groups and batch size of`N`, yields a batch consisting of`N//S`samples of each group, sorted by group, but shuffled within each group.
+
+    :param group_indices: List of indices for each group. Defaults to`None`.
+    :type group_indices: Iterable[Iterable[int]]
+    :param group_onehot: Tensor of one-hot-encoded groups memberships of shape`(N, S)`, where`S`is the number of groups. Defaults to`None`.
+    :type group_onehot: torch.Tensor
+    :param batch_size: Number of samples per batch Defaults to 1.
+    :type batch_size: int
+    :param drop_last: If`True`, drop the last incomplete batch. Supports only`True`for now. Defaults to`True`.
+    :type drop_last: bool
+    :param extend_groups: Indices of groups which should be extended (shuffled with replacement). Defaults to`None`.
+    :type extend_groups: Iterable[int]
+    """
     def __init__(
         self,
         group_onehot: Optional[Iterable[Iterable[int]]] | torch.Tensor = None,
@@ -15,17 +30,6 @@ class BalancedBatchSampler(Sampler):
         extend_groups: Optional[Iterable[int]] = None,
         generator: Optional[torch.Generator]=None
     ):
-        """
-        A Sampler that yields an equal number of samples from each groups specified with either one-hot encoding or indices.
-        Specifically, if given`S`groups and batch size of`N`, yields a batch consisting of`N//S`samples of each group, sorted by group, but shuffled within each group.
-
-        Args:
-            group_indices (list of list): List of indices for each group. Defaults to`None`.
-            group_onehot (tensor): Tensor of one-hot-encoded groups memberships of shape`(N, S)`, where`S`is the number of groups. Defaults to`None`.
-            batch_size (int): Number of samples per batch Defaults to 1.
-            drop_last (bool): If`True`, drop the last incomplete batch. Supports only`True`for now. Defaults to`True`.
-            extend_groups (list of int): Indices of groups which should be extended (shuffled with replacement). Defaults to`None`.
-        """
 
         if group_indices is None and group_onehot is None:
             raise ValueError(
