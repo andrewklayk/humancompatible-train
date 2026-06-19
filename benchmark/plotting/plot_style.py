@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 METHOD_STYLE = {
     "adam":      {"label": "Adam (unconstr.)", "color": "#4C4C4C", "ls": "--"},
     "pbm":       {"label": "SPBM (ours)",      "color": "#D1495B", "ls": "-"},
-    "alm_slack": {"label": "SSL-ALM (slack)",  "color": "#2E86AB", "ls": "-"},
+    "alm_proj": {"label": "SSL-ALM (proj)",  "color": "#2E86AB", "ls": "-"},
     "alm_max":   {"label": "SSL-ALM (max)",    "color": "#5BC0BE", "ls": "-"},
     "ssg":       {"label": "SSw",              "color": "#E0A458", "ls": "-"},
 }

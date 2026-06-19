@@ -127,7 +127,7 @@ def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train"
 
 
 # ── aggregate all methods for an experiment ──────────────────────────────────
-DEFAULT_METHODS = ["adam", "pbm", "alm_slack", "alm_max", "ssg"]
+DEFAULT_METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
 
 def aggregate_experiment(spec: ExperimentSpec, methods=DEFAULT_METHODS,

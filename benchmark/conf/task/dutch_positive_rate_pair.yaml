@@ -1,7 +1,7 @@
 task: equalized_odds_pairwise
 seed: 0
 batch_size: 72
-algorithms: [adam, pbm, alm_slack, alm_max, ssg]
+algorithms: [adam, pbm, alm_proj, alm_max, ssg]
 
 constraint:
   name: FairretPairwise

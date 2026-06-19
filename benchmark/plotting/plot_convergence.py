@@ -63,7 +63,7 @@ def _trajectory_for_config(spec, method, config_idx, split):
 def plot_convergence(spec, methods=None, display_split="train", out="conv.pdf"):
     set_neurips_style()
     if methods is None:
-        methods = ["adam", "pbm", "alm_slack", "alm_max", "ssg"]
+        methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
     fig, (ax_loss, ax_c) = plt.subplots(
         2, 1, figsize=(COL_WIDTH, COL_WIDTH * 1.4), sharex=True
@@ -112,8 +112,9 @@ if __name__ == "__main__":
     REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     RESULTS = os.path.join(REPO_ROOT, "results")
 
+    name = 'E3'
     spec = ExperimentSpec(
-        name="income_pairwise",
+        name=name,
         data="folktables",                       # <-- match your real results/ dir prefix
         task="folktables_positive_rate_pair",    # <-- match your real task name
         bound=0.1,
@@ -122,4 +123,4 @@ if __name__ == "__main__":
     )
     # display_split="train" shows optimizer dynamics; switch to "val" or "test"
     plot_convergence(spec, display_split="train",
-                     out=os.path.join(REPO_ROOT, "conv_income_pairwise.pdf"))
+                     out=os.path.join(REPO_ROOT, f"./results/plots/convergence_{name}.pdf"))

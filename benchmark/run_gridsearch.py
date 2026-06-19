@@ -7,17 +7,19 @@ from _data_sources import load_data_FT, load_data_DUTCH, load_data_norm, load_da
 import pandas as pd
 import os
 import importlib
-
 import hydra
 from omegaconf import DictConfig, OmegaConf
-
 from torch.nn import functional as F
-
 from humancompatible.train.dual_optim import ALM, PBM, MoreauEnvelope
-
 from constraints import loss_per_group, posrate_per_group, weight_constraint, posrate_fairret_constraint
+import json
 
-
+def save_best_params(best, name, result_dir):
+    params, idx, vloss, vc, _ = best
+    json.dump({"method": name, "best_params": params,
+               "best_idx": int(idx[0]), "val_loss": float(vloss),
+               "val_max_c": float(vc)}, open(f"{result_dir}/best_{name}.json","w"))
+    
 
 def runs_to_df(runs):
     
@@ -125,18 +127,41 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             ["dimin_adapt"],
             ["quadratic_logarithmic"],
             [[1e-1, 1.], [1e-2, 1.]],
-            [0.1, 0.9],
+            [0.9],
             # [0.9, 1.0, 1.1],
             [2.]
             )
     ]
 
-    alm_grid = [
+    alm_max_grid = [
         {
             "primal__lr": lr, 
             "dual__lr": dual_lr,
             "dual__penalty": penalty,
             # "dual__momentum": dual_momentum,
+            "moreau__mu": moreau_mu
+        }
+        for (
+                lr,
+                dual_lr,
+                penalty,
+                # dual_momentum,
+                moreau_mu
+            ) in product (
+            [0.001, 0.005, 0.01, 0.05],
+            [0.001, 0.005, 0.01, 0.05],
+            [0., 1.],
+            # [0., 0.1, 0.2, 0.5],
+            [2.]
+            )
+    ]
+
+    alm_proj_grid = [
+        {
+            "primal__lr": lr, 
+            "dual__lr": dual_lr,
+            "dual__penalty": penalty,
+            "is_ineq": True,
             "moreau__mu": moreau_mu
         }
         for (
@@ -170,9 +195,6 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [0., 2.,]
             )
     ]
-
-    alm_max_grid = alm_grid
-    alm_slack_grid = alm_grid
 
     adam_grid = [{"primal__lr": lr} for lr in [0.001, 0.005, 0.01, 0.05]]
 
@@ -240,6 +262,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             criterion = criterion)
 
         best_adam_params = extract_best_params(adam_history_val, adam_grid, None, filter='none')
+        save_best_params(best_adam_params,'adam',result_dir)
 
         print('\n------------\n')
         print('adam')
@@ -281,6 +304,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             criterion=criterion)
 
         best_pbm_params = extract_best_params(pbm_history_val, pbm_grid, constraint_bound*1.1, filter='upper')
+        save_best_params(best_pbm_params,'pbm',result_dir)
 
         print('\n------------\n')
         print('PBM')
@@ -296,14 +320,14 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         grid_pbm.to_csv(f'{result_dir}/grid_pbm.csv')
         del pbm_history_train, pbm_history_val, runs_pbm_train, runs_pbm_val, grid_pbm
 
-    if 'alm_slack' in task_cfg.algorithms:
+    if 'alm_proj' in task_cfg.algorithms:
         seed = seed
         torch.manual_seed(seed)
         _, alm_history_train, alm_history_val = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
             dual_opt=ALM,
-            param_grid=alm_grid,
+            param_grid=alm_proj_grid,
             n_epochs=n_epochs,
             constraint_fn=constraint_fn,
             constraint_bound=constraint_bound,
@@ -312,15 +336,16 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             data_val=data_val,
             mode='hc',
             verbose=False,
-            constraints_to_eq=True,
-            use_slack=True,
+            constraints_to_eq=False,
+            use_slack=False,
             fuse_loss_constraint=fuse_loss_constraint,
             model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
             criterion = criterion)
 
-        best_alm_params = extract_best_params(alm_history_val, alm_grid, constraint_bound*1.1, filter='upper')
+        best_alm_params = extract_best_params(alm_history_val, alm_proj_grid, constraint_bound*1.1, filter='upper')
+        save_best_params(best_alm_params,'alm_proj',result_dir)
 
         print('\n------------\n')
         print('ALM')
@@ -328,12 +353,12 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         print(f'loss: {best_alm_params[2]}')
         print(f'max c: {best_alm_params[3]}')
         print('\n------------\n')
-        grid_alm = pd.DataFrame(alm_grid)
+        grid_alm = pd.DataFrame(alm_proj_grid)
         runs_alm_train = runs_to_df(alm_history_train)
-        runs_alm_train.to_csv(f'{result_dir}/runs_alm_slack_train.csv')
+        runs_alm_train.to_csv(f'{result_dir}/runs_alm_proj_train.csv')
         runs_alm_val = runs_to_df(alm_history_val)
-        runs_alm_val.to_csv(f'{result_dir}/runs_alm_slack_val.csv')
-        grid_alm.to_csv(f'{result_dir}/grid_alm_slack.csv')
+        runs_alm_val.to_csv(f'{result_dir}/runs_alm_proj_val.csv')
+        grid_alm.to_csv(f'{result_dir}/grid_alm_proj.csv')
         del alm_history_train, alm_history_val, runs_alm_train, runs_alm_val, grid_alm
 
     if 'alm_max' in task_cfg.algorithms:
@@ -343,7 +368,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             m=m,
             primal_opt=torch.optim.Adam,
             dual_opt=ALM,
-            param_grid=alm_grid,
+            param_grid=alm_max_grid,
             n_epochs=n_epochs,
             constraint_fn=constraint_fn,
             constraint_bound=constraint_bound,
@@ -360,7 +385,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             device=device,
             criterion=criterion)
 
-        best_alm_params = extract_best_params(alm_history_val, alm_grid, constraint_bound*1.1, filter='upper')
+        best_alm_params = extract_best_params(alm_history_val, alm_max_grid, constraint_bound*1.1, filter='upper')
+        save_best_params(best_alm_params,'alm_max',result_dir)
 
         print('\n------------\n')
         print('ALM')
@@ -368,7 +394,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         print(f'loss: {best_alm_params[2]}')
         print(f'max c: {best_alm_params[3]}')
         print('\n------------\n')
-        grid_alm = pd.DataFrame(alm_grid)
+        grid_alm = pd.DataFrame(alm_max_grid)
         runs_alm_train = runs_to_df(alm_history_train)
         runs_alm_train.to_csv(f'{result_dir}/runs_alm_max_train.csv')
         runs_alm_val = runs_to_df(alm_history_val)
@@ -401,6 +427,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             criterion=criterion)
 
         best_ssg_params = extract_best_params(ssg_history_val, ssg_grid, constraint_bound*1.1, filter='upper')
+        save_best_params(best_ssg_params,'ssg',result_dir)
 
         print('\n------------\n')
         print('SSG')
