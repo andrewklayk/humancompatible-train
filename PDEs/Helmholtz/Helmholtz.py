@@ -83,8 +83,9 @@ def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f, du
         loss_list2.append(constraint.item())
         val_list.append(val_err)
         test_list.append(test_err)
-        
-        
+    
+    return loss_list[-1], loss_list1[-1], loss_list2[-1], val_list[-1], test_list[-1]
+    
 
 
 def main_function(model_name, beta, lr, EPOCH, device) :
@@ -105,10 +106,6 @@ def main_function(model_name, beta, lr, EPOCH, device) :
     idx = np.random.choice(X_val.shape[0], 1000, replace=False)
     X_val = X_val[idx]
     y_val = y_val[idx]
-        
-    print(X_train.shape)
-    print(X_val.shape)
-    exit()
 
     # Make dataloader
     data_train = TensorDataset(X_train)

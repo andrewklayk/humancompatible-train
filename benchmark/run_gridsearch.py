@@ -129,7 +129,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [[1e-1, 1.], [1e-2, 1.]],
             [0.9],
             # [0.9, 1.0, 1.1],
-            [2.]
+            [0.0, 1.0, 2.]
             )
     ]
 
@@ -152,7 +152,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [0.001, 0.005, 0.01, 0.05],
             [0., 1.],
             # [0., 0.1, 0.2, 0.5],
-            [2.]
+            [0.0, 1.0, 2.]
             )
     ]
 
@@ -175,7 +175,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [0.001, 0.005, 0.01, 0.05],
             [0., 1.],
             # [0., 0.1, 0.2, 0.5],
-            [2.]
+            [0.0, 1.0, 2.]
             )
     ]
 
