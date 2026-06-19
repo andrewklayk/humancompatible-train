@@ -37,7 +37,7 @@ def comb_cat_dummies(df):
 
 
 
-def load_data_norm(batch_size=64, device='cpu'):
+def load_data_norm(batch_size=64, device='cuda'):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -95,9 +95,10 @@ def load_data_norm(batch_size=64, device='cpu'):
     dataset_test = torch.utils.data.TensorDataset(features_test, sens_test, labels_test)
 
     # create a dataloader from the sampler
-    dataloader_train = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True)
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=64, shuffle=True)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=64, shuffle=True)
+    g = torch.Generator(device=device)
+    dataloader_train = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True, generator=g)
+    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=64, shuffle=True, generator=g)
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=64, shuffle=True, generator=g)
 
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 

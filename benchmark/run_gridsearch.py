@@ -74,7 +74,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         raise ValueError(f'Unknown dataset: {dataset}')
     
     if task == 'weight_norm':
-        data_source = load_data_norm
+        data_source = lambda batch_size: load_data_norm(batch_size, device)
 
     batch_size = task_cfg.batch_size
     if task == 'cifar10':
@@ -454,7 +454,7 @@ def hydra_main(cfg: DictConfig):
     print(torch.cuda.device_count())
     print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'No GPU')
     torch.set_default_device(device)
-    constraint_cfg = OmegaConf.to_container(task_cfg.constraint, resolve=True)
+    constraint_cfg = OmegaConf.to_container(task_cfg.constraint, resolve=True) if 'constraint' in task_cfg else None
     seed = task_cfg.seed
     
     main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed)
