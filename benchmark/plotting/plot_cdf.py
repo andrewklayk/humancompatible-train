@@ -62,7 +62,7 @@ def plot_cdf(spec: ExperimentSpec, methods=None, out="cdf.pdf"):
     set_neurips_style()
     agg = aggregate_experiment(spec)
     if methods is None:
-        methods = [m for m in ["adam", "pbm", "alm_slack", "alm_max", "ssg"]
+        methods = [m for m in ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
                    if m in agg]
 
     _print_frontier(agg, spec.bound)
@@ -75,7 +75,7 @@ def plot_cdf(spec: ExperimentSpec, methods=None, out="cdf.pdf"):
     lo, hi = all_feas_losses.min(), all_feas_losses.max()
 
     hi = 0.9
-    
+
     pad = 0.05 * (hi - lo + 1e-9)
     loss_grid = np.linspace(lo - pad, hi + pad, 400)
 
@@ -104,13 +104,15 @@ if __name__ == "__main__":
     REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     RESULTS = os.path.join(REPO_ROOT, "results")
 
+    name = 'E3'
     spec = ExperimentSpec(
-        name="income_pairwise",
+        name=name,
         data="folktables",                       # <-- match your real results/ dir prefix
         task="folktables_positive_rate_pair",    # <-- match your real task name
         bound=0.1,
         seeds=(0, 1, 2),
         results_root=RESULTS,
     )
+
     # write the figure next to results/, at the repo root
-    plot_cdf(spec, out=os.path.join(REPO_ROOT, "cdf_income_pairwise.pdf"))
+    plot_cdf(spec, out=os.path.join(REPO_ROOT, f"./results/plots/cdf_{name}.pdf"))

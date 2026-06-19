@@ -1,7 +1,7 @@
 task: folktables_positive_rate_pair
 seed: 0
 batch_size: 36
-algorithms: [adam, pbm, alm_slack, alm_max, ssg]
+algorithms: [adam, pbm, alm_proj, alm_max, ssg]
 
 constraint:
   name: FairretPairwise
