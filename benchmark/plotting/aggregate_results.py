@@ -37,6 +37,7 @@ class ExperimentSpec:
     data: str                 # the {data} part of the dir name, e.g. "income"
     task: str                 # the {task} part, e.g. "folktables_positive_rate_pair"
     bound: float              # feasibility threshold (constraint_cfg['bound'])
+    pinns: bool = False,
     seeds: tuple = (0, 1, 2)  # which seeds to aggregate
     results_root: str = "results"
 
@@ -61,7 +62,7 @@ def _read_runs_csv(path: str) -> pd.DataFrame:
     return df
 
 
-def _last_epoch_per_config(df: pd.DataFrame, bound: float) -> pd.DataFrame:
+def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool) -> pd.DataFrame:
     """Collapse to one row per config: its LAST-epoch loss and one-sided max viol.
 
     Returns columns: config, loss, max_viol, feasible.
@@ -77,7 +78,11 @@ def _last_epoch_per_config(df: pd.DataFrame, bound: float) -> pd.DataFrame:
     # one-sided max over signed constraints (matches g(x) <= eps enforcement)
     last["max_viol"] = last[c_cols].max(axis=1)
     last["feasible"] = last["max_viol"] <= bound
-    return last[["config", "loss", "max_viol", "feasible"]].reset_index(drop=True)
+
+    if pinns:
+        return last[["config", "loss", "max_viol", "test", "feasible"]].reset_index(drop=True)  
+    else:
+        return last[["config", "loss", "max_viol", "feasible"]].reset_index(drop=True)
 
 
 # ── aggregate one method across seeds ────────────────────────────────────────
@@ -97,11 +102,14 @@ def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train"
     """
     per_seed = []
     for seed in spec.seeds:
-        path = os.path.join(spec.seed_dir(seed), f"runs_{method}_{split}.csv")
+        if split == '':
+            path = os.path.join(spec.seed_dir(seed), f"runs_{method}.csv")
+        else: 
+            path = os.path.join(spec.seed_dir(seed), f"runs_{method}_{split}.csv")
         if not os.path.exists(path):
             continue
         df = _read_runs_csv(path)
-        last = _last_epoch_per_config(df, spec.bound)
+        last = _last_epoch_per_config(df, spec.bound, spec.pinns)
         last["seed"] = seed
         per_seed.append(last)
 
@@ -112,17 +120,31 @@ def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train"
 
     # mean/std across seeds, per config
     g = allseeds.groupby("config")
-    out = pd.DataFrame({
-        "loss_mean": g["loss"].mean(),
-        "loss_std":  g["loss"].std(ddof=0),
-        "viol_mean": g["max_viol"].mean(),
-        "viol_std":  g["max_viol"].std(ddof=0),
-        "feasible_mean": g["feasible"].mean(),          # fraction of seeds feasible
-        "feasible_all":  g["feasible"].all(),           # feasible in every seed
-    }).reset_index()
-    # feasibility on the across-seed MEAN violation (the definition used for the CDF)
-    out["feasible_mean_viol"] = out["viol_mean"] <= spec.bound
-    out["n_seeds_found"] = g["seed"].nunique().values
+
+    if spec.pinns == True:
+        out = pd.DataFrame({
+            "test_mean": g["test"].mean(),
+            "test_std":  g["test"].std(ddof=0),
+            "train_mean": g["loss"].mean(),
+            "train_std":  g["loss"].std(ddof=0),
+            "violation_constr_mean": g["max_viol"].mean(),          # fraction of seeds feasible
+            "violation_constr_std":  g["max_viol"].std(ddof=0),           # feasible in every seed
+        }).reset_index()
+        # feasibility on the across-seed MEAN violation (the definition used for the CDF)
+        out["feasible_mean_viol"] = out["violation_constr_mean"] <= spec.bound
+        out["n_seeds_found"] = g["seed"].nunique().values
+    else: 
+        out = pd.DataFrame({
+            "loss_mean": g["loss"].mean(),
+            "loss_std":  g["loss"].std(ddof=0),
+            "violation_constr_mean": g["max_viol"].mean(),
+            "violation_constr_std":  g["max_viol"].std(ddof=0),
+            "feasible_mean": g["feasible"].mean(),          # fraction of seeds feasible
+            "feasible_all":  g["feasible"].all(),           # feasible in every seed
+        }).reset_index()
+        # feasibility on the across-seed MEAN violation (the definition used for the CDF)
+        out["feasible_mean_viol"] = out["violation_constr_mean"] <= spec.bound
+        out["n_seeds_found"] = g["seed"].nunique().values
     return out
 
 
@@ -165,6 +187,7 @@ if __name__ == "__main__":
         data="folktables",
         task="folktables_positive_rate_pair",
         bound=0.1,
+        pinns=False,
         seeds=(0, 1, 2),
         results_root="results",
     )
@@ -173,3 +196,20 @@ if __name__ == "__main__":
     for method, df in agg.items():
         print(f"\n=== {method} ===")
         print(df.head().to_string(index=False))
+
+    
+    # Example: edit to your actual experiment, then run to sanity-check aggregation.
+    # spec = ExperimentSpec(
+    #     name="E8",
+    #     data="burgers",
+    #     task="pinn",
+    #     bound=0.0001,
+    #     pinns=True,
+    #     seeds=(0, 1),
+    #     results_root="results",
+    # )
+    # print(f"Aggregating {spec.name} from {spec.results_root}/ ...")
+    # agg = aggregate_experiment(spec, split='')
+    # for method, df in agg.items():
+    #     print(f"\n=== {method} ===")
+    #     print(df.head().to_string(index=False))
