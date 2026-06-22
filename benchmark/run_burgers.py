@@ -38,11 +38,19 @@ pbm_grid = [
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [2.])
 ]
 alm_proj_grid = [
-    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu}
+    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
+            "dual__is_ineq": True}
     for (lr, dlr, pen, mu) in product(
         [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [2.])
 ]
-alm_max_grid = [dict(d) for d in alm_proj_grid]                    # same grid; clamp differs
+alm_max_grid = [
+    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
+            "dual__is_ineq": False}
+    for (lr, dlr, pen, mu) in product(
+        [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [2.])
+]
+
+alm_max_grid = [dict(d) for d in alm_max_grid]                    # same grid; clamp differs
 ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
             for (lr, dlr, mu) in product(
                 [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 2.])]
@@ -260,7 +268,7 @@ def main(cfg: DictConfig):
     seed = cfg.get("seed", 0)
     torch.manual_seed(seed)
     main_function(cfg.get("model", "deep_narrow"), cfg.get("beta", 1.0),
-                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 1000), device, seed)
+                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 100), device, seed)
  
  
 if __name__ == "__main__":

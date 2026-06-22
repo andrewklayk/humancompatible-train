@@ -118,6 +118,7 @@ if __name__ == "__main__":
         data="folktables",                       # <-- match your real results/ dir prefix
         task="folktables_positive_rate_pair",    # <-- match your real task name
         bound=0.1,
+        pinns=False,
         seeds=(0, 1, 2),
         results_root=RESULTS,
     )
