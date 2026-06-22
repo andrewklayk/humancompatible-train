@@ -22,8 +22,37 @@ def save_best_params(best, name, result_dir):
     
 
 def runs_to_df(runs):
-    
+
     return pd.concat([pd.DataFrame(h).set_index('epoch') for h in runs], keys=range(len(runs)))
+
+
+LAST_K = 5  # epochs to average per combo for the summary CSV
+
+def compute_lastK_summary(runs, K=LAST_K):
+    """Per-config mean of loss and max constraint over the last K epochs.
+
+    Returns a DataFrame with columns: config, loss_lastK, max_viol_lastK.
+    The MultiIndex from runs_to_df has (config, epoch) as levels; groupby(level=0)
+    iterates over configs and tail(K) takes the last K epochs in training order.
+    """
+    df = runs_to_df(runs)
+    c_cols = [col for col in df.columns if col.startswith('c_')]
+    df['max_viol'] = df[c_cols].max(axis=1)
+
+    def summarize(grp):
+        tail = grp.tail(K)
+        return pd.Series({
+            'loss_lastK':     tail['loss'].mean(),
+            'max_viol_lastK': tail['max_viol'].mean(),
+        })
+
+    return (
+        df.groupby(level=0)
+        .apply(summarize)
+        .rename_axis('config')
+        .reset_index()
+    )
+
 
 ### GRID SEARCH
 def extract_best_params(runs, param_grid, val_c_tolerance, filter='upper'):
@@ -119,16 +148,14 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 pb_func,
                 p_range,
                 dual_gamma,
-                # dual_delta,
                 moreau_mu
             ) in product (
-            [0.001, 0.005, 0.01, 0.05],
+            [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 0.1, 0.2, 0.5],
             ["dimin_adapt"],
             ["quadratic_logarithmic"],
             [[1e-1, 1.], [1e-2, 1.]],
             [0.9],
-            # [0.9, 1.0, 1.1],
             [0.0, 1.0, 2.]
             )
     ]
@@ -148,8 +175,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 # dual_momentum,
                 moreau_mu
             ) in product (
-            [0.001, 0.005, 0.01, 0.05],
-            [0.001, 0.005, 0.01, 0.05],
+            [0.001, 0.005, 0.01, 0.02, 0.05],
+            [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 1.],
             # [0., 0.1, 0.2, 0.5],
             [0.0, 1.0, 2.]
@@ -171,8 +198,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 # dual_momentum,
                 moreau_mu
             ) in product (
-            [0.001, 0.005, 0.01, 0.05],
-            [0.001, 0.005, 0.01, 0.05],
+            [0.001, 0.005, 0.01, 0.02, 0.05],
+            [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 1.],
             # [0., 0.1, 0.2, 0.5],
             [0.0, 1.0, 2.]
@@ -190,8 +217,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 dual_lr,
                 moreau_mu,
             ) in product (
-            [0.001, 0.005, 0.01, 0.05],
-            [0.001, 0.005, 0.01, 0.05],
+            [0.001, 0.005, 0.01, 0.02, 0.05],
+            [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 2.,]
             )
     ]
@@ -276,6 +303,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_adam_val = runs_to_df(adam_history_val)
         runs_adam_val.to_csv(f'{result_dir}/runs_adam_val.csv')
         grid_adam.to_csv(f'{result_dir}/grid_adam.csv')
+        compute_lastK_summary(adam_history_val).to_csv(f'{result_dir}/summary_adam_val.csv', index=False)
         del adam_history_train, adam_history_val, runs_adam_train, runs_adam_val, grid_adam
 
     #################################################################
@@ -318,6 +346,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_pbm_val = runs_to_df(pbm_history_val)
         runs_pbm_val.to_csv(f'{result_dir}/runs_pbm_val.csv')
         grid_pbm.to_csv(f'{result_dir}/grid_pbm.csv')
+        compute_lastK_summary(pbm_history_val).to_csv(f'{result_dir}/summary_pbm_val.csv', index=False)
         del pbm_history_train, pbm_history_val, runs_pbm_train, runs_pbm_val, grid_pbm
 
     if 'alm_proj' in task_cfg.algorithms:
@@ -359,6 +388,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_alm_val = runs_to_df(alm_history_val)
         runs_alm_val.to_csv(f'{result_dir}/runs_alm_proj_val.csv')
         grid_alm.to_csv(f'{result_dir}/grid_alm_proj.csv')
+        compute_lastK_summary(alm_history_val).to_csv(f'{result_dir}/summary_alm_proj_val.csv', index=False)
         del alm_history_train, alm_history_val, runs_alm_train, runs_alm_val, grid_alm
 
     if 'alm_max' in task_cfg.algorithms:
@@ -400,6 +430,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_alm_val = runs_to_df(alm_history_val)
         runs_alm_val.to_csv(f'{result_dir}/runs_alm_max_val.csv')
         grid_alm.to_csv(f'{result_dir}/grid_alm_max.csv')
+        compute_lastK_summary(alm_history_val).to_csv(f'{result_dir}/summary_alm_max_val.csv', index=False)
         del alm_history_train, alm_history_val, runs_alm_train, runs_alm_val, grid_alm
 
     if 'ssg' in task_cfg.algorithms:
@@ -441,6 +472,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_ssg_val = runs_to_df(ssg_history_val)
         runs_ssg_val.to_csv(f'{result_dir}/runs_ssg_val.csv')
         grid_ssg.to_csv(f'{result_dir}/grid_ssg.csv')
+        compute_lastK_summary(ssg_history_val).to_csv(f'{result_dir}/summary_ssg_val.csv', index=False)
         del ssg_history_train, ssg_history_val, runs_ssg_train, runs_ssg_val, grid_ssg
 
 
