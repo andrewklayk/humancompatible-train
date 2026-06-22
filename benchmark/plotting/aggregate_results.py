@@ -80,7 +80,7 @@ def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool) -> pd.D
     last["feasible"] = last["max_viol"] <= bound
 
     if pinns:
-        return last[["config", "loss", "max_viol", "test", "feasible"]].reset_index(drop=True)  
+        return last[["config", "loss", "max_viol", "test", "val", "feasible"]].reset_index(drop=True)  
     else:
         return last[["config", "loss", "max_viol", "feasible"]].reset_index(drop=True)
 
@@ -125,6 +125,8 @@ def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train"
         out = pd.DataFrame({
             "test_mean": g["test"].mean(),
             "test_std":  g["test"].std(ddof=0),
+            "val_mean": g["val"].mean(),
+            "val_std": g["val"].std(ddof=0),
             "train_mean": g["loss"].mean(),
             "train_std":  g["loss"].std(ddof=0),
             "violation_constr_mean": g["max_viol"].mean(),          # fraction of seeds feasible
@@ -182,34 +184,34 @@ def load_best_config(spec: ExperimentSpec, method: str, seed: int) -> Optional[d
 
 if __name__ == "__main__":
     # Example: edit to your actual experiment, then run to sanity-check aggregation.
-    spec = ExperimentSpec(
-        name="E3",
-        data="folktables",
-        task="folktables_positive_rate_pair",
-        bound=0.1,
-        pinns=False,
-        seeds=(0, 1, 2),
-        results_root="results",
-    )
-    print(f"Aggregating {spec.name} from {spec.results_root}/ ...")
-    agg = aggregate_experiment(spec)
-    for method, df in agg.items():
-        print(f"\n=== {method} ===")
-        print(df.head().to_string(index=False))
-
-    
-    # Example: edit to your actual experiment, then run to sanity-check aggregation.
     # spec = ExperimentSpec(
-    #     name="E8",
-    #     data="burgers",
-    #     task="pinn",
-    #     bound=0.0001,
-    #     pinns=True,
-    #     seeds=(0, 1),
+    #     name="E3",
+    #     data="folktables",
+    #     task="folktables_positive_rate_pair",
+    #     bound=0.1,
+    #     pinns=False,
+    #     seeds=(0, 1, 2),
     #     results_root="results",
     # )
     # print(f"Aggregating {spec.name} from {spec.results_root}/ ...")
-    # agg = aggregate_experiment(spec, split='')
+    # agg = aggregate_experiment(spec)
     # for method, df in agg.items():
     #     print(f"\n=== {method} ===")
     #     print(df.head().to_string(index=False))
+
+    
+    # Example: edit to your actual experiment, then run to sanity-check aggregation.
+    spec = ExperimentSpec(
+        name="E8",
+        data="burgers",
+        task="pinn",
+        bound=0.0001,
+        pinns=True,
+        seeds=(0, 1),
+        results_root="results",
+    )
+    print(f"Aggregating {spec.name} from {spec.results_root}/ ...")
+    agg = aggregate_experiment(spec, split='')
+    for method, df in agg.items():
+        print(f"\n=== {method} ===")
+        print(df.head().to_string(index=False))
