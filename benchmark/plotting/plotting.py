@@ -319,6 +319,7 @@ def plot_losses_and_constraints_stochastic(
     save_path=None,
     separate_constraints=False,
     abs_constraints=False,
+    constraint_titles = None
 ):
     """
     Clean, modular rewrite.
@@ -340,6 +341,9 @@ def plot_losses_and_constraints_stochastic(
 
     if titles is None:
         titles = [f"Algorithm {i+1}" for i in range(num_algos)]
+
+    if constraint_titles is None:
+        constraint_titles = [None for i in range(len(train_constraints_list))]
 
     # colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     colors = [
@@ -478,7 +482,7 @@ def plot_losses_and_constraints_stochastic(
     # CONSTRAINT PLOTTING
     # ------------------------------------------------------------------
 
-    def plot_constraint_panel(ax, constraints_list, constraints_std_list, title, constraint_idx=None):
+    def plot_constraint_panel(ax, constraints_list, constraints_std_list, title, constraint_idx=None, constraint_title=None):
         for j, (c, c_std) in enumerate(zip(constraints_list, constraints_std_list)):
             if abs_constraints:
                 c = np.abs(c)
@@ -517,7 +521,10 @@ def plot_losses_and_constraints_stochastic(
                 label="Threshold" if i == 0 else None,
             )
 
-        ax.set_title(f"Constraint ({title})")
+        if constraint_title == None:
+            ax.set_title(f"Constraint ({title})")
+        else: 
+            ax.set_title(f"Constraint ({constraint_title})")
         ax.set_ylabel("Log Constraint" if log_constraints else "Constraint")
         ax.grid(True, linestyle="--", alpha=0.4)
         ax.legend(fontsize=9)
@@ -539,6 +546,7 @@ def plot_losses_and_constraints_stochastic(
                     train_constraints_std_list,
                     "Train",
                     constraint_idx=k,
+                    constraint_title=constraint_titles[k]
                 )
                 axes_constraint[k][0].set_xlabel("Time" if plot_time_instead_epochs else "Epoch")
         else:
@@ -568,6 +576,7 @@ def plot_losses_and_constraints_stochastic(
                         train_constraints_std_list,
                         "Train",
                         constraint_idx=k,
+                        constraint_title=constraint_titles[k]
                     )
                     axes[1 + k, 0].set_xlabel("Time" if plot_time_instead_epochs else "Epoch")
             else:
@@ -589,6 +598,7 @@ def plot_losses_and_constraints_stochastic(
                         train_constraints_std_list,
                         "Train",
                         constraint_idx=k,
+                        constraint_title=constraint_titles[k]
                     )
                     axes[1 + k, 0].set_xlabel("Time" if plot_time_instead_epochs else "Epoch")
                     plot_constraint_panel(
@@ -597,6 +607,7 @@ def plot_losses_and_constraints_stochastic(
                         test_constraints_std_list,
                         "Test",
                         constraint_idx=k,
+                        constraint_title=constraint_titles[k]
                     )
                     axes[1 + k, 1].set_xlabel("Time" if plot_time_instead_epochs else "Epoch")
             else:
