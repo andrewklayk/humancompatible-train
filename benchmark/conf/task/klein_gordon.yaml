@@ -1,0 +1,13 @@
+task: klein_gordon
+seed: 0          # overridden by task.seed=$SLURM_ARRAY_TASK_ID
+
+model: deep_narrow
+beta: 1.0
+lr: 0.001
+n_epochs: 1000
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
