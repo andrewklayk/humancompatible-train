@@ -43,7 +43,14 @@ alm_proj_grid = [
     for (lr, dlr, pen, mu) in product(
         [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [2.])
 ]
-alm_max_grid = [dict(d) for d in alm_proj_grid]                    # same grid; clamp differs
+alm_max_grid = [
+    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
+            "dual__is_ineq": False}
+    for (lr, dlr, pen, mu) in product(
+        [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [2.])
+]
+
+alm_max_grid = [dict(d) for d in alm_max_grid]                    # same grid; clamp differs
 ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
             for (lr, dlr, mu) in product(
                 [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 2.])]
