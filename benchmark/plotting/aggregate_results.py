@@ -182,6 +182,90 @@ def load_best_config(spec: ExperimentSpec, method: str, seed: int) -> Optional[d
         return json.load(f)
 
 
+# ── lastK-based aggregation and best-config selection ────────────────────────
+
+def aggregate_method_lastK(spec: ExperimentSpec, method: str) -> Optional[pd.DataFrame]:
+    """Load summary_{method}_val.csv for every seed (written by compute_lastK_summary
+    in run_gridsearch.py) and aggregate across seeds per config.
+
+    Each summary CSV has columns: config, loss_lastK, max_viol_lastK, where
+    each value is already the mean over the last K training epochs for that config
+    and seed.  Here we mean/std those across seeds.
+
+    Returns a DataFrame with columns:
+        config,
+        loss_mean, loss_std,
+        viol_mean, viol_std,
+        feasible_mean,      # fraction of seeds where mean-last-K viol <= bound
+        feasible_all,       # True iff feasible in every seed
+        feasible_mean_viol, # feasibility judged on the cross-seed mean violation
+        n_seeds_found
+    or None if no files were found.
+    """
+    per_seed = []
+    for seed in spec.seeds:
+        path = os.path.join(spec.seed_dir(seed), f"summary_{method}_val.csv")
+        if not os.path.exists(path):
+            continue
+        df = pd.read_csv(path)  # columns: config, loss_lastK, max_viol_lastK
+        df["seed"] = seed
+        df["feasible"] = df["max_viol_lastK"] <= spec.bound
+        per_seed.append(df)
+
+    if not per_seed:
+        return None
+
+    allseeds = pd.concat(per_seed, ignore_index=True)
+    g = allseeds.groupby("config")
+
+    out = pd.DataFrame({
+        "loss_mean":  g["loss_lastK"].mean(),
+        "loss_std":   g["loss_lastK"].std(ddof=0),
+        "viol_mean":  g["max_viol_lastK"].mean(),
+        "viol_std":   g["max_viol_lastK"].std(ddof=0),
+        "feasible_mean": g["feasible"].mean(),
+        "feasible_all":  g["feasible"].all(),
+        "n_seeds_found": g["seed"].nunique(),
+    }).reset_index()
+
+    out["feasible_mean_viol"] = out["viol_mean"] <= spec.bound
+    return out
+
+
+def select_best_config_lastK(agg: pd.DataFrame) -> Optional[pd.Series]:
+    """Select the config with the lowest cross-seed mean loss among configs whose
+    cross-seed mean violation is feasible.  Falls back to the least-violating config
+    if none are feasible.
+
+    Returns a single-row Series (or None if agg is empty).
+    """
+    if agg is None or agg.empty:
+        return None
+    feasible = agg[agg["feasible_mean_viol"]]
+    pool = feasible if not feasible.empty else agg
+    return pool.loc[pool["loss_mean"].idxmin()]
+
+
+def aggregate_experiment_lastK(spec: ExperimentSpec,
+                                methods=DEFAULT_METHODS) -> dict:
+    """Returns {method: (per-config DataFrame, best-config Series)}.
+    Methods with no summary files are skipped."""
+    result = {}
+    for m in methods:
+        agg = aggregate_method_lastK(spec, m)
+        if agg is None:
+            print(f"  [{spec.name}] {m}: no summary files found, skipping")
+            continue
+        best = select_best_config_lastK(agg)
+        n_feas = int(agg["feasible_mean_viol"].sum())
+        print(f"  [{spec.name}] {m}: {len(agg)} configs, "
+              f"{n_feas} feasible (mean viol <= {spec.bound}), "
+              f"best config={int(best['config'])} "
+              f"loss={best['loss_mean']:.4f} viol={best['viol_mean']:.4f}")
+        result[m] = (agg, best)
+    return result
+
+
 if __name__ == "__main__":
     # Example: edit to your actual experiment, then run to sanity-check aggregation.
     # spec = ExperimentSpec(
