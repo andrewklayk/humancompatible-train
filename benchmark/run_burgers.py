@@ -38,7 +38,8 @@ pbm_grid = [
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [2.])
 ]
 alm_proj_grid = [
-    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu}
+    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
+            "dual__is_ineq": True}
     for (lr, dlr, pen, mu) in product(
         [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [2.])
 ]
