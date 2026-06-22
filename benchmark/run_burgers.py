@@ -260,7 +260,7 @@ def main(cfg: DictConfig):
     seed = cfg.get("seed", 0)
     torch.manual_seed(seed)
     main_function(cfg.get("model", "deep_narrow"), cfg.get("beta", 1.0),
-                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 1000), device, seed)
+                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 100), device, seed)
  
  
 if __name__ == "__main__":
