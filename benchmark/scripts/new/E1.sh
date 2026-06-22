@@ -9,6 +9,8 @@
 #SBATCH --partition=amdgpufast
 #SBATCH --array=0-2
 
+# run this (running)
+
 ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
 ml Hydra/1.3.2-GCCcore-14.3.0
 ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
