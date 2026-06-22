@@ -37,7 +37,7 @@ class ExperimentSpec:
     data: str                 # the {data} part of the dir name, e.g. "income"
     task: str                 # the {task} part, e.g. "folktables_positive_rate_pair"
     bound: float              # feasibility threshold (constraint_cfg['bound'])
-    pinns: bool = False,
+    pinns: bool = False
     seeds: tuple = (0, 1, 2)  # which seeds to aggregate
     results_root: str = "results"
 
