@@ -1,7 +1,0 @@
-
-n_runs: 3
-n_epochs: 30
-
-defaults:
-  - task: dutch_positive_rate_pair
-  - data: dutch

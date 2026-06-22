@@ -2,15 +2,16 @@ from tqdm import tqdm
 import pickle as pkl
 import numpy as np
 import copy
-import argparse
 import sys
 import os                                                          # ADDED
 import json                                                        # ADDED
 import time as _time                                               # ADDED
 import pandas as pd                                                # ADDED
 from itertools import product                                      # ADDED
+import hydra                                                       # ADDED (Hydra entry)
+from omegaconf import DictConfig                                   # ADDED
 sys.path.append("..")
-
+ 
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
@@ -18,13 +19,14 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from humancompatible.train.dual_optim import ALM, MoreauEnvelope, PBM
-
+ 
 from networks import set_model, u_Net_shallow_wide, u_Net_shallow_wide_resnet, u_Net_deep_narrow, u_Net_deep_narrow_resnet
-
 # Equation parameter
 
 nu = 0.01/np.pi
 THRESHOLD = 1e-4                                                   # ADDED (was inline in train)
+device='cuda'
+
 
 # ── HP GRIDS (ADDED) ─────────────────────────────────────────────────────────
 pbm_grid = [
@@ -41,6 +43,9 @@ alm_proj_grid = [
         [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [2.])
 ]
 alm_max_grid = [dict(d) for d in alm_proj_grid]                    # same grid; clamp differs
+ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
+            for (lr, dlr, mu) in product(
+                [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 2.])]
 adam_grid = [{"primal__lr": lr, "beta": beta}
              for (lr, beta) in product([0.001, 0.005, 0.01, 0.05], [0.1, 1., 2., 5.])]
 
@@ -56,7 +61,8 @@ def calculate_all_partial(u, x) :
     return u_t.view(-1,1), u_x.view(-1,1), u_xx.view(-1,1)
 
 
-def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f, dual_opt=None, clamp=False) :  # +clamp
+def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f, dual_opt=None, clamp=False, mode='lagrangian',
+           sw_dual=None, constraint_tol=0.) :  # +clamp, +mode, +sw_dual, +constraint_tol
     loss_list, loss_list1, loss_list2, loss_list3, val_list, test_list = [], [], [], [], [], []
     X_ini, u_ini, X_bdry, u_bdry = ini_bdry_data
     X_val, y_val, X_test, y_test = val_test
@@ -75,11 +81,29 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         loss3 = loss_f(output_bdry, torch.zeros_like(output_bdry))
 
         # unconstrained Adam
-        if dual_opt is None :
+        if dual_opt is None and mode != 'sw':
             loss = loss1 + beta*loss2 + beta*loss3
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+
+        elif mode == 'sw':                                         # ADDED: SSw switching subgradient (matches train_loop_sw)
+            # Switching subgradient (Huang & Lin): if the most-violated constraint
+            # exceeds constraint_tol, take a step with the DUAL optimizer on that
+            # constraint; otherwise take a step with the PRIMAL optimizer on the
+            # objective. Two separate optimizers (separate LRs), as in utils.py.
+            cons = torch.stack([loss2, loss3], dim=0) - THRESHOLD
+            max_c = cons.max()
+            optimizer.zero_grad()
+            sw_dual.zero_grad()
+            if max_c > constraint_tol:                             # infeasible -> dual step on constraint
+                max_c.backward()
+                sw_dual.step()
+            else:                                                  # feasible -> primal step on objective
+                loss1.backward()
+                optimizer.step()
+            optimizer.zero_grad()
+            sw_dual.zero_grad()
 
         elif dual_opt is not None:
             threshold = THRESHOLD                                  # CHANGED: was 1e-4 literal
@@ -153,7 +177,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
     u_bdry = torch.zeros_like(X_bdry[:,0]).to(device).view(-1,1)
     
     # Validation & Test Set
-    X_test, y_test, X_val, y_val= torch.load('./PDEs/Viscous_Burgers/Burgers_test', map_location=device)
+    X_test, y_test, X_val, y_val= torch.load('../PDEs/Viscous_Burgers/Burgers_test', map_location=device)
 
     # take 1000 samples from the validation set
     idx = np.random.choice(X_val.shape[0], 1000, replace=False)
@@ -168,13 +192,19 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
     val_test = [X_val, y_val, X_test, y_test]                      # ADDED
 
     # helper: run ONE config's full training, return history list (ADDED)
-    def run_config(params, dual_ctor, clamp=False):
+    def run_config(params, dual_ctor, clamp=False, mode='lagrangian'):
         primal = {k.removeprefix("primal__"): v for k, v in params.items() if k.startswith("primal__")}
+        dual_p = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
         moreau = {k.removeprefix("moreau__"): v for k, v in params.items() if k.startswith("moreau__")}
         b = params.get("beta", beta)
         torch.manual_seed(0)                                       # same init per config (as old code reseeded per block)
         u_model = set_model(model_name, device)
-        if dual_ctor is None:
+        sw_dual = None
+        if mode == 'sw':                                           # SSw: primal=plain Adam (no Moreau), separate dual Adam on model params (dual__lr)
+            optimizer = torch.optim.Adam([{'params': u_model.parameters()}], **primal)
+            sw_dual = torch.optim.Adam([{'params': u_model.parameters()}], **dual_p)   # matches run_train: dual_opt(model.parameters(), **dual_params)
+            dual = None
+        elif dual_ctor is None:
             optimizer = torch.optim.Adam([{'params': u_model.parameters()}], **primal)
             dual = None
         else:
@@ -186,7 +216,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
             loss, loss1, loss2, loss3, val_err, test_err = train(
                 u_model, b, trainloader=train_loader, ini_bdry_data=ini_bdry,
                 val_test=val_test, optimizer=optimizer, loss_f=nn.MSELoss(),
-                dual_opt=dual, clamp=clamp)
+                dual_opt=dual, clamp=clamp, mode=mode, sw_dual=sw_dual)
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
                             "c_0": loss2, "c_1": loss3, "val": val_err, "test": test_err})
             if t % 100 == 0:
@@ -218,20 +248,21 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
     histories = [run_config(p, make_alm, clamp=True) for p in tqdm(alm_max_grid, desc="alm_max")]
     save_method(result_dir, "alm_max", histories, alm_max_grid)
 
+    # ===== SSw (switching subgradient) =====
+    histories = [run_config(p, None, mode='sw') for p in tqdm(ssg_grid, desc="ssg")]
+    save_method(result_dir, "ssg", histories, ssg_grid)
 
+
+@hydra.main(version_base=None, config_path="conf/task/", config_name="burgers")   # CHANGED: argparse -> Hydra
+def main(cfg: DictConfig):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    torch.set_default_device(device)
+    seed = cfg.get("seed", 0)
+    torch.manual_seed(seed)
+    main_function(cfg.get("model", "deep_narrow"), cfg.get("beta", 1.0),
+                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 1000), device, seed)
+ 
+ 
 if __name__ == "__main__":
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='deep_narrow', help='Specify the model. Choose one of [deep_narrow, shallow_wide, deep_narrow_resent, shallow_wide_resnet].')
-    parser.add_argument('--beta', default=1, type=float, help='Penalty parameter beta')
-    parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
-    parser.add_argument('--EPOCH', default=1000, type=int, help='Number of training EPOCH')
-    parser.add_argument('--ordinal', default=0, type=int, help='Specify the cuda device ordinal.')
-    args = parser.parse_args()
-    
-    device = torch.device("cuda:{}".format(args.ordinal) if torch.cuda.is_available() else "cpu")
-
-    seed = int(os.environ.get("SLURM_ARRAY_TASK_ID", 0))           # ADDED: seed from Slurm array
-    torch.manual_seed(seed)                                        # ADDED
-    
-    main_function(args.model, args.beta, args.lr, args.EPOCH, device, seed)
+    main()
+ 
