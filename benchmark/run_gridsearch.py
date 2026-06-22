@@ -161,7 +161,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             "primal__lr": lr, 
             "dual__lr": dual_lr,
             "dual__penalty": penalty,
-            "is_ineq": True,
+            "dual__is_ineq": True,
             "moreau__mu": moreau_mu
         }
         for (
