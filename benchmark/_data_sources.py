@@ -197,20 +197,22 @@ def load_data_FT(batch_size, device, sens_attrs, states=['FL'], group_size_thres
     dataset_test = torch.utils.data.TensorDataset(features_test, sens_test, labels_test)
 
     # create a balanced sampling - needed for an unbiased gradient
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
     sampler = BalancedBatchSampler(
-        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_val = BalancedBatchSampler(
-        group_onehot=sens_val, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_val, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_test = BalancedBatchSampler(
-        group_onehot=sens_test, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_test, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
 
     # create a dataloader from the sampler
-    dataloader_train = torch.utils.data.DataLoader(dataset, batch_sampler=sampler)
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test)
+    dataloader_train = torch.utils.data.DataLoader(dataset, batch_sampler=sampler, generator=g)
+    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val, generator=g)
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test, generator=g)
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
 
@@ -312,20 +314,22 @@ def load_data_FT_prod(batch_size, device='cpu', extend_groups = False, seed=42):
     dataset_test = torch.utils.data.TensorDataset(features_test, sens_test, labels_test)
 
     # create a balanced sampling - needed for an unbiased gradient
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
     sampler = BalancedBatchSampler(
-        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_val = BalancedBatchSampler(
-        group_onehot=sens_val, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_val, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_test = BalancedBatchSampler(
-        group_onehot=sens_test, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_test, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
 
     # create a dataloader from the sampler
-    dataloader_train = torch.utils.data.DataLoader(dataset, batch_sampler=sampler)
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test)
+    dataloader_train = torch.utils.data.DataLoader(dataset, batch_sampler=sampler, generator=g)
+    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val, generator=g)
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test, generator=g)
 
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
@@ -395,23 +399,25 @@ def load_data_FT_vec(batch_size, device='cpu', attr = "SEX", extend_groups = Fal
     dataset_test = torch.utils.data.TensorDataset(features_test, sens_test, labels_test)
 
     # create a balanced sampling - needed for an unbiased gradient
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
     sampler = BalancedBatchSampler(
-        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_val = BalancedBatchSampler(
-        group_onehot=sens_val, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_val, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_test = BalancedBatchSampler(
-        group_onehot=sens_test, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_test, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
 
     # create a dataloader from the sampler
-    dataloader_train = torch.utils.data.DataLoader(dataset, batch_sampler=sampler)
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test)
+    dataloader_train = torch.utils.data.DataLoader(dataset, batch_sampler=sampler, generator=g)
+    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val, generator=g)
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test, generator=g)
 
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
-    
+
 
 def load_data_DUTCH(batch_size, device='cpu', extend_groups = False, seed=42):
     # Get the data with a validation split
@@ -438,20 +444,22 @@ def load_data_DUTCH(batch_size, device='cpu', extend_groups = False, seed=42):
     dataset_test = torch.utils.data.TensorDataset(features_test, sens_test, labels_test)
 
     # Create balanced samplers
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
     sampler_train = BalancedBatchSampler(
-        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_train, batch_size=batch_size, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_val = BalancedBatchSampler(
-        group_onehot=sens_val, batch_size=252*4, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_val, batch_size=252*4, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
     sampler_test = BalancedBatchSampler(
-        group_onehot=sens_test, batch_size=252*4, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None
+        group_onehot=sens_test, batch_size=252*4, drop_last=True, extend_groups=list(range(sens_train.shape[1])) if extend_groups else None, generator=g
     )
 
     # Create dataloaders
-    dataloader_train = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler_train)
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test)
+    dataloader_train = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler_train, generator=g)
+    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler_val, generator=g)
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler_test, generator=g)
 
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
@@ -592,11 +600,13 @@ def load_data_cifar10(balanced=False, device='cpu', seed=42):
     # create a train dataset
     dataset_train = torch.utils.data.TensorDataset(X, groups_onehot, targets)
 
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
     if balanced:
-        sampler = BalancedBatchSampler(group_onehot=groups_onehot, batch_size=batch_size, drop_last=True)
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler)
-    else: 
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size)
+        sampler = BalancedBatchSampler(group_onehot=groups_onehot, batch_size=batch_size, drop_last=True, generator=g)
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler, generator=g)
+    else:
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, generator=g)
 
     # load all data and create a balanced sampler
     X_test = torch.stack([item[0] for item in testset]).to(device)
@@ -611,27 +621,27 @@ def load_data_cifar10(balanced=False, device='cpu', seed=42):
 
     dataset_val = torch.utils.data.TensorDataset(X_val, groups_onehot_val, targets_val)
 
-    global valloader   
+    global valloader
     if balanced:
         # create the balanced dataloader
         sampler = BalancedBatchSampler(
-            group_onehot=groups_onehot_val, batch_size=batch_size, drop_last=True
+            group_onehot=groups_onehot_val, batch_size=batch_size, drop_last=True, generator=g
         )
-        valloader = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler)
+        valloader = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler, generator=g)
     else:
-        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=batch_size)
+        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=batch_size, generator=g)
 
     dataset_test = torch.utils.data.TensorDataset(X_test, groups_onehot_test, targets_test)
 
-    global testloader   
+    global testloader
     if balanced:
         # create the balanced dataloader
         sampler = BalancedBatchSampler(
-            group_onehot=groups_onehot_test, batch_size=batch_size, drop_last=True
+            group_onehot=groups_onehot_test, batch_size=batch_size, drop_last=True, generator=g
         )
-        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler)
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler, generator=g)
     else:
-        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size)
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, generator=g)
 
     # clean the memory of redundant variables
     del X, targets, groups_onehot
@@ -694,14 +704,16 @@ def load_data_cifar100(balanced=False, device='cpu', seed=42):
     # create a train dataset
     dataset_train = torch.utils.data.TensorDataset(X, groups_onehot, targets)
 
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
     if balanced:
         # create the balanced dataloader
         sampler = BalancedBatchSampler(
-            group_onehot=groups_onehot, batch_size=batch_size, drop_last=True
+            group_onehot=groups_onehot, batch_size=batch_size, drop_last=True, generator=g
         )
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler)
-    else: 
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size)
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_sampler=sampler, generator=g)
+    else:
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, generator=g)
 
     # load all data and create a balanced sampler
     X_test = torch.stack([item[0] for item in testset]).to(device)
@@ -717,28 +729,28 @@ def load_data_cifar100(balanced=False, device='cpu', seed=42):
     # create a train dataset
     dataset_val = torch.utils.data.TensorDataset(X_val, groups_onehot_val, targets_val)
 
-    global valloader   
+    global valloader
     if balanced:
         # create the balanced dataloader
         sampler = BalancedBatchSampler(
-            group_onehot=groups_onehot_val, batch_size=batch_size, drop_last=True
+            group_onehot=groups_onehot_val, batch_size=batch_size, drop_last=True, generator=g
         )
-        valloader = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler)
+        valloader = torch.utils.data.DataLoader(dataset_val, batch_sampler=sampler, generator=g)
     else:
-        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=batch_size)
+        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=batch_size, generator=g)
 
     # create a train dataset
     dataset_test = torch.utils.data.TensorDataset(X_test, groups_onehot_test, targets_test)
 
-    global testloader   
+    global testloader
     if balanced:
         # create the balanced dataloader
         sampler = BalancedBatchSampler(
-            group_onehot=groups_onehot_test, batch_size=batch_size, drop_last=True
+            group_onehot=groups_onehot_test, batch_size=batch_size, drop_last=True, generator=g
         )
-        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler)
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_sampler=sampler, generator=g)
     else:
-        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size)
+        testloader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, generator=g)
 
     # clean the memory of redundant variables
     del X, targets, groups_onehot
