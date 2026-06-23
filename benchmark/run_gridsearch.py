@@ -120,9 +120,6 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     else:
         (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test) = data_source(batch_size)
-        # features_val = features_test
-        # sens_val = sens_test
-        # labels_val = labels_test
         create_model_fn = create_model
         model_kwargs = {'input_shape': features_train.shape[1], 'latent_size1': 64, 'latent_size2': 32}
         criterion = torch.nn.functional.binary_cross_entropy_with_logits
@@ -220,7 +217,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             ) in product (
             [0.001, 0.005, 0.01, 0.02, 0.05],
             [0.001, 0.005, 0.01, 0.02, 0.05],
-            [0., 2.,]
+            [0., 1., 2.,]
             )
     ]
 

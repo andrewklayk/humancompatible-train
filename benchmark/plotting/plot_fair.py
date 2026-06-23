@@ -83,7 +83,7 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
     for method in methods:
         if method not in best:
             continue
-        traj = _load_config_trajectory(spec, method, best[method], split_train="train", split_test="val")
+        traj = _load_config_trajectory(spec, method, best[method], split_train="train", split_test="test")
         if traj is None:
             print(f"  {method}: no trajectory for config {best[method]}, skipping")
             continue
@@ -184,8 +184,6 @@ if __name__ == "__main__":
     # constraint_titles = list(range(300))
 
     best_validation_lastK = 5
-
-    # TODO: !!!! change val to test in the load config function
 
     # takes the best validation loss config, then takes the solution from that config and plots the 
     # train / test loss and train constraints
