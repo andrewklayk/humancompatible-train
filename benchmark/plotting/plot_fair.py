@@ -26,11 +26,12 @@ from plotting import plot_losses_and_constraints_stochastic   # your existing mo
 
 
 # ── Step 1: best config per method (by mean val loss, feasible-preferred) ─────
-def select_best_configs(spec: ExperimentSpec, methods, split="train", best_validation_lastK=1, threshold=0.1):
+def select_best_configs(spec: ExperimentSpec, methods, split="val", best_validation_lastK=1, threshold=0.1):
     """Returns {method: best_config_index}. Selection on the across-seed MEAN
     validation loss, restricted to configs feasible on the mean violation; if no
     config is feasible, falls back to global min mean-val."""
-    agg = aggregate_experiment(spec, methods=methods, split=split, tail=best_validation_lastK)
+    agg = aggregate_experiment(spec, methods=methods, split=split, 
+                               tail=best_validation_lastK, last_epoch=not running_average)
     best = {}
     for method, df in agg.items():
         pool = df[df["violation_constr_mean"] < threshold] if method != 'adam' else df
@@ -66,7 +67,7 @@ def _load_config_trajectory(spec, method, config_idx, split_train="train", split
     return loss, test, cons_tr, cons_te, cons_tr.shape[1]
 
 # ── assemble the lists the plotting function expects ─────────────────────────
-def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
+def build_plot_inputs(spec: ExperimentSpec, methods, best_validation_lastK=1):
     """Returns the argument lists for plot_losses_and_constraints_stochastic:
         train_losses (PDE residual), test_losses (solution error),
         train_constraints (m x epochs), and their stds; plus titles.
@@ -117,7 +118,7 @@ METHOD_LABELS = {
 }
 
 
-def plot(spec=None, methods=None, save_path=None, constraint_titles=None, split="train", best_validation_lastK=1):
+def plot(spec=None, methods=None, save_path=None, constraint_titles=None, best_validation_lastK=1):
     if spec is None:
         spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
@@ -125,7 +126,7 @@ def plot(spec=None, methods=None, save_path=None, constraint_titles=None, split=
     if methods is None:
         methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
-    inputs = build_plot_inputs(spec, methods, split=split, best_validation_lastK=best_validation_lastK)
+    inputs = build_plot_inputs(spec, methods, best_validation_lastK=best_validation_lastK)
     if not inputs["train_losses_list"]:
         print("no data to plot")
         return
@@ -158,12 +159,28 @@ def plot(spec=None, methods=None, save_path=None, constraint_titles=None, split=
 
 if __name__ == "__main__":
 
-    name = 'E1'
+    # True is a running window mean; False is a tail
+    running_average = True
+    best_validation_window = 5
+
+    # name = 'E1'
+    # spec = ExperimentSpec(
+    #     name=name,
+    #     data="folktables",
+    #     task="weight_norm",
+    #     bound=2.0,
+    #     pinns=False,
+    #     seeds=(0, 1, 2),
+    #     results_root="results",
+    # )
+    # constraint_titles = list(range(300))
+
+    name = 'E2'
     spec = ExperimentSpec(
         name=name,
         data="folktables",
-        task="weight_norm",
-        bound=2.0,
+        task="equalized_odds_vec",
+        bound=0.2,
         pinns=False,
         seeds=(0, 1, 2),
         results_root="results",
@@ -171,24 +188,10 @@ if __name__ == "__main__":
     constraint_titles = list(range(300))
 
 
-    # name = 'E2'
-    # spec = ExperimentSpec(
-    #     name=name,
-    #     data="folktables",
-    #     task="equalized_odds_vec",
-    #     bound=0.2,
-    #     pinns=False,
-    #     seeds=(0, 1, 2),
-    #     results_root="results",
-    # )
-    # constraint_titles = list(range(300))
-
-    best_validation_lastK = 5
-
     # TODO: !!!! change val to test in the load config function
 
     # takes the best validation loss config, then takes the solution from that config and plots the 
     # train / test loss and train constraints
     # the plot uses the weight (E1) plotting function
     plot(spec = spec, save_path=f"./results/plots/{name}.png", 
-               constraint_titles=constraint_titles, best_validation_lastK=best_validation_lastK)
+               constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
