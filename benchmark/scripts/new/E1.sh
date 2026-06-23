@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=4:00:00
 #SBATCH --partition=amdgpufast
-#SBATCH --array=0-2
+#SBATCH --array=0-5
 
 # run this (running)
 

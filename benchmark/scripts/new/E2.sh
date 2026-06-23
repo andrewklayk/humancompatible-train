@@ -8,8 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --partition=h200fast
 #SBATCH --time=4:00:00
-#SBATCH --array=0-2
-
+#SBATCH --array=0-5
 
 # run this (running)
 

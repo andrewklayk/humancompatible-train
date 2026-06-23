@@ -41,7 +41,7 @@ def load_data_norm(batch_size=64, device='cuda', seed=42):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
-    acs_data = data_source.get_data(states=["VA"], download=True)
+    acs_data = data_source.get_data(states=["FL"], download=True)
     definition_df = data_source.get_definitions(download=True)
     categories = generate_categories(
         features=ACSIncome.features, definition_df=definition_df
@@ -104,7 +104,7 @@ def load_data_norm(batch_size=64, device='cuda', seed=42):
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
 
-def load_data_FT(batch_size, device, sens_attrs, states=['VA'], group_size_threshold = 0, sens_groups = None, extend_groups = False, dtype=torch.float32, seed=42):
+def load_data_FT(batch_size, device, sens_attrs, states=['FL'], group_size_threshold = 0, sens_groups = None, extend_groups = False, dtype=torch.float32, seed=42):
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
     ACSProblem = BasicProblem(
@@ -219,7 +219,7 @@ def load_data_FT_prod(batch_size, device='cpu', extend_groups = False, seed=42):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
-    acs_data = data_source.get_data(states=["VA"], download=True)
+    acs_data = data_source.get_data(states=["FL"], download=True)
     definition_df = data_source.get_definitions(download=True)
     categories = generate_categories(
         features=ACSIncome.features, definition_df=definition_df
@@ -335,7 +335,7 @@ def load_data_FT_vec(batch_size, device='cpu', attr = "SEX", extend_groups = Fal
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
-    acs_data = data_source.get_data(states=["VA"], download=True)
+    acs_data = data_source.get_data(states=["FL"], download=True)
     definition_df = data_source.get_definitions(download=True)
     categories = generate_categories(
         features=ACSIncome.features, definition_df=definition_df
