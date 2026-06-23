@@ -131,7 +131,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
     pbm_grid = [
         {
             "primal__lr": lr,
-            "dual__penalty_mult": dual_lr,
+            "dual__penalty_mult": kappa,
             "dual__penalty_update": p_update,
             "dual__pbf": pb_func,
             "dual__penalty_range": p_range,
@@ -141,7 +141,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         }
         for (
                 lr,
-                dual_lr,
+                kappa,
                 p_update,
                 pb_func,
                 p_range,
@@ -149,7 +149,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 moreau_mu
             ) in product (
             [0.001, 0.005, 0.01, 0.02, 0.05],
-            [0., 0.1, 0.2, 0.5],
+            [0., 0.1, 0.5, 0.9, 1.0],
             ["dimin_adapt"],
             ["quadratic_logarithmic"],
             [[1e-1, 1.], [1e-2, 1.]],
