@@ -4,7 +4,7 @@
 #SBATCH --output=./results/logs/grid_weight%a.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=5
 #SBATCH --gres=gpu:1
 #SBATCH --time=4:00:00
 #SBATCH --partition=amdgpufast
