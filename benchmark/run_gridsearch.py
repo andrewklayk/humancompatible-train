@@ -92,13 +92,13 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
     ### load data ###
 
     if dataset == 'folktables':
-        data_source = lambda batch_size: load_data_FT(batch_size, device, **data_cfg['kwargs'], seed=seed)
+        data_source = lambda batch_size, seed: load_data_FT(batch_size, device, **data_cfg['kwargs'], seed=seed)
         # if data_cfg['sens_attrs'] == ['MAR', 'SEX']:
         #     data_source = lambda batch_size: load_data_FT_prod(batch_size, device)
         # elif data_cfg['sens_attrs'] == ['SEX']:
         #     data_source = lambda batch_size: load_data_FT_vec(batch_size, device)
     elif dataset == 'dutch':
-        data_source = load_data_DUTCH
+        data_source = lambda batch_size, seed: load_data_DUTCH(batch_size=batch_size, seed=seed)
     else:
         raise ValueError(f'Unknown dataset: {dataset}')
     
