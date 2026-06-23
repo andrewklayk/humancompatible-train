@@ -25,32 +25,32 @@ THRESHOLD = 1e-4
 device = 'cuda'
 
 
-# ── HP GRIDS ──────────────────────────────────────────────────────────────────
+# ── HP GRIDS (ADDED) ─────────────────────────────────────────────────────────
 pbm_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
      "dual__delta": 1., "moreau__mu": mu}
     for (lr, pm, pu, pbf, pr, g, mu) in product(
-        [0.001, 0.005, 0.01, 0.05], [0., 0.1, 0.2, 0.5], ["dimin_adapt"],
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.])
 ]
 alm_proj_grid = [
-    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu,
-     "dual__is_ineq": True}
+    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
+            "dual__is_ineq": True}
     for (lr, dlr, pen, mu) in product(
-        [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [0., 1., 2.])
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1.], [0., 1., 2.])
 ]
 alm_max_grid = [
-    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu,
-     "dual__is_ineq": False}
+    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
+            "dual__is_ineq": False}
     for (lr, dlr, pen, mu) in product(
-        [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0., 1.], [0., 1., 2.])
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1.], [0., 1., 2.])
 ]
-ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}
+ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
             for (lr, dlr, mu) in product(
-                [0.001, 0.005, 0.01, 0.05], [0.001, 0.005, 0.01, 0.05], [0.])]
+                [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1., 2.])]
 adam_grid = [{"primal__lr": lr, "beta": beta}
-             for (lr, beta) in product([0.001, 0.005, 0.01, 0.05], [0.1, 1., 2., 5.])]
+             for (lr, beta) in product([0.001, 0.005, 0.01, 0.02, 0.05], [0.5, 1., 2., 5., 10.])]
 
 
 # ── PDE helpers ───────────────────────────────────────────────────────────────
