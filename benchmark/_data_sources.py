@@ -37,7 +37,7 @@ def comb_cat_dummies(df):
 
 
 
-def load_data_norm(batch_size=64, device='cuda'):
+def load_data_norm(batch_size=64, device='cuda', seed=42):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -57,12 +57,12 @@ def load_data_norm(batch_size=64, device='cuda'):
 
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
-        features, labels, groups, test_size=0.2, random_state=42
+        features, labels, groups, test_size=0.2, random_state=seed
     )
 
     # split
     X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(
-        X_train, y_train, groups_train, test_size=0.25, random_state=42
+        X_train, y_train, groups_train, test_size=0.25, random_state=seed
     )
 
     # scale
@@ -87,7 +87,7 @@ def load_data_norm(batch_size=64, device='cuda'):
     sens_test = torch.tensor(groups_test).to(device)
 
     # set the same seed for fair comparisons
-    torch.manual_seed(0)
+    torch.manual_seed(seed)
 
     # get the dataset
     dataset = torch.utils.data.TensorDataset(features_train, sens_train, labels_train)
@@ -96,6 +96,7 @@ def load_data_norm(batch_size=64, device='cuda'):
 
     # create a dataloader from the sampler
     g = torch.Generator(device=device)
+    g.manual_seed(seed)
     dataloader_train = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True, generator=g)
     dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=64, shuffle=True, generator=g)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=64, shuffle=True, generator=g)
@@ -103,7 +104,7 @@ def load_data_norm(batch_size=64, device='cuda'):
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
 
 
-def load_data_FT(batch_size, device, sens_attrs, states=['VA'], group_size_threshold = 0, sens_groups = None, extend_groups = False, dtype=torch.float32):
+def load_data_FT(batch_size, device, sens_attrs, states=['VA'], group_size_threshold = 0, sens_groups = None, extend_groups = False, dtype=torch.float32, seed=42):
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
     ACSProblem = BasicProblem(
@@ -150,16 +151,16 @@ def load_data_FT(batch_size, device, sens_attrs, states=['VA'], group_size_thres
         df_sens_onehot = df_sens_onehot[keep_mask].drop(columns=[col for col in df_sens_onehot if col not in group_names])
         groups = df_sens_onehot.to_numpy()
     
-    torch.manual_seed(0)
-    
+    torch.manual_seed(seed)
+
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
-        features, labels, groups, test_size=0.2, random_state=42
+        features, labels, groups, test_size=0.2, random_state=seed
     )
 
     # split
     X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(
-        X_train, y_train, groups_train, test_size=0.25, random_state=42
+        X_train, y_train, groups_train, test_size=0.25, random_state=seed
     )
 
     # scale
@@ -214,7 +215,7 @@ def load_data_FT(batch_size, device, sens_attrs, states=['VA'], group_size_thres
 
 
 
-def load_data_FT_prod(batch_size, device='cpu', extend_groups = False):
+def load_data_FT_prod(batch_size, device='cpu', extend_groups = False, seed=42):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -266,15 +267,15 @@ def load_data_FT_prod(batch_size, device='cpu', extend_groups = False):
         group_dict[i] = f"{s} + {m}"
 
     # set the same seed for fair comparisons
-    torch.manual_seed(0)
+    torch.manual_seed(seed)
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
-        features, labels, groups_onehot, test_size=0.2, random_state=42
+        features, labels, groups_onehot, test_size=0.2, random_state=seed
     )
 
     # split
     X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(
-        X_train, y_train, groups_train, test_size=0.25, random_state=42
+        X_train, y_train, groups_train, test_size=0.25, random_state=seed
     )
 
     # scale
@@ -305,9 +306,6 @@ def load_data_FT_prod(batch_size, device='cpu', extend_groups = False):
     sens_test = torch.tensor(groups_test).to(torch.float32).to(device)
     dataset_test = torch.utils.data.TensorDataset(features_test, labels_test)
 
-    # set the same seed for fair comparisons
-    torch.manual_seed(0)
-
     # get the dataset
     dataset = torch.utils.data.TensorDataset(features_train, sens_train, labels_train)
     dataset_val = torch.utils.data.TensorDataset(features_val, sens_val, labels_val)
@@ -333,7 +331,7 @@ def load_data_FT_prod(batch_size, device='cpu', extend_groups = False):
 
 
 
-def load_data_FT_vec(batch_size, device='cpu', attr = "SEX", extend_groups = False):
+def load_data_FT_vec(batch_size, device='cpu', attr = "SEX", extend_groups = False, seed=42):
 
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -356,12 +354,12 @@ def load_data_FT_vec(batch_size, device='cpu', attr = "SEX", extend_groups = Fal
 
     # split
     X_train, X_test, y_train, y_test, groups_train, groups_test = train_test_split(
-        features, labels, groups, test_size=0.2, random_state=42
+        features, labels, groups, test_size=0.2, random_state=seed
     )
 
     # split
     X_train, X_val, y_train, y_val, groups_train, groups_val = train_test_split(
-        X_train, y_train, groups_train, test_size=0.25, random_state=42
+        X_train, y_train, groups_train, test_size=0.25, random_state=seed
     )
 
     # scale
@@ -389,7 +387,7 @@ def load_data_FT_vec(batch_size, device='cpu', attr = "SEX", extend_groups = Fal
     dataset_test = torch.utils.data.TensorDataset(features_test, sens_test, labels_test)
 
     # set the same seed for fair comparisons
-    torch.manual_seed(0)
+    torch.manual_seed(seed)
 
     # get the dataset
     dataset = torch.utils.data.TensorDataset(features_train, sens_train, labels_train)
@@ -415,10 +413,10 @@ def load_data_FT_vec(batch_size, device='cpu', attr = "SEX", extend_groups = Fal
     return (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test)
     
 
-def load_data_DUTCH(batch_size, device='cpu', extend_groups = False):
+def load_data_DUTCH(batch_size, device='cpu', extend_groups = False, seed=42):
     # Get the data with a validation split
     X_train, X_val, X_test, y_train, y_val, y_test, groups_train, groups_val, groups_test, group_names_dict = get_data_dutch(
-        test_size=0.4, seed_n=42, drop_small_groups=True, print_stats=True
+        test_size=0.4, seed_n=seed, drop_small_groups=True, print_stats=True
     )
 
     # Convert training data to PyTorch tensors
@@ -551,7 +549,7 @@ def get_data_dutch(test_size=0.2, seed_n = 42, drop_small_groups=True, print_sta
 
 
 
-def load_data_cifar10(balanced=False, device='cpu'):
+def load_data_cifar10(balanced=False, device='cpu', seed=42):
     
     import torchvision
     from torchvision import transforms
@@ -609,7 +607,7 @@ def load_data_cifar10(balanced=False, device='cpu'):
 
     # split test / val
     X_test, X_val, targets_test, targets_val, groups_onehot_test, groups_onehot_val = \
-                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=42)
+                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=seed)
 
     dataset_val = torch.utils.data.TensorDataset(X_val, groups_onehot_val, targets_val)
 
@@ -644,7 +642,7 @@ def load_data_cifar10(balanced=False, device='cpu'):
 
 
 
-def load_data_cifar100(balanced=False, device='cpu'):
+def load_data_cifar100(balanced=False, device='cpu', seed=42):
 
     import torchvision
     from torchvision import transforms
@@ -714,7 +712,7 @@ def load_data_cifar100(balanced=False, device='cpu'):
 
     # split test / val
     X_test, X_val, targets_test, targets_val, groups_onehot_test, groups_onehot_val = \
-                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=42)
+                            train_test_split(X_test, targets_test, groups_onehot_test, test_size=0.5, random_state=seed)
 
     # create a train dataset
     dataset_val = torch.utils.data.TensorDataset(X_val, groups_onehot_val, targets_val)
