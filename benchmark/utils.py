@@ -166,7 +166,9 @@ def run_train(
 
     if dual_opt is not None:
         if mode == 'sw':
-            dual_optimizer = dual_opt(model.parameters(), **dual_params)
+            dual_optimizer = MoreauEnvelope(
+                dual_opt(model.parameters(), **dual_params), **moreau_params
+            )
         else:
             dual_optimizer = dual_opt(m=m, **dual_params)
     else:
