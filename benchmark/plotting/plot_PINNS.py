@@ -30,7 +30,8 @@ def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation
     """Returns {method: best_config_index}. Selection on the across-seed MEAN
     validation loss, restricted to configs feasible on the mean violation; if no
     config is feasible, falls back to global min mean-val."""
-    agg = aggregate_experiment(spec, methods=methods, split=split, tail=best_validation_lastK)
+    agg = aggregate_experiment(spec, methods=methods, split=split, 
+                               tail=best_validation_lastK, last_epoch=not running_average)
     best = {}
     for method, df in agg.items():
         pool = df
@@ -151,15 +152,17 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
 
 if __name__ == "__main__":
 
+    # True is a running window mean; False is a tail
+    running_average = True
+    best_validation_window = 5
+
     spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
                               results_root="results")
     constraint_titles = ["Initial Condition", "Boundary Condition"]
 
-    best_validation_lastK = 5
-
     # takes the best validation loss config, then takes the solution from that config and plots the 
     # train / test loss and train constraints
     # the plot uses the weight (E1) plotting function
     plot_PINNs(spec = spec, save_path="./results/plots/pinn_burgers.png", 
-               constraint_titles=constraint_titles, best_validation_lastK=best_validation_lastK)
+               constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
