@@ -75,18 +75,20 @@ def run_grid(
         model_gen = None,
         model_kwargs = None,
         device = 'cpu',
-        criterion = None
+        criterion = None,
+        data_test = None,
     ):
     train_logs = []
     val_logs = []
+    test_logs = []
     models = []
     if mode not in ['torch', 'hc', 'sw']:
         raise ValueError(f"Expected`mode`to be one of (torch, hc, sw), got {mode}")
-    
+
     for i, param_set in enumerate(param_grid):
         print(f"starting {i+1}/{len(param_grid)}: {param_set}")
 
-        model, train_history, val_history = run_train(
+        model, train_history, val_history, test_history = run_train(
             m=m,
             primal_opt=primal_opt,
             dual_opt=dual_opt,
@@ -106,17 +108,19 @@ def run_grid(
             model_gen=model_gen,
             model_kwargs=model_kwargs,
             device=device,
-            criterion=criterion
+            criterion=criterion,
+            data_test=data_test,
         )
         train_logs.append(train_history)
         val_logs.append(val_history)
+        test_logs.append(test_history)
         if save_models:
             models.append(model)
         else:
             del model
             models.append(None)
 
-    return models, train_logs, val_logs 
+    return models, train_logs, val_logs, test_logs
 
 
 def run_train(
@@ -141,6 +145,7 @@ def run_train(
     device = 'cpu',
     constraint_tol: float = 0.,
     criterion = None,
+    data_test = None,
 ):
     print(f"Starting on {device}")
     model = model_gen(**model_kwargs)
@@ -187,7 +192,8 @@ def run_train(
             device=device,
             time_constraint_computation=True,
             mode='pbm' if isinstance(dual_opt, PBM) else 'alm',
-            slack_vars=slack_vars
+            slack_vars=slack_vars,
+            data_test=data_test,
         )
     elif mode == 'sw':
         history = train_loop_sw(
@@ -203,7 +209,8 @@ def run_train(
             num_epochs=n_epochs,
             device=device,
             time_constraint_computation=True,
-            constraint_tol=constraint_tol
+            constraint_tol=constraint_tol,
+            data_test=data_test,
         )
     elif mode == 'torch':
         history = train_loop_adam(
@@ -219,8 +226,8 @@ def run_train(
             num_epochs=n_epochs,
             device=device,
             time_constraint_computation=True,
+            data_test=data_test,
         )
-
 
     return history
 
@@ -239,7 +246,8 @@ def train_loop_sw(
     num_epochs=100,
     device="cpu",
     time_constraint_computation=True,
-    constraint_tol: float = 1e-3
+    constraint_tol: float = 1e-3,
+    data_test=None,
 ):
     model.to(device)
     history_train = []
@@ -355,9 +363,15 @@ def train_loop_sw(
 
         history_val.append(eval_dict)
 
-    
-    return model, history_train, history_val
-    
+    test_history = []
+    if data_test is not None:
+        model.eval()
+        test_loss, test_constraints, test_acc = validate_model(model, data_test, loss_fn, constraint_fn, device)
+        test_history = [{"epoch": num_epochs, "loss": test_loss, "acc": test_acc}
+                        | {f"c_{j}": c for j, c in enumerate(test_constraints)}]
+
+    return model, history_train, history_val, test_history
+
 
 def train_loop_primal_dual(
     model,
@@ -374,6 +388,7 @@ def train_loop_primal_dual(
     time_constraint_computation=True,
     mode: str = 'alm',
     slack_vars: torch.Tensor = None,
+    data_test=None,
 ):
     model.to(device)
     history_train = []
@@ -485,8 +500,15 @@ def train_loop_primal_dual(
             f"c_{j}": c for j, c in enumerate(val_constraints)
         }
         history_val.append(eval_dict)
-    
-    return model, history_train, history_val
+
+    test_history = []
+    if data_test is not None:
+        model.eval()
+        test_loss, test_constraints, test_acc = validate_model(model, data_test, loss_fn, constraint_fn, device)
+        test_history = [{"epoch": num_epochs, "loss": test_loss, "acc": test_acc}
+                        | {f"c_{j}": c for j, c in enumerate(test_constraints)}]
+
+    return model, history_train, history_val, test_history
 
 
 def train_loop_adam(
@@ -505,6 +527,7 @@ def train_loop_adam(
     slack_vars: torch.Tensor = None,
     constraint_tol: float = None,
     reg_penalty: float = None,
+    data_test=None,
 ):
     model.to(device)
     history_train = []
@@ -614,9 +637,15 @@ def train_loop_adam(
         }
 
         history_val.append(eval_dict)
-        
-    
-    return model, history_train, history_val
+
+    test_history = []
+    if data_test is not None:
+        model.eval()
+        test_loss, test_constraints, test_acc = validate_model(model, data_test, loss_fn, constraint_fn, device)
+        test_history = [{"epoch": num_epochs, "loss": test_loss, "acc": test_acc}
+                        | {f"c_{j}": c for j, c in enumerate(test_constraints)}]
+
+    return model, history_train, history_val, test_history
 
 def validate_model(model, val_data, loss_fn, constraint_fn, device):
     val_losses = []

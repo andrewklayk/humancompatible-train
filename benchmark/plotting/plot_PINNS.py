@@ -26,11 +26,11 @@ from plotting import plot_losses_and_constraints_stochastic   # your existing mo
 
 
 # ── Step 1: best config per method (by mean val loss, feasible-preferred) ─────
-def select_best_configs(spec: ExperimentSpec, methods, split=""):
+def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
     """Returns {method: best_config_index}. Selection on the across-seed MEAN
     validation loss, restricted to configs feasible on the mean violation; if no
     config is feasible, falls back to global min mean-val."""
-    agg = aggregate_experiment(spec, methods=methods, split=split)
+    agg = aggregate_experiment(spec, methods=methods, split=split, tail=best_validation_lastK)
     best = {}
     for method, df in agg.items():
         pool = df
@@ -79,12 +79,12 @@ def _load_config_trajectory(spec: ExperimentSpec, method: str, config_idx: int,
 
 
 # ── assemble the lists the plotting function expects ─────────────────────────
-def build_plot_inputs(spec: ExperimentSpec, methods, split=""):
+def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
     """Returns the argument lists for plot_losses_and_constraints_stochastic:
         train_losses (PDE residual), test_losses (solution error),
         train_constraints (m x epochs), and their stds; plus titles.
     Each list is per-method; arrays are mean / std across seeds."""
-    best = select_best_configs(spec, methods, split=split)
+    best = select_best_configs(spec, methods, split=split, best_validation_lastK=best_validation_lastK)
 
     train_losses, train_losses_std = [], []
     test_losses, test_losses_std = [], []
@@ -124,7 +124,7 @@ METHOD_LABELS = {
 }
 
 
-def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None):
+def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, best_validation_lastK=1):
     if spec is None:
         spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
@@ -132,7 +132,7 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None):
     if methods is None:
         methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
-    inputs = build_plot_inputs(spec, methods, split="")
+    inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_lastK)
     if not inputs["train_losses_list"]:
         print("no data to plot")
         return
@@ -156,7 +156,10 @@ if __name__ == "__main__":
                               results_root="results")
     constraint_titles = ["Initial Condition", "Boundary Condition"]
 
+    best_validation_lastK = 5
+
     # takes the best validation loss config, then takes the solution from that config and plots the 
     # train / test loss and train constraints
     # the plot uses the weight (E1) plotting function
-    plot_PINNs(spec = spec, save_path="./results/plots/pinn_burgers.png", constraint_titles=constraint_titles)
+    plot_PINNs(spec = spec, save_path="./results/plots/pinn_burgers.png", 
+               constraint_titles=constraint_titles, best_validation_lastK=best_validation_lastK)

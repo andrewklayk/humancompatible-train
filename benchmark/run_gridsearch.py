@@ -120,14 +120,15 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     else:
         (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test) = data_source(batch_size)
-        features_val = features_test
-        sens_val = sens_test
-        labels_val = labels_test
+        # features_val = features_test
+        # sens_val = sens_test
+        # labels_val = labels_test
         create_model_fn = create_model
         model_kwargs = {'input_shape': features_train.shape[1], 'latent_size1': 64, 'latent_size2': 32}
         criterion = torch.nn.functional.binary_cross_entropy_with_logits
 
     data_val = (features_val, sens_val, labels_val) if task not in ['cifar10', 'cifar100'] else dataloader_val
+    data_test = (features_test, sens_test, labels_test) if task not in ['cifar10', 'cifar100'] else None
 
     # Define hyperparameter grids
     pbm_grid = [
@@ -267,7 +268,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
     if 'adam' in task_cfg.algorithms:
         seed = seed
         torch.manual_seed(seed)
-        _, adam_history_train, adam_history_val = run_grid(
+        _, adam_history_train, adam_history_val, adam_history_test = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
             dual_opt=None,
@@ -286,7 +287,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
-            criterion = criterion)
+            criterion=criterion,
+            data_test=data_test)
 
         best_adam_params = extract_best_params(adam_history_val, adam_grid, None, filter='none')
         save_best_params(best_adam_params,'adam',result_dir)
@@ -304,13 +306,14 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_adam_val.to_csv(f'{result_dir}/runs_adam_val.csv')
         grid_adam.to_csv(f'{result_dir}/grid_adam.csv')
         compute_lastK_summary(adam_history_val).to_csv(f'{result_dir}/summary_adam_val.csv', index=False)
-        del adam_history_train, adam_history_val, runs_adam_train, runs_adam_val, grid_adam
+        runs_to_df(adam_history_test).to_csv(f'{result_dir}/runs_adam_test.csv')
+        del adam_history_train, adam_history_val, adam_history_test, runs_adam_train, runs_adam_val, grid_adam
 
     #################################################################
     if 'pbm' in task_cfg.algorithms:
         seed = seed
         torch.manual_seed(seed)
-        _, pbm_history_train, pbm_history_val = run_grid(
+        _, pbm_history_train, pbm_history_val, pbm_history_test = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
             dual_opt=PBM,
@@ -329,7 +332,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
-            criterion=criterion)
+            criterion=criterion,
+            data_test=data_test)
 
         best_pbm_params = extract_best_params(pbm_history_val, pbm_grid, constraint_bound*1.1, filter='upper')
         save_best_params(best_pbm_params,'pbm',result_dir)
@@ -347,12 +351,13 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_pbm_val.to_csv(f'{result_dir}/runs_pbm_val.csv')
         grid_pbm.to_csv(f'{result_dir}/grid_pbm.csv')
         compute_lastK_summary(pbm_history_val).to_csv(f'{result_dir}/summary_pbm_val.csv', index=False)
-        del pbm_history_train, pbm_history_val, runs_pbm_train, runs_pbm_val, grid_pbm
+        runs_to_df(pbm_history_test).to_csv(f'{result_dir}/runs_pbm_test.csv')
+        del pbm_history_train, pbm_history_val, pbm_history_test, runs_pbm_train, runs_pbm_val, grid_pbm
 
     if 'alm_proj' in task_cfg.algorithms:
         seed = seed
         torch.manual_seed(seed)
-        _, alm_history_train, alm_history_val = run_grid(
+        _, alm_history_train, alm_history_val, alm_proj_history_test = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
             dual_opt=ALM,
@@ -371,7 +376,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
-            criterion = criterion)
+            criterion=criterion,
+            data_test=data_test)
 
         best_alm_params = extract_best_params(alm_history_val, alm_proj_grid, constraint_bound*1.1, filter='upper')
         save_best_params(best_alm_params,'alm_proj',result_dir)
@@ -389,12 +395,13 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_alm_val.to_csv(f'{result_dir}/runs_alm_proj_val.csv')
         grid_alm.to_csv(f'{result_dir}/grid_alm_proj.csv')
         compute_lastK_summary(alm_history_val).to_csv(f'{result_dir}/summary_alm_proj_val.csv', index=False)
-        del alm_history_train, alm_history_val, runs_alm_train, runs_alm_val, grid_alm
+        runs_to_df(alm_proj_history_test).to_csv(f'{result_dir}/runs_alm_proj_test.csv')
+        del alm_history_train, alm_history_val, alm_proj_history_test, runs_alm_train, runs_alm_val, grid_alm
 
     if 'alm_max' in task_cfg.algorithms:
         seed = seed
         torch.manual_seed(seed)
-        _, alm_history_train, alm_history_val = run_grid(
+        _, alm_history_train, alm_history_val, alm_max_history_test = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
             dual_opt=ALM,
@@ -413,7 +420,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
-            criterion=criterion)
+            criterion=criterion,
+            data_test=data_test)
 
         best_alm_params = extract_best_params(alm_history_val, alm_max_grid, constraint_bound*1.1, filter='upper')
         save_best_params(best_alm_params,'alm_max',result_dir)
@@ -431,12 +439,13 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_alm_val.to_csv(f'{result_dir}/runs_alm_max_val.csv')
         grid_alm.to_csv(f'{result_dir}/grid_alm_max.csv')
         compute_lastK_summary(alm_history_val).to_csv(f'{result_dir}/summary_alm_max_val.csv', index=False)
-        del alm_history_train, alm_history_val, runs_alm_train, runs_alm_val, grid_alm
+        runs_to_df(alm_max_history_test).to_csv(f'{result_dir}/runs_alm_max_test.csv')
+        del alm_history_train, alm_history_val, alm_max_history_test, runs_alm_train, runs_alm_val, grid_alm
 
     if 'ssg' in task_cfg.algorithms:
         seed = seed
         torch.manual_seed(seed)
-        _, ssg_history_train, ssg_history_val = run_grid(
+        _, ssg_history_train, ssg_history_val, ssg_history_test = run_grid(
             m=m,
             primal_opt=torch.optim.Adam,
             dual_opt=torch.optim.Adam,
@@ -455,7 +464,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             model_gen=create_model_fn,
             model_kwargs=model_kwargs,
             device=device,
-            criterion=criterion)
+            criterion=criterion,
+            data_test=data_test)
 
         best_ssg_params = extract_best_params(ssg_history_val, ssg_grid, constraint_bound*1.1, filter='upper')
         save_best_params(best_ssg_params,'ssg',result_dir)
@@ -473,7 +483,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         runs_ssg_val.to_csv(f'{result_dir}/runs_ssg_val.csv')
         grid_ssg.to_csv(f'{result_dir}/grid_ssg.csv')
         compute_lastK_summary(ssg_history_val).to_csv(f'{result_dir}/summary_ssg_val.csv', index=False)
-        del ssg_history_train, ssg_history_val, runs_ssg_train, runs_ssg_val, grid_ssg
+        runs_to_df(ssg_history_test).to_csv(f'{result_dir}/runs_ssg_test.csv')
+        del ssg_history_train, ssg_history_val, ssg_history_test, runs_ssg_train, runs_ssg_val, grid_ssg
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="benchmark")

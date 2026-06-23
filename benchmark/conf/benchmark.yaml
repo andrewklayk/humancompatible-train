@@ -1,0 +1,5 @@
+defaults:
+  - data: income
+  - task: weight_norm
+  - _self_
+n_epochs: 30

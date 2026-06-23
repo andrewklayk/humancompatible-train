@@ -62,7 +62,7 @@ def _read_runs_csv(path: str) -> pd.DataFrame:
     return df
 
 
-def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool) -> pd.DataFrame:
+def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool, tail=10) -> pd.DataFrame:
     """Collapse to one row per config: its LAST-epoch loss and one-sided max viol.
 
     Returns columns: config, loss, max_viol, feasible.
@@ -72,8 +72,8 @@ def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool) -> pd.D
         raise ValueError("no constraint columns (c_0, c_1, ...) found")
 
     # last epoch within each config
-    idx = df.groupby("config")["epoch"].idxmax()
-    last = df.loc[idx].copy()
+    df = df.sort_values("epoch")
+    last = df.groupby("config").tail(tail).groupby("config").mean(numeric_only=True).reset_index()
 
     # one-sided max over signed constraints (matches g(x) <= eps enforcement)
     last["max_viol"] = last[c_cols].max(axis=1)
@@ -86,7 +86,7 @@ def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool) -> pd.D
 
 
 # ── aggregate one method across seeds ────────────────────────────────────────
-def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train"
+def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train", tail=10
                      ) -> Optional[pd.DataFrame]:
     """For one method, load all seeds, take each config's last epoch, then MEAN
     across seeds per config.
@@ -109,7 +109,7 @@ def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train"
         if not os.path.exists(path):
             continue
         df = _read_runs_csv(path)
-        last = _last_epoch_per_config(df, spec.bound, spec.pinns)
+        last = _last_epoch_per_config(df, spec.bound, spec.pinns, tail=tail)
         last["seed"] = seed
         per_seed.append(last)
 
@@ -155,12 +155,12 @@ DEFAULT_METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
 
 def aggregate_experiment(spec: ExperimentSpec, methods=DEFAULT_METHODS,
-                         split: str = "train") -> dict:
+                         split: str = "train", tail=10) -> dict:
     """Returns {method: per-config DataFrame}. Methods with no files are skipped
     (with a printed note)."""
     result = {}
     for m in methods:
-        agg = aggregate_method(spec, m, split=split)
+        agg = aggregate_method(spec, m, split=split, tail=tail)
         if agg is None:
             print(f"  [{spec.name}] {m}: no files found, skipping")
             continue
