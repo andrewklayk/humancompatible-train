@@ -6,9 +6,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=5
 #SBATCH --gres=gpu:1
-#SBATCH --partition=h200fast
-#SBATCH --time=4:00:00
-#SBATCH --array=0-5
+#SBATCH --partition=h200
+#SBATCH --time=24:00:00
+#SBATCH --array=0-4
 
 # run this (running)
 

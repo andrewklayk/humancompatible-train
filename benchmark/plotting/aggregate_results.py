@@ -61,6 +61,21 @@ def _read_runs_csv(path: str) -> pd.DataFrame:
         df = df.rename(columns={first: "config"})
     return df
 
+def _rolling_min_per_config(df, bound, pinns, tail=5):
+    c_cols = [c for c in df.columns if re.fullmatch(r"c_\d+", c)]
+    if not c_cols:
+        raise ValueError("no constraint columns")
+    rows = []
+    for _, g in df.sort_values("epoch").groupby("config"):
+        key = "val" if pinns else "loss"
+        smooth = g[key].rolling(tail, min_periods=1).mean()
+        rows.append(g.loc[smooth.idxmin()])
+    last = pd.DataFrame(rows)
+    last["max_viol"] = last[c_cols].max(axis=1)
+    last["feasible"] = last["max_viol"] <= bound
+    if pinns:
+        return last[["config","loss","max_viol","test","val","feasible"]].reset_index(drop=True)
+    return last[["config","loss","max_viol","feasible"]].reset_index(drop=True)
 
 def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool, tail=10) -> pd.DataFrame:
     """Collapse to one row per config: its LAST-epoch loss and one-sided max viol.
@@ -86,10 +101,10 @@ def _last_epoch_per_config(df: pd.DataFrame, bound: float,  pinns: bool, tail=10
 
 
 # ── aggregate one method across seeds ────────────────────────────────────────
-def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train", tail=10
-                     ) -> Optional[pd.DataFrame]:
+def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train", tail=10, 
+                     last_epoch = True) -> Optional[pd.DataFrame]:
     """For one method, load all seeds, take each config's last epoch, then MEAN
-    across seeds per config.
+    across seeds per config. last_epoch -> or running average
 
     Returns a per-config DataFrame with columns:
         config,
@@ -109,7 +124,10 @@ def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train", ta
         if not os.path.exists(path):
             continue
         df = _read_runs_csv(path)
-        last = _last_epoch_per_config(df, spec.bound, spec.pinns, tail=tail)
+        if last_epoch:
+            last = _last_epoch_per_config(df, spec.bound, spec.pinns, tail=tail)
+        else: 
+            last = _rolling_min_per_config(df, spec.bound, spec.pinns, tail=tail)
         last["seed"] = seed
         per_seed.append(last)
 
@@ -155,12 +173,12 @@ DEFAULT_METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
 
 def aggregate_experiment(spec: ExperimentSpec, methods=DEFAULT_METHODS,
-                         split: str = "train", tail=10) -> dict:
+                         split: str = "train", tail=10, last_epoch=True) -> dict:
     """Returns {method: per-config DataFrame}. Methods with no files are skipped
     (with a printed note)."""
     result = {}
     for m in methods:
-        agg = aggregate_method(spec, m, split=split, tail=tail)
+        agg = aggregate_method(spec, m, split=split, tail=tail, last_epoch=last_epoch)
         if agg is None:
             print(f"  [{spec.name}] {m}: no files found, skipping")
             continue

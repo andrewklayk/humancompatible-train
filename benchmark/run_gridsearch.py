@@ -103,7 +103,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         raise ValueError(f'Unknown dataset: {dataset}')
     
     if task == 'weight_norm':
-        data_source = lambda batch_size: load_data_norm(batch_size, device, seed=seed)
+        data_source = lambda batch_size, seed: load_data_norm(batch_size, device, seed=seed)
 
     batch_size = task_cfg.batch_size
     if task == 'cifar10':
@@ -119,7 +119,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         model_kwargs = {}
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     else:
-        (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test) = data_source(batch_size, seed=seed)
+        (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test) = data_source(batch_size, seed)
         create_model_fn = create_model
         model_kwargs = {'input_shape': features_train.shape[1], 'latent_size1': 64, 'latent_size2': 32}
         criterion = torch.nn.functional.binary_cross_entropy_with_logits
