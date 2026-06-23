@@ -92,7 +92,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
     ### load data ###
 
     if dataset == 'folktables':
-        data_source = lambda batch_size: load_data_FT(batch_size, device, **data_cfg['kwargs'])
+        data_source = lambda batch_size: load_data_FT(batch_size, device, **data_cfg['kwargs'], seed=seed)
         # if data_cfg['sens_attrs'] == ['MAR', 'SEX']:
         #     data_source = lambda batch_size: load_data_FT_prod(batch_size, device)
         # elif data_cfg['sens_attrs'] == ['SEX']:
@@ -103,23 +103,23 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         raise ValueError(f'Unknown dataset: {dataset}')
     
     if task == 'weight_norm':
-        data_source = lambda batch_size: load_data_norm(batch_size, device)
+        data_source = lambda batch_size: load_data_norm(batch_size, device, seed=seed)
 
     batch_size = task_cfg.batch_size
     if task == 'cifar10':
-        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar10(device=device)
+        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar10(device=device, seed=seed)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
         create_model_fn = create_conv_model
         model_kwargs = {}
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     elif task == 'cifar100':
-        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar100(device=device)
+        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar100(device=device, seed=seed)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
         create_model_fn = create_conv_model
         model_kwargs = {}
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     else:
-        (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test) = data_source(batch_size)
+        (dataloader_train, dataloader_val, dataloader_test), (features_train, sens_train, labels_train), (features_val, sens_val, labels_val), (features_test, sens_test, labels_test) = data_source(batch_size, seed=seed)
         create_model_fn = create_model
         model_kwargs = {'input_shape': features_train.shape[1], 'latent_size1': 64, 'latent_size2': 32}
         criterion = torch.nn.functional.binary_cross_entropy_with_logits
