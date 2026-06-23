@@ -298,6 +298,24 @@ def plot_accuracy_per_epoch(algorithms_data, eval_points=1, algorithms_data_std=
 # import numpy as np
 # import matplotlib.pyplot as plt
 
+plt.rcParams.update({
+    "font.family": "serif",
+    "mathtext.fontset": "cm",        # Computer Modern math, matches LaTeX
+    "font.size": 9,
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "legend.fontsize": 8,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
+    "axes.linewidth": 0.8,
+    "lines.linewidth": 1.3,          # your thicker lines — yes
+    "axes.spines.top": False,        # drop top/right spines (cleaner)
+    "axes.spines.right": False,
+    "legend.frameon": False,         # no legend box
+    "figure.dpi": 150,
+    "savefig.dpi": 300,
+    "savefig.bbox": "tight",
+})
 
 def plot_losses_and_constraints_stochastic(
     train_losses_list,
@@ -310,7 +328,7 @@ def plot_losses_and_constraints_stochastic(
     test_constraints_list=None,
     test_constraints_std_list=None,
     titles=None,
-    eval_points=1,
+    eval_points=4,
     std_multiplier=2,
     log_constraints=False,
     mode="train",  # "train" or "train_test"
@@ -358,6 +376,15 @@ def plot_losses_and_constraints_stochastic(
         "#9C755F",
         "#BAB0AB",
     ]
+    METHOD_COLORS = {
+    "SPBM": "#D1495B",            # crimson — your method, stands out
+    "Adam": "#4C4C4C",           # grey, muted baseline
+    "SSL-ALM (proj.)": "#2E86AB",
+    "SSL-ALM (max)": "#5BC0BE",
+    "SSw": "#E0A458",
+    }
+    def color_for(j, title):
+        return METHOD_COLORS.get(title, colors[j % len(colors)])
     markers = ["o", "s", "D", "^", "v", "<", ">", "P", "X", "*"]
 
     constraint_thresholds = np.atleast_1d(constraint_thresholds)
@@ -388,13 +415,14 @@ def plot_losses_and_constraints_stochastic(
         return np.asarray(eval_points)
 
     def plot_curve(ax, x, y, y_std, color, label, marker=None, alpha_line=1.0):
-        ax.plot(x, y, lw=2, color=color, label=label, alpha=alpha_line)
+        ax.plot(x, y, color=color, label=label, alpha=alpha_line)
         ax.fill_between(
             x,
             y - std_multiplier * y_std,
             y + std_multiplier * y_std,
             color=color,
             alpha=0.15,
+            linewidth=0
         )
 
         idx = get_eval_idx(len(y))
@@ -405,8 +433,8 @@ def plot_losses_and_constraints_stochastic(
                 y[idx],
                 linestyle="None",
                 marker=marker,
+                markersize=2,
                 color=color,
-                markersize=5,
                 alpha=0.8,
             )
 
@@ -435,10 +463,12 @@ def plot_losses_and_constraints_stochastic(
     constraint_spans_full_width = (
         mode == "train" and test_constraints_list is None
     )
+    
+    TEXT_WIDTH = 6.9   # inches, full 2-column text width
+    ROW_H = 2.0        # inches per row
 
     if constraint_spans_full_width:
-        # Create figure manually for full-width constraint
-        fig = plt.figure(figsize=(16, 4.5 * nrows))
+        fig = plt.figure(figsize=(TEXT_WIDTH, ROW_H * nrows))
         ax_loss_train = fig.add_subplot(nrows, 2, 1)
         ax_loss_test = fig.add_subplot(nrows, 2, 2)
         axes_loss = [[ax_loss_train, ax_loss_test]]
@@ -450,7 +480,7 @@ def plot_losses_and_constraints_stochastic(
         fig, axes = plt.subplots(
             nrows,
             ncols,
-            figsize=(8 * ncols, 4.5 * nrows),
+            figsize=(TEXT_WIDTH if ncols == 2 else TEXT_WIDTH / 2, ROW_H * nrows),
             sharex="col",
             sharey="row",
         )
@@ -467,7 +497,7 @@ def plot_losses_and_constraints_stochastic(
                 x,
                 loss,
                 loss_std,
-                color=colors[j % len(colors)],
+                color=color_for(j, titles[j]),
                 label=titles[j],
                 marker=markers[j % len(markers)],
             )
@@ -476,7 +506,7 @@ def plot_losses_and_constraints_stochastic(
         ax.set_ylabel("Mean Loss")
         ax.grid(True, linestyle="--", alpha=0.4)
         # ax.set_ylim(bottom=0.3, top=0.7)
-        ax.legend(fontsize=9)
+        # ax.legend(fontsize=9)
 
     # ------------------------------------------------------------------
     # CONSTRAINT PLOTTING
@@ -495,8 +525,10 @@ def plot_losses_and_constraints_stochastic(
                 y, y_std = compute_max_constraint(c, c_std)
                 label = titles[j]
 
+            # if log_constraints:
+            #     y = np.log(np.clip(y, 1e-12, None))
             if log_constraints:
-                y = np.log(np.clip(y, 1e-12, None))
+                ax.set_yscale("log")
 
             x = make_x(len(y), j)
 
@@ -505,16 +537,15 @@ def plot_losses_and_constraints_stochastic(
                 x,
                 y,
                 y_std,
-                color=colors[j % len(colors)],
+                color=color_for(j, titles[j]),
                 label=label,
                 marker=markers[j % len(markers)],
                 alpha_line=0.9,
             )
 
         for i, th in enumerate(constraint_thresholds):
-            th_val = np.log(th) if log_constraints else th
             ax.axhline(
-                th_val,
+                th,
                 color="red",
                 linestyle="--",
                 lw=1.4,
@@ -527,7 +558,7 @@ def plot_losses_and_constraints_stochastic(
             ax.set_title(f"Constraint ({constraint_title})")
         ax.set_ylabel("Log Constraint" if log_constraints else "Constraint")
         ax.grid(True, linestyle="--", alpha=0.4)
-        ax.legend(fontsize=9)
+        # ax.legend(fontsize=9)
 
     # ------------------------------------------------------------------
     # TRAIN
@@ -625,8 +656,17 @@ def plot_losses_and_constraints_stochastic(
                     "Test",
                 )
                 axes[1, 1].set_xlabel("Time" if plot_time_instead_epochs else "Epoch")
+    
+    # one shared legend for the whole figure
+    if constraint_spans_full_width:
+        handles, labels = axes_constraint[0][0].get_legend_handles_labels()
+    else:
+        handles, labels = axes[1, 0].get_legend_handles_labels()
 
-    plt.tight_layout()
+    fig.legend(handles, labels, loc="upper center", ncol=len(labels),
+               bbox_to_anchor=(0.5, 1.02), frameon=False)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.96])   # leave room for top legend
 
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
