@@ -98,7 +98,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         # elif data_cfg['sens_attrs'] == ['SEX']:
         #     data_source = lambda batch_size: load_data_FT_vec(batch_size, device)
     elif dataset == 'dutch':
-        data_source = lambda batch_size, seed: load_data_DUTCH(batch_size=batch_size, seed=seed)
+        data_source = lambda batch_size, seed: load_data_DUTCH(batch_size=batch_size, seed=seed, device=device)
     else:
         raise ValueError(f'Unknown dataset: {dataset}')
     
