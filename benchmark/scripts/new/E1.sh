@@ -1,11 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=grid_income_vec
-#SBATCH --error=./results/logs/grid_income_vec_%a.err
-#SBATCH --output=./results/logs/grid_income_vec_%a.out
+#SBATCH --job-name=grid_weight
+#SBATCH --error=./results/logs/grid_weight%a.err
+#SBATCH --output=./results/logs/grid_weight%a.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
+#SBATCH --time=4:00:00
 #SBATCH --partition=amdgpufast
 #SBATCH --array=0-2
 

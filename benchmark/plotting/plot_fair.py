@@ -34,8 +34,9 @@ def select_best_configs(spec: ExperimentSpec, methods, split="train", best_valid
     best = {}
     for method, df in agg.items():
         pool = df[df["violation_constr_mean"] < threshold] if method != 'adam' else df
+        if len(pool) == 0:
+            pool = df
         col = "loss_mean" 
-        # breakpoint()
         best_row = pool.loc[pool[col].idxmin()]
         best[method] = int(best_row["config"])
         print(f"  [{spec.name}] {method}: best config {best[method]} "
@@ -43,40 +44,26 @@ def select_best_configs(spec: ExperimentSpec, methods, split="train", best_valid
     return best
 
 
-# ── Step 2: reload full trajectory of one config, stacked across seeds ────────
-def _load_config_trajectory(spec: ExperimentSpec, method: str, config_idx: int,
-                            split=""):
-    """For the given config, load every seed's runs_{method}.csv, pull the full
-    epoch series, and return per-seed stacked arrays:
-        loss[seed, epoch], test[seed, epoch], cons[seed, m, epoch]
-    Returns (loss, test, cons, m) or None if no files.
-    """
-    per_seed_loss, per_seed_test, per_seed_cons = [], [], []
-    for seed in spec.seeds:
-        fname = f"runs_{method}.csv" if split == "" else f"runs_{method}_{split}.csv"
-        path = os.path.join(spec.seed_dir(seed), fname)
-        if not os.path.exists(path):
-            continue
-        df = _read_runs_csv(path)
-        sub = df[df["config"] == config_idx].sort_values("epoch")
-        if sub.empty:
-            continue
-        c_cols = sorted([c for c in df.columns if re.fullmatch(r"c_\d+", c)],
-                        key=lambda s: int(s.split("_")[1]))
-        per_seed_loss.append(sub["loss"].to_numpy())
-        per_seed_test.append(sub["loss"].to_numpy())
-        per_seed_cons.append(sub[c_cols].to_numpy().T)   # shape (m, epochs)
-
-    if not per_seed_loss:
-        return None
-    # align epoch length defensively (seeds should match)
-    L = min(len(x) for x in per_seed_loss)
-    loss = np.stack([x[:L] for x in per_seed_loss])       # (seeds, L)
-    test = np.stack([x[:L] for x in per_seed_test])       # (seeds, L)
-    cons = np.stack([c[:, :L] for c in per_seed_cons])    # (seeds, m, L)
-    m = cons.shape[1]
-    return loss, test, cons, m
-
+def _load_config_trajectory(spec, method, config_idx, split_train="train", split_test="test"):
+    def load_one(split):
+        per_seed = []
+        for seed in spec.seeds:
+            path = os.path.join(spec.seed_dir(seed), f"runs_{method}_{split}.csv")
+            if not os.path.exists(path): continue
+            df = _read_runs_csv(path)
+            sub = df[df["config"]==config_idx].sort_values("epoch")
+            if sub.empty: continue
+            per_seed.append(sub)
+        return per_seed
+    tr, te = load_one(split_train), load_one(split_test)
+    if not tr: return None
+    c_cols = sorted([c for c in tr[0].columns if re.fullmatch(r"c_\d+", c)], key=lambda s:int(s.split("_")[1]))
+    L = min(min(len(s) for s in tr), min(len(s) for s in te))
+    loss = np.stack([s["loss"].to_numpy()[:L] for s in tr])      # train loss
+    test = np.stack([s["loss"].to_numpy()[:L] for s in te])      # val loss (the "test" panel)
+    cons_tr = np.stack([s[c_cols].to_numpy().T[:, :L] for s in tr]) # train constraints
+    cons_te = np.stack([s[c_cols].to_numpy().T[:, :L] for s in te]) # train constraints
+    return loss, test, cons_tr, cons_te, cons_tr.shape[1]
 
 # ── assemble the lists the plotting function expects ─────────────────────────
 def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
@@ -84,27 +71,31 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
         train_losses (PDE residual), test_losses (solution error),
         train_constraints (m x epochs), and their stds; plus titles.
     Each list is per-method; arrays are mean / std across seeds."""
-    best = select_best_configs(spec, methods, split=split, best_validation_lastK=best_validation_lastK)
+    best = select_best_configs(spec, methods, split="val", best_validation_lastK=best_validation_lastK,
+                               threshold=spec.bound)
 
     train_losses, train_losses_std = [], []
     test_losses, test_losses_std = [], []
     train_cons, train_cons_std = [], []
+    test_cons, test_cons_std = [], []
     titles = []
 
     for method in methods:
         if method not in best:
             continue
-        traj = _load_config_trajectory(spec, method, best[method], split=split)
+        traj = _load_config_trajectory(spec, method, best[method], split_train="train", split_test="val")
         if traj is None:
             print(f"  {method}: no trajectory for config {best[method]}, skipping")
             continue
-        loss, test, cons, m = traj
+        loss, test, cons_tr, cons_te, m = traj
         train_losses.append(loss.mean(0))
         train_losses_std.append(loss.std(0))
         test_losses.append(test.mean(0))
         test_losses_std.append(test.std(0))
-        train_cons.append(cons.mean(0))          # (m, epochs)
-        train_cons_std.append(cons.std(0))       # (m, epochs)
+        train_cons.append(cons_tr.mean(0))          # (m, epochs)
+        train_cons_std.append(cons_tr.std(0))       # (m, epochs)
+        test_cons.append(cons_te.mean(0))          # (m, epochs)
+        test_cons_std.append(cons_te.std(0))       # (m, epochs)
         titles.append(METHOD_LABELS.get(method, method))
 
     return dict(
@@ -114,6 +105,8 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
         test_losses_std_list=test_losses_std,
         train_constraints_list=train_cons,
         train_constraints_std_list=train_cons_std,
+        test_constraints_list=test_cons,
+        test_constraints_std_list=test_cons_std,
         titles=titles,
     )
 
@@ -137,35 +130,65 @@ def plot(spec=None, methods=None, save_path=None, constraint_titles=None, split=
         print("no data to plot")
         return
 
-    plot_losses_and_constraints_stochastic(
-        **inputs,
-        constraint_thresholds=spec.bound,
-        mode="train",            # train loss + test loss side by side
-        separate_constraints=False,    # one row per constraint (IC, BC, ...)
-        log_constraints=False,         # PINN residuals span orders of magnitude
-        std_multiplier=1,
-        save_path=save_path,
-        constraint_titles=constraint_titles
-    )
+    if spec.name == "E1":
+        plot_losses_and_constraints_stochastic(
+            **inputs,
+            constraint_thresholds=spec.bound,
+            mode="train",            # train loss + test loss side by side
+            separate_constraints=False,    # one row per constraint (IC, BC, ...)
+            log_constraints=False,         # PINN residuals span orders of magnitude
+            std_multiplier=1,
+            save_path=save_path,
+            constraint_titles=constraint_titles
+        )
+
+    else: 
+
+        plot_losses_and_constraints_stochastic(
+            **inputs,
+            constraint_thresholds=spec.bound,
+            mode="train_test",            # train loss + test loss side by side
+            separate_constraints=False,    # one row per constraint (IC, BC, ...)
+            log_constraints=False,         # PINN residuals span orders of magnitude
+            std_multiplier=1,
+            save_path=save_path,
+            constraint_titles=constraint_titles
+        )
 
 
 if __name__ == "__main__":
 
+    name = 'E1'
     spec = ExperimentSpec(
-        name="E3",
+        name=name,
         data="folktables",
-        task="folktables_positive_rate_pair",
-        bound=0.1,
+        task="weight_norm",
+        bound=2.0,
         pinns=False,
         seeds=(0, 1, 2),
         results_root="results",
     )
     constraint_titles = list(range(300))
 
+
+    # name = 'E2'
+    # spec = ExperimentSpec(
+    #     name=name,
+    #     data="folktables",
+    #     task="equalized_odds_vec",
+    #     bound=0.2,
+    #     pinns=False,
+    #     seeds=(0, 1, 2),
+    #     results_root="results",
+    # )
+    # constraint_titles = list(range(300))
+
     best_validation_lastK = 5
+
+    # TODO: !!!! change val to test in the load config function
 
     # takes the best validation loss config, then takes the solution from that config and plots the 
     # train / test loss and train constraints
     # the plot uses the weight (E1) plotting function
-    plot(spec = spec, save_path="./results/plots/e3.png", 
+    plot(spec = spec, save_path=f"./results/plots/{name}.png", 
                constraint_titles=constraint_titles, best_validation_lastK=best_validation_lastK)
