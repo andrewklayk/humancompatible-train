@@ -84,7 +84,7 @@ def build_plot_inputs(spec: ExperimentSpec, methods, best_validation_lastK=1):
     for method in methods:
         if method not in best:
             continue
-        traj = _load_config_trajectory(spec, method, best[method], split_train="train", split_test="val")
+        traj = _load_config_trajectory(spec, method, best[method], split_train="train", split_test="test")
         if traj is None:
             print(f"  {method}: no trajectory for config {best[method]}, skipping")
             continue
@@ -132,6 +132,7 @@ def plot(spec=None, methods=None, save_path=None, constraint_titles=None, best_v
         return
 
     if spec.name == "E1":
+        inputs['test_constraints_list'] = None
         plot_losses_and_constraints_stochastic(
             **inputs,
             constraint_thresholds=spec.bound,
@@ -170,7 +171,7 @@ if __name__ == "__main__":
     #     task="weight_norm",
     #     bound=2.0,
     #     pinns=False,
-    #     seeds=(0, 1, 2),
+    #     seeds=(0, 1, 2, 3, 4),
     #     results_root="results",
     # )
     # constraint_titles = list(range(300))
@@ -182,7 +183,7 @@ if __name__ == "__main__":
         task="equalized_odds_vec",
         bound=0.2,
         pinns=False,
-        seeds=(0, 1, 2),
+        seeds=(0, 1, 2, 3, 4),
         results_root="results",
     )
     constraint_titles = list(range(300))
