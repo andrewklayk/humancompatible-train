@@ -40,12 +40,12 @@ def _print_frontier(agg: dict, bound: float):
         best = f"{feas['loss_mean'].iloc[0]:.3f}" if n_feas else "—"
         print(f"  {method:10s}: {n_feas:3d}/{n_tot} feasible  "
               f"| best feasible loss {best}  "
-              f"| median viol_std {df['viol_std'].median():.4f}")
+              f"| median viol_std {df['violation_constr_std'].median():.4f}")
         if n_feas:
-            head = feas[["config", "loss_mean", "viol_mean"]].head(5)
+            head = feas[["config", "loss_mean", "violation_constr_mean"]].head(5)
             for _, r in head.iterrows():
                 print(f"        cfg {int(r['config']):>3}  "
-                      f"loss {r['loss_mean']:.3f}  viol {r['viol_mean']:.3f}")
+                      f"loss {r['loss_mean']:.3f}  viol {r['violation_constr_mean']:.3f}")
 
 
 def _cdf_curve(df: pd.DataFrame, loss_grid: np.ndarray) -> np.ndarray:
@@ -58,9 +58,9 @@ def _cdf_curve(df: pd.DataFrame, loss_grid: np.ndarray) -> np.ndarray:
     return counts / n_total
 
 
-def plot_cdf(spec: ExperimentSpec, methods=None, out="cdf.pdf"):
+def plot_cdf(spec: ExperimentSpec, methods=None, out="cdf.pdf", tail=1, split='train'):
     set_neurips_style()
-    agg = aggregate_experiment(spec)
+    agg = aggregate_experiment(spec, tail=tail, split=split)
     if methods is None:
         methods = [m for m in ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
                    if m in agg]
@@ -109,10 +109,10 @@ if __name__ == "__main__":
         name=name,
         data="folktables",                       # <-- match your real results/ dir prefix
         task="folktables_positive_rate_pair",    # <-- match your real task name
-        bound=0.1,
-        seeds=(0, 1, 2),
+        bound=0.101,
+        seeds=(0, 1, 2, 3, 4),
         results_root=RESULTS,
     )
 
     # write the figure next to results/, at the repo root
-    plot_cdf(spec, out=os.path.join(REPO_ROOT, f"./results/plots/cdf_{name}.pdf"))
+    plot_cdf(spec, out=os.path.join(REPO_ROOT, f"./results/plots/cdf_{name}.pdf"), tail=5, split='train')
