@@ -137,7 +137,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             "dual__penalty_range": p_range,
             "dual__gamma": dual_gamma,
             "dual__delta": 1.,
-            "moreau__mu": moreau_mu
+            "moreau__mu": moreau_mu,
+            "dual__primal_update_process_length": primal_update_process_length
         }
         for (
                 lr,
@@ -146,7 +147,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 pb_func,
                 p_range,
                 dual_gamma,
-                moreau_mu
+                moreau_mu,
+                primal_update_process_length
             ) in product (
             [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 0.1, 0.5, 0.9, 1.0],
@@ -154,10 +156,14 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             ["quadratic_logarithmic"],
             [[1e-1, 1.], [1e-2, 1.]],
             [0.9],
-            [0.0, 1.0, 2.]
+            [0.0, 1.0, 2.],
+            [1, 2, 3]
             )
     ]
-
+    # ensure the primal update process length is the same for both moreau and dual
+    for arr_dict in pbm_grid:
+        arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
+    
     alm_max_grid = [
         {
             "primal__lr": lr, 

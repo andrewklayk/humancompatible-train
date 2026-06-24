@@ -153,6 +153,7 @@ def run_train(
     primal_params = {k.removeprefix('primal__'): v for k, v in param_set.items() if k.startswith('primal__')}
     dual_params = {k.removeprefix('dual__'): v for k, v in param_set.items() if k.startswith('dual__')}
     moreau_params = {k.removeprefix('moreau__'): v for k, v in param_set.items() if k.startswith('moreau__')}
+
     # set up primal optimizer
     primal_optimizer = MoreauEnvelope(
         primal_opt(model.parameters(), **primal_params), **moreau_params

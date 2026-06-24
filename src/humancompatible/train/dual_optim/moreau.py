@@ -9,6 +9,7 @@ class MoreauEnvelope(Optimizer):
         *,
         mu: float = 2.0,
         beta: float = 0.5,
+        primal_update_process_length = 1 # more inner iterations before updating all duals / 1 = only a single inner iteration
     ) -> None:
         """
         A wrapper over a PyTorch`Optimizer` that allows for quick calculation of the Moreau envelope gradient.
@@ -23,6 +24,8 @@ class MoreauEnvelope(Optimizer):
 
         self.optimizer = optimizer
         self.mu, self.beta = mu, beta
+        self.primal_update_process_length = primal_update_process_length
+        self.iter = 0
 
         if mu < 0:
             raise ValueError(
@@ -47,11 +50,16 @@ class MoreauEnvelope(Optimizer):
                     param.grad.add_(param, alpha=self.mu).add_(
                         smoothing_buffer, alpha=-self.mu
                     )
-                    smoothing_buffer.add_(smoothing_buffer, alpha=-self.beta).add_(
-                        param, alpha=self.beta
-                    )
+                    
+                    # update only after n inner iterations
+                    if self.iter + 1 == self.primal_update_process_length:
+                        # print('moreau update!: ', self.iter)
+                        smoothing_buffer.add_(smoothing_buffer, alpha=-self.beta).add_(
+                            param, alpha=self.beta
+                        )
 
         self.optimizer.step()
+        self.iter = (self.iter + 1) % self.primal_update_process_length
 
     def __getattr__(self, name):
         # Delegate to the wrapped object
