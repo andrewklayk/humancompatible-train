@@ -19,11 +19,10 @@ class PBM(Optimizer):
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
         dual_range: Tuple[float, float] = (0.0001, 100.0),
-        penalty_range: Tuple[float, float] = (0.1, 2.0),
+        penalty_range: Tuple[float, float] = (0.1, 1.0),
         device=None,
         primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm
     ) -> None:
-        
 
         self.dual_range = dual_range
         self.penalty_range = penalty_range
@@ -248,9 +247,11 @@ class PBM(Optimizer):
 
         lagrangian = torch.zeros_like(loss)
         lagrangian.add_(loss)
+        start = 0
         for i, group in enumerate(self.param_groups):
             duals, penalties, pbf = group["params"][0], group["params"][1], group["pbf"]
-            group_constraints = constraints[i * len(duals) : (i + 1) * len(duals)]
+            group_constraints = constraints[start : start + len(duals)]
+            start += len(duals)
             # calculate lagrangian
             cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)

@@ -164,29 +164,29 @@ if __name__ == "__main__":
     running_average = True
     best_validation_window = 5
 
-    # name = 'E1'
-    # spec = ExperimentSpec(
-    #     name=name,
-    #     data="folktables",
-    #     task="weight_norm",
-    #     bound=2.0,
-    #     pinns=False,
-    #     seeds=(0, 1, 2, 3, 4),
-    #     results_root="results",
-    # )
-    # constraint_titles = list(range(300))
-
-    name = 'E2'
+    name = 'E1'
     spec = ExperimentSpec(
         name=name,
         data="folktables",
-        task="equalized_odds_vec",
-        bound=0.2,
+        task="weight_norm",
+        bound=2.0,
         pinns=False,
         seeds=(0, 1, 2, 3, 4),
         results_root="results",
     )
     constraint_titles = list(range(300))
+
+    # name = 'E2'
+    # spec = ExperimentSpec(
+    #     name=name,
+    #     data="folktables",
+    #     task="equalized_odds_vec",
+    #     bound=0.2,
+    #     pinns=False,
+    #     seeds=(0, 1, 2, 3, 4),
+    #     results_root="results",
+    # )
+    # constraint_titles = list(range(300))
 
 
     # TODO: !!!! change val to test in the load config function
