@@ -109,7 +109,7 @@ def run_grid(
             model_kwargs=model_kwargs,
             device=device,
             criterion=criterion,
-            data_test=data_test,
+            test_data=data_test,
         )
         train_logs.append(train_history)
         val_logs.append(val_history)
@@ -145,7 +145,7 @@ def run_train(
     device = 'cpu',
     constraint_tol: float = 0.,
     criterion = None,
-    data_test = None,
+    test_data = None,
 ):
     print(f"Starting on {device}")
     model = model_gen(**model_kwargs)
@@ -195,7 +195,7 @@ def run_train(
             time_constraint_computation=True,
             mode='pbm' if isinstance(dual_opt, PBM) else 'alm',
             slack_vars=slack_vars,
-            data_test=data_test,
+            test_data=test_data,
         )
     elif mode == 'sw':
         history = train_loop_sw(
@@ -212,7 +212,7 @@ def run_train(
             device=device,
             time_constraint_computation=True,
             constraint_tol=constraint_tol,
-            data_test=data_test,
+            test_data=test_data,
         )
     elif mode == 'torch':
         history = train_loop_adam(
@@ -228,7 +228,7 @@ def run_train(
             num_epochs=n_epochs,
             device=device,
             time_constraint_computation=True,
-            data_test=data_test,
+            test_data=test_data,
         )
 
     return history
@@ -249,11 +249,12 @@ def train_loop_sw(
     device="cpu",
     time_constraint_computation=True,
     constraint_tol: float = 1e-3,
-    data_test=None,
+    test_data=None,
 ):
     model.to(device)
     history_train = []
     history_val = []
+    history_test = []
     history = {
         "train_loss": [],
         "val_loss": [],
@@ -364,15 +365,20 @@ def train_loop_sw(
         }
 
         history_val.append(eval_dict)
+        
+        test_loss, test_constraints, test_acc = validate_model(model, test_data, loss_fn, constraint_fn, device)
+        eval_dict = {
+            "epoch": epoch,
+            "time": train_time,
+            "loss": test_loss,
+            "acc": test_acc
+        } | {
+            f"c_{j}": c for j, c in enumerate(test_constraints)
+        }
+        history_test.append(eval_dict)
 
-    test_history = []
-    if data_test is not None:
-        model.eval()
-        test_loss, test_constraints, test_acc = validate_model(model, data_test, loss_fn, constraint_fn, device)
-        test_history = [{"epoch": num_epochs, "loss": test_loss, "acc": test_acc}
-                        | {f"c_{j}": c for j, c in enumerate(test_constraints)}]
+    return model, history_train, history_val, history_test
 
-    return model, history_train, history_val, test_history
 
 
 def train_loop_primal_dual(
@@ -390,19 +396,21 @@ def train_loop_primal_dual(
     time_constraint_computation=True,
     mode: str = 'alm',
     slack_vars: torch.Tensor = None,
-    data_test=None,
+    test_data=None,
 ):
     model.to(device)
     history_train = []
     history_val = []
-    history = {
-        "train_loss": [],
-        "val_loss": [],
-        "train_constraints": [],
-        "val_constraints": [],
-        "train_time": [],
-        "constraint_time": [] if time_constraint_computation else None
-    }
+    history_test = []
+
+    # history = {
+    #     "train_loss": [],
+    #     "val_loss": [],
+    #     "train_constraints": [],
+    #     "val_constraints": [],
+    #     "train_time": [],
+    #     "constraint_time": [] if time_constraint_computation else None
+    # }
 
     if dual_optimizer is None:
         raise ValueError("Dual optimizer must be provided for hc-train optimization mode.")
@@ -492,7 +500,6 @@ def train_loop_primal_dual(
         # Validation phase
         model.eval()
         val_loss, val_constraints, val_acc = validate_model(model, val_data, loss_fn, constraint_fn, device)
-        
         eval_dict = {
             "epoch": epoch,
             "time": train_time,
@@ -503,14 +510,18 @@ def train_loop_primal_dual(
         }
         history_val.append(eval_dict)
 
-    test_history = []
-    if data_test is not None:
-        model.eval()
-        test_loss, test_constraints, test_acc = validate_model(model, data_test, loss_fn, constraint_fn, device)
-        test_history = [{"epoch": num_epochs, "loss": test_loss, "acc": test_acc}
-                        | {f"c_{j}": c for j, c in enumerate(test_constraints)}]
+        test_loss, test_constraints, test_acc = validate_model(model, test_data, loss_fn, constraint_fn, device)
+        eval_dict = {
+            "epoch": epoch,
+            "time": train_time,
+            "loss": test_loss,
+            "acc": test_acc
+        } | {
+            f"c_{j}": c for j, c in enumerate(test_constraints)
+        }
+        history_test.append(eval_dict)
 
-    return model, history_train, history_val, test_history
+    return model, history_train, history_val, history_test
 
 
 def train_loop_adam(
@@ -529,19 +540,20 @@ def train_loop_adam(
     slack_vars: torch.Tensor = None,
     constraint_tol: float = None,
     reg_penalty: float = None,
-    data_test=None,
+    test_data=None,
 ):
     model.to(device)
     history_train = []
     history_val = []
-    history = {
-        "train_loss": [],
-        "val_loss": [],
-        "train_constraints": [],
-        "val_constraints": [],
-        "train_time": [],
-        "constraint_time": [] if time_constraint_computation else None
-    }
+    history_test = []
+    # history = {
+    #     "train_loss": [],
+    #     "val_loss": [],
+    #     "train_constraints": [],
+    #     "val_constraints": [],
+    #     "train_time": [],
+    #     "constraint_time": [] if time_constraint_computation else None
+    # }
 
     for epoch in range(num_epochs+1):
         # Training phase
@@ -639,15 +651,19 @@ def train_loop_adam(
         }
 
         history_val.append(eval_dict)
+        
+        test_loss, test_constraints, test_acc = validate_model(model, test_data, loss_fn, constraint_fn, device)
+        eval_dict = {
+            "epoch": epoch,
+            "time": train_time,
+            "loss": test_loss,
+            "acc": test_acc
+        } | {
+            f"c_{j}": c for j, c in enumerate(test_constraints)
+        }
+        history_test.append(eval_dict)
 
-    test_history = []
-    if data_test is not None:
-        model.eval()
-        test_loss, test_constraints, test_acc = validate_model(model, data_test, loss_fn, constraint_fn, device)
-        test_history = [{"epoch": num_epochs, "loss": test_loss, "acc": test_acc}
-                        | {f"c_{j}": c for j, c in enumerate(test_constraints)}]
-
-    return model, history_train, history_val, test_history
+    return model, history_train, history_val, history_test
 
 def validate_model(model, val_data, loss_fn, constraint_fn, device):
     val_losses = []
