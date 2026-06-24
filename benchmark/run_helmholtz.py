@@ -29,15 +29,21 @@ device = 'cuda'
 pbm_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
-     "dual__delta": 1., "moreau__mu": mu, "dual__primal_update_process_length": primal_update_process_length}
-    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length) in product(
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing) 
+    in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], [1, 2, 3])
+        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
+        [1, 2, 3], [True, False])
 ]
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
     arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
-    
+    if arr_dict["dual__gamma_annealing"] == True:
+        arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
+
 alm_proj_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
             "dual__is_ineq": True}
@@ -233,8 +239,11 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
     save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) =====
+    for arr_dict in pbm_grid:   
+        arr_dict["dual__epoch_length"] = len(train_loader)
     histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
     save_method(result_dir, "pbm", histories, pbm_grid)
+    
 
     # ===== ALM projection (raw signed constraints) =====
     histories = [run_config(p, make_alm, clamp=False) for p in tqdm(alm_proj_grid, desc="alm_proj")]

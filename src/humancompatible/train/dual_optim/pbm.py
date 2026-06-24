@@ -21,12 +21,36 @@ class PBM(Optimizer):
         dual_range: Tuple[float, float] = (0.0001, 100.0),
         penalty_range: Tuple[float, float] = (0.1, 1.0),
         device=None,
-        primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm
+        primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm,
+        gamma_annealing=True,
+        epoch_length = None # set this if gamma_annealing=True
     ) -> None:
 
         self.dual_range = dual_range
         self.penalty_range = penalty_range
         self.primal_update_process_length = primal_update_process_length
+        self.gamma_annealing = gamma_annealing
+        self.gamma0 = gamma
+        self.inner_iter = 0 # modulo inner loop iters
+        self.epoch_iter = 0 # epoch iters (for gamma update only)
+        self.epoch_length = epoch_length
+        self.epoch_counter = 0
+
+        if gamma_annealing and epoch_length is None:
+            raise ValueError("For gamma annealing, 'epoch_length' must be set to len(train_loader)!")
+
+        # gamma schedule -> 1
+        if self.gamma_annealing: 
+            def gamma_schedule(step_num, gamma0, k0=None):
+                # (1 - gamma_k) decays like 1/k  ->  gamma_k -> 1, never equals 1
+                # at k=0 returns gamma0; k0 sets how fast it climbs
+                if k0 is None:
+                    k0 = 1.0 / (1.0 - gamma0)        # makes gamma_0 == gamma0 exactly
+                return 1.0 - 1.0 / (step_num**0.5 + k0)
+            self.gamma_schedule = gamma_schedule
+
+        else: # constant schedule - no change in gamma
+            self.gamma_schedule = lambda step_num, gamma0: gamma0 # constant 
 
         params, defaults = self._init_constraint_group(
             m,
@@ -42,7 +66,6 @@ class PBM(Optimizer):
             primal_update_process_length,
             device,
         )
-        self.iter = 0
         super().__init__(params, defaults)
 
     @staticmethod
@@ -217,19 +240,42 @@ class PBM(Optimizer):
             )
             group_constraints = constraints[_last_c_group_index : _last_c_group_index + len(duals)]
             _last_c_group_index += len(duals)
-            cdivp = group_constraints.div(penalties)
-            with torch.no_grad():
-                _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], momentum)
-                clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                _update_penalties(
-                    penalties,
-                    p_mult,
-                    duals,
-                    penalty_barrier_funcs[pbf]["d"](group_constraints),
-                    delta,
-                    cdivp,
-                )
-                clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
+
+            # update the duals only if the inner loop ended
+            if (
+                self.inner_iter + 1 == primal_update_process_length
+            ): 
+                
+                cdivp = group_constraints.div(penalties)
+
+                # update gamma
+                gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
+                    
+                with torch.no_grad():
+                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma)
+                    clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+                    _update_penalties(
+                        penalties,
+                        p_mult,
+                        duals,
+                        penalty_barrier_funcs[pbf]["d"](group_constraints),
+                        delta,
+                        cdivp,
+                    )
+                    clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
+
+        # update the iter
+        self.inner_iter = (self.inner_iter + 1) % self.primal_update_process_length
+        
+        # keep track of the epoch counter only in the case of gamma annealing
+        if self.gamma_annealing:
+            self.epoch_iter += 1
+
+        # update all iters if gamma annealing
+        if self.gamma_annealing and self.epoch_iter == self.epoch_length:
+            self.epoch_counter += 1 # increment the epoch
+            self.epoch_iter = 0 # reset the counter
+
 
     step = update
 
@@ -305,13 +351,16 @@ class PBM(Optimizer):
             _last_c_group_index = _last_c_group_index + len(duals)
             # calculate lagrangian
             if (
-                self.iter + 1 == primal_update_process_length
+                self.inner_iter + 1 == primal_update_process_length
             ):  # this enables a second variant of the algorithm
                 # update duals and penalties
                 cdivp = group_constraints.div(penalties)
+
+                # update gamma
+                gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
                 with torch.no_grad():
                     _update_duals(
-                        duals, cdivp, penalty_barrier_funcs[pbf]["d"], momentum
+                        duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma
                     )
                     clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
                     _update_penalties(
@@ -335,7 +384,15 @@ class PBM(Optimizer):
                 lagrangian.add_(duals[active].mul(penalties[active]) @ pbf_val[active])
 
         # update the iter
-        self.iter = (self.iter + 1) % self.primal_update_process_length
+        self.inner_iter = (self.inner_iter + 1) % self.primal_update_process_length
+        
+        if self.gamma_annealing:
+            self.epoch_iter += 1
+
+        # update all iters if gamma annealing
+        if self.gamma_annealing and self.epoch_iter == self.epoch_length:
+            self.epoch_counter += 1 # increment the epoch
+            self.epoch_iter = 0 # reset the counter
 
         return lagrangian
 
