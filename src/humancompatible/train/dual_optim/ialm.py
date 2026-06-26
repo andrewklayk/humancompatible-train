@@ -1,7 +1,7 @@
 import torch
 from torch.nn import Parameter
 from torch.optim import Optimizer
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 from torch import clamp_, Tensor
 
 # cite: Stochastic inexact augmented Lagrangian method for nonconvex expectation constrained optimization
@@ -20,7 +20,7 @@ class iALM(Optimizer):
         *,
         dual_range: Tuple[float, float] = (-100., 100.),
         momentum: float = 0.0,
-        dampening: float = 0.0,
+        dampening: Optional[float] = None,
         is_ineq: bool = False,
         # ctol: float = 1e-4,
         device=None,
@@ -44,14 +44,11 @@ class iALM(Optimizer):
         :type dual_range: Tuple[float, float]
         :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
         :type momentum: float
-        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
+        :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable. Defaults to `momentum` (EMA) when unset and momentum > 0.
         :type dampening: float
         :param ctol: Constraint tolerance; value that allows tiny violations of constraints to account for noise.
         :type ctol: float
         """
-
-        if momentum > 0 and dampening == 0:
-            dampening = momentum
 
         # self.dual_range = dual_range
 
@@ -82,7 +79,7 @@ class iALM(Optimizer):
         sigma: float = 1.0,
         gamma: float = 1.0,
         momentum: float = None,
-        dampening: float = None,
+        dampening: Optional[float] = None,
         init_duals: Tensor = None,
         dual_range: tuple[float, float] = None,
         is_ineq: bool = False,
@@ -134,11 +131,8 @@ class iALM(Optimizer):
         for group in self.param_groups:
             duals, beta, group_constraints = _process_constraint_group_ialm(group, offset, constraints, update_duals=False)
             lagrangian.add_(duals @ group_constraints)
+            lagrangian.add_(0.5 * beta * torch.dot(group_constraints, group_constraints))
             offset += len(duals)
-
-        # Use beta from first group for penalty term
-        beta = self.param_groups[0]["beta"]
-        lagrangian.add_(0.5 * beta * torch.dot(constraints, constraints))
 
         return lagrangian
 
@@ -179,13 +173,8 @@ class iALM(Optimizer):
         for group in self.param_groups:
             duals, beta, group_constraints = _process_constraint_group_ialm(group, offset, constraints, update_duals=True)
             lagrangian.add_(duals @ group_constraints)
+            lagrangian.add_(0.5 * beta * torch.dot(group_constraints, group_constraints))
             offset += len(duals)
-
-        # Use beta from first group for penalty term
-        beta = self.param_groups[0]["beta"]
-        lagrangian.add_(
-            0.5 * beta * torch.dot(constraints, constraints)
-        )
 
         # Update beta by sigma for each group
         for group in self.param_groups:
@@ -271,6 +260,10 @@ def _init_constraint_group(
     if momentum is not None and (momentum < 0 or momentum > 1):
         raise ValueError(f"`momentum`must be within [0,1]; got {momentum}")
 
+    # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.
+    if dampening is None:
+        dampening = momentum if (momentum is not None and momentum > 0) else 0.0
+
     m = m if m is not None else len(init_duals)
 
     if init_duals is None:  # initialize duals if not set or set to scalar
@@ -308,11 +301,8 @@ def _update_c_buffers(
     momentum: float,
     dampening: float,
     buffer: Tensor,
-):
-    if momentum == 0:
-        buffer = constraints
-    else:
-        buffer.mul_(momentum).add_(constraints, alpha=1 - dampening)
+) -> None:
+    buffer.mul_(momentum).add_(constraints, alpha=1 - dampening)
 
 
 def _update_duals(

@@ -19,16 +19,13 @@ class ALM(Optimizer):
         *,
         dual_range: Tuple[float, float] = (-100.0, 100.0),
         momentum: float = 0.0,
-        dampening: float = 0.0,
+        dampening: Optional[float] = None,
         is_ineq: bool = False,
         restart: bool = False,
         ctol: float = 0.,
         device=None,
         process_group: Optional[dist.ProcessGroup] = None,
     ) -> None:
-
-        if momentum > 0 and dampening == 0:
-            dampening = momentum
 
         self.penalty = penalty
         self.process_group = process_group
@@ -51,7 +48,7 @@ class ALM(Optimizer):
         m: int,
         lr: float = None,
         momentum: float = None,
-        dampening: float = None,
+        dampening: Optional[float] = None,
         init_duals: Tensor = None,
         dual_range: tuple[float, float] = None,
         is_ineq: bool = False,
@@ -258,7 +255,7 @@ def _process_constraint_group(
     n = len(duals)
     group_constraints = constraints[offset : offset + n] if constraints.ndim > 0 else constraints.unsqueeze(0)
 
-    lr = group.get("lr")
+    lr = group["lr"]
     momentum = group.get("momentum", 0.0)
     dampening = group.get("dampening", 0.0)
     momentum_buffer = group["momentum_buffer"]
@@ -270,7 +267,13 @@ def _process_constraint_group(
         if update_duals:
             if momentum > 0:
                 _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
-            _update_duals(duals, momentum_buffer if momentum > 0 else group_constraints, lr, restart)
+            _update_duals(
+                duals,
+                momentum_buffer if momentum > 0 else group_constraints,
+                lr,
+                restart,
+                raw_constraints=group_constraints,
+            )
             clamp_(duals, min=dual_lb, max=dual_ub)
 
     return duals, group_constraints
@@ -293,6 +296,10 @@ def _init_constraint_group(
 
     if momentum is not None and (momentum < 0 or momentum > 1):
         raise ValueError(f"momentum must be within [0,1]; got {momentum}")
+
+    # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.
+    if dampening is None:
+        dampening = momentum if (momentum is not None and momentum > 0) else 0.0
 
     if not isinstance(is_ineq, bool):
         raise ValueError(f"Expected a Boolean value for is_ineq, got {type(is_ineq)}")
@@ -346,13 +353,15 @@ def _update_duals(
     duals: Tensor,
     buffer: Tensor,
     lr: float,
-    restart: bool
+    restart: bool,
+    raw_constraints: Tensor = None,
 ) -> None:
     """Update duals using the buffered constraint gradients."""
     duals.add_(buffer, alpha=lr)
-    # Set duals to 0 where buffer < 0
     if restart:
-        duals[buffer < 0] = 0
+        # Use raw constraints (not the EMA buffer) to check satisfaction.
+        check = raw_constraints if raw_constraints is not None else buffer
+        duals.masked_fill_(check < 0, 0.0)
 
 
 
