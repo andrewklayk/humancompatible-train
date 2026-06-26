@@ -258,7 +258,7 @@ def _process_constraint_group(
     n = len(duals)
     group_constraints = constraints[offset : offset + n] if constraints.ndim > 0 else constraints.unsqueeze(0)
 
-    nu = group.get("nu")
+    nu = group["nu"]
     ki = group.get("ki", 0.0)
     kp = group.get("kp", 0.0)
     momentum_buffer = group["momentum_buffer"]
@@ -351,30 +351,3 @@ def _update_duals(
     duals.add_( constraints, alpha=ki + kp * (1-nu) ).add_( buffer, alpha = -kp * (1-nu) )
 
 
-nuPI.__doc__ = (
-
-        # \textbf{input}: \gamma \text{ (lr) }, \pmb{\lambda}_t \text{ (dual variables, created by method) }, \\
-        # \mathbf{c}(\theta) \text{ (constraints) }, f(\theta) \text{ (objective) }, \rho \text{ (penalty coefficient) } \\
-    r"""
-    A Dual Optimizer that works on the dual maximization tasks according to the nuPI Augmented Lagrangian rule, based on https://doi.org/10.48550/arXiv.2406.04558. Creates and updates dual variables.
-    
-    :param m: Number of constraints (determines the number of dual variables to create)
-    :type m: int
-    :param lr: Dual variable update rate.
-    :type lr: float
-    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
-    :type init_duals: float | Tensor
-    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
-    :type penalty: float
-    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
-    :type dual_range: Tuple[float, float]
-    :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
-    :type momentum: float
-    :param dampening: Dampening for momentum. Equivalent to SGD dampening. Set to `0` to disable.
-    :type dampening: float
-    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
-    :type is_ineq: bool
-    :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
-    :type ctol: float
-    """
-)
