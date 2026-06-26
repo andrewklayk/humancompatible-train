@@ -9,7 +9,11 @@ examples/data
 experiments/data
 .hydra
 .vscode/
-plots/
+.claude/
+benchmark/results/plots/
+*.svg
+*.png
+docs/source/tutorials/*.ipynb
 outputs/
 rci_jupyter_setup.txt
 requirements_rci.txt
