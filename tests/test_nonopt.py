@@ -2,8 +2,8 @@ import math
 import unittest
 
 import torch
-from humancompatible.train.dual_optim import NonOpt
-from humancompatible.train.dual_optim.nonopt import (
+from humancompatible.train.sqp import NonOpt
+from humancompatible.train.sqp.nonopt import (
     LimitedMemoryInverseHessian,
     project_onto_simplex,
     solve_simplex_qp,
@@ -258,7 +258,7 @@ class TestNonOptInterface(unittest.TestCase):
             return loss
 
         loss = optimizer.step(closure)
-        self.assertAlmostEqual(float(loss), 4.0, places=6)
+        self.assertAlmostEqual(float(loss.detach().item()), 4.0, places=6)
 
 
 if __name__ == "__main__":
