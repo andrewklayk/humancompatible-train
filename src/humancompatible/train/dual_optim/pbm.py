@@ -23,6 +23,7 @@ class PBM(Optimizer):
         device=None,
         primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm,
         gamma_annealing=True,
+        penalty_annealing=True,
         epoch_length = None # set this if gamma_annealing=True
     ) -> None:
 
@@ -30,14 +31,15 @@ class PBM(Optimizer):
         self.penalty_range = penalty_range
         self.primal_update_process_length = primal_update_process_length
         self.gamma_annealing = gamma_annealing
+        self.penalty_annealing = penalty_annealing
         self.gamma0 = gamma
         self.inner_iter = 0 # modulo inner loop iters
         self.epoch_iter = 0 # epoch iters (for gamma update only)
         self.epoch_length = epoch_length
         self.epoch_counter = 0
 
-        if gamma_annealing and epoch_length is None:
-            raise ValueError("For gamma annealing, 'epoch_length' must be set to len(train_loader)!")
+        if (gamma_annealing or penalty_annealing) and epoch_length is None:
+            raise ValueError("For gamma / penalty annealing, 'epoch_length' must be set to len(train_loader)!")
 
         # gamma schedule -> 1
         if self.gamma_annealing: 
@@ -51,6 +53,16 @@ class PBM(Optimizer):
 
         else: # constant schedule - no change in gamma
             self.gamma_schedule = lambda step_num, gamma0: gamma0 # constant 
+
+        # K schedule for annealing penalty changes
+        if self.penalty_annealing:
+            def K_schedule(step_num, K0):
+                k0 = 1.0 / (1.0 - K0)
+                return 1.0 - 1.0 / (step_num**0.5 + k0)
+                
+            self.K_schedule = K_schedule
+        else: # constant schedule - no change in gamma
+            self.K_schedule = lambda step_num, K: K # constant 
 
         params, defaults = self._init_constraint_group(
             m,
@@ -248,8 +260,9 @@ class PBM(Optimizer):
                 
                 cdivp = group_constraints.div(penalties)
 
-                # update gamma
+                # update gamma and K
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
+                p_mult = self.K_schedule(self.epoch_counter, p_mult)
                     
                 with torch.no_grad():
                     _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma)
@@ -356,8 +369,9 @@ class PBM(Optimizer):
                 # update duals and penalties
                 cdivp = group_constraints.div(penalties)
 
-                # update gamma
+                # update gamma and K is annealing
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
+                p_mult = self.K_schedule(self.epoch_counter, p_mult)
                 with torch.no_grad():
                     _update_duals(
                         duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma
