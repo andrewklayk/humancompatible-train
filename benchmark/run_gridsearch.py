@@ -107,13 +107,13 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
 
     batch_size = task_cfg.batch_size
     if task == 'cifar10':
-        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar10(device=device, seed=seed)
+        dataloader_train, dataloader_val, dataloader_test, classes, class_ind = load_data_cifar10(device=device, seed=seed)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
         create_model_fn = create_conv_model
         model_kwargs = {}
         criterion = torch.nn.CrossEntropyLoss(reduction='none')
     elif task == 'cifar100':
-        dataloader_train, dataloader_val, classes, class_ind = load_data_cifar100(device=device, seed=seed)
+        dataloader_train, dataloader_val, dataloader_test, classes, class_ind = load_data_cifar100(device=device, seed=seed)
         features_train, sens_train, labels_train = next(iter(dataloader_train))
         create_model_fn = create_conv_model
         model_kwargs = {}
@@ -125,7 +125,7 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
         criterion = torch.nn.functional.binary_cross_entropy_with_logits
 
     data_val = (features_val, sens_val, labels_val) if task not in ['cifar10', 'cifar100'] else dataloader_val
-    data_test = (features_test, sens_test, labels_test) if task not in ['cifar10', 'cifar100'] else None
+    data_test = (features_test, sens_test, labels_test) if task not in ['cifar10', 'cifar100'] else dataloader_test
 
     # Define hyperparameter grids
     pbm_grid = [
@@ -156,9 +156,9 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [0., 0.1, 0.5, 0.9, 1.0],
             ["dimin_adapt"],
             ["quadratic_logarithmic"],
-            [[1e-1, 1.], [1e-2, 1.]],
+            [[1e-1, 1.], [1., 2.]],
             [0.9],
-            [0.0, 1.0, 2.],
+            [0., 2.],
             [1, 2, 3],
             [True, False]
             )
@@ -197,19 +197,20 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             "dual__lr": dual_lr,
             "dual__penalty": penalty,
             "dual__is_ineq": True,
+            "dual__momentum": dual_momentum,
             "moreau__mu": moreau_mu
         }
         for (
                 lr,
                 dual_lr,
                 penalty,
-                # dual_momentum,
+                dual_momentum,
                 moreau_mu
             ) in product (
             [0.001, 0.005, 0.01, 0.02, 0.05],
             [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 1.],
-            # [0., 0.1, 0.2, 0.5],
+            [0., 0.1],
             [0.0, 1.0, 2.]
             )
     ]
