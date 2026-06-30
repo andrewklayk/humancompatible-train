@@ -217,9 +217,9 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
         torch.manual_seed(0)                                       # same init per config (as old code reseeded per block)
         u_model = set_model(model_name, device)
         sw_dual = None
-        if mode == 'sw':                                           # SSw: primal=plain Adam (no Moreau), separate dual Adam on model params (dual__lr)
-            optimizer = torch.optim.Adam([{'params': u_model.parameters()}], **primal)
-            sw_dual = torch.optim.Adam([{'params': u_model.parameters()}], **dual_p)   # matches run_train: dual_opt(model.parameters(), **dual_params)
+        if mode == 'sw':                                           # SSw: both primal and dual are Moreau-wrapped Adam on model params (separate LRs)
+            optimizer = MoreauEnvelope(torch.optim.Adam([{'params': u_model.parameters()}], **primal), **moreau)
+            sw_dual = MoreauEnvelope(torch.optim.Adam([{'params': u_model.parameters()}], **dual_p), **moreau)   # matches train_loop_sw
             dual = None
         elif dual_ctor is None:
             optimizer = torch.optim.Adam([{'params': u_model.parameters()}], **primal)
