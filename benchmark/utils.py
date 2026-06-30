@@ -155,9 +155,11 @@ def run_train(
     moreau_params = {k.removeprefix('moreau__'): v for k, v in param_set.items() if k.startswith('moreau__')}
 
     # set up primal optimizer
+    # Both 'hc' (primal-dual) and 'sw' (switching) wrap the primal in a Moreau
+    # envelope; only plain 'torch' (Adam baseline) uses the bare optimizer.
     primal_optimizer = MoreauEnvelope(
         primal_opt(model.parameters(), **primal_params), **moreau_params
-    ) if mode == 'hc' else primal_opt(model.parameters(), **primal_params)
+    ) if mode in ('hc', 'sw') else primal_opt(model.parameters(), **primal_params)
     # set up slack variables if needed
     if use_slack:
         slack_vars = torch.zeros(m, requires_grad=True)
