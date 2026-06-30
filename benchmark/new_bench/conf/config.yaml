@@ -1,0 +1,25 @@
+defaults:
+  - data: income
+  - task: folktables_positive_rate_pair
+  - algorithm: pbm
+  - _self_
+
+n_epochs: 30
+
+# --- approach: ml (K-fold CV, train/val/test) or opt (full dataset, train only) ---
+approach: ml
+
+# --- randomness axes (separated; see README "Cross-validation") ---
+init_seed: 0      # model init + batch order (optimization randomness); sweep e.g. 0,1,2
+cv_seed: 0        # fixes the stratified test hold-out + K-fold partition (data axis)
+n_folds: 5        # K
+fold: 0           # which fold is validation; sweep 0,1,2,3,4 for full K-fold CV
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${task.name}/${algorithm.name}/${approach}/fold${fold}_init${init_seed}
+  sweep:
+    dir: multirun/${task.name}/${algorithm.name}
+    subdir: ${approach}/fold${fold}_init${init_seed}/job${hydra.job.num}

@@ -1,0 +1,30 @@
+# GPU Slurm launcher for multirun, via the hydra-submitit-launcher plugin.
+# Requires:  pip install hydra-submitit-launcher
+# Use with:  python run.py -m hydra/launcher=slurm_gpu +sweep=pbm \
+#                data=cifar10 task=cifar10_loss seed=0,1,2
+#
+# Same as slurm.yaml but requests a GPU per task. Edit `partition` to your GPU
+# partition and adjust resources for your cluster.
+defaults:
+  - submitit_slurm
+
+# --- resources (edit for your cluster) ---
+partition: amdgpufast             # <-- your GPU partition name
+tasks_per_node: 4
+cpus_per_task: 4          # dataloading workers / host-side work
+mem_per_cpu: 8G
+
+# GPU request. submitit has no first-class `gres` field, so we pass it through
+# additional_parameters -> renders as `#SBATCH --gres=gpu:1`. This is the most
+# widely-supported form (works on older Slurm / strictly-GRES clusters).
+additional_parameters:
+  gres: "gpu:1"            # or e.g. "gpu:a100:1" to pin a GPU type
+  # account: my_account
+
+# Alternative on newer Slurm (>=19.05 with the --gpus GRES family enabled):
+# comment out additional_parameters.gres above and use instead:
+# gpus_per_node: 1         # -> `#SBATCH --gpus-per-node=1`
+
+# array_parallelism: 8     # cap simultaneously-running GPU array tasks
+# setup:                   # shell lines run before each task (env activation, modules)
+#   - "source activate hc-dev"

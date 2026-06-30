@@ -1,0 +1,7 @@
+name: adam
+updater: plain
+select_filter: none
+primal:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001

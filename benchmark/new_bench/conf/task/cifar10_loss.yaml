@@ -1,0 +1,8 @@
+name: cifar10
+batch_size: 120
+model: conv
+loss: ce
+constraint:
+  kind: LossPairwise
+  bound: 0.1
+  loss: CrossEntropyLoss

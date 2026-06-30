@@ -1,0 +1,11 @@
+name: folktables_positive_rate_vec
+batch_size: 36
+model: mlp
+loss: bce
+constraint:
+  kind: FairretAgg
+  bound: 0.2
+  loss: NormLoss
+  statistic: PositiveRate
+  kwargs:
+    uses_labels: false

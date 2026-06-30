@@ -1,0 +1,10 @@
+name: dutch_positive_rate_pair
+batch_size: 72
+model: mlp
+loss: bce
+constraint:
+  kind: FairretPairwise
+  bound: 0.1
+  statistic: PositiveRate
+  kwargs:
+    uses_labels: false

@@ -1,0 +1,17 @@
+name: alm_max
+updater: primal_dual
+# max-formulation: constraints transformed to equality via max(c - bound, 0)
+constraints_to_eq: true
+select_filter: upper
+primal:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.01
+moreau:
+  mu: 1.0
+dual:
+  _target_: humancompatible.train.dual_optim.ALM
+  _partial_: true
+  lr: 0.01
+  penalty: 1.0
+  # is_ineq defaults to false (equality form)
