@@ -32,12 +32,13 @@ pbm_grid = [
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
      "dual__delta": 1., "moreau__mu": mu,
     "dual__primal_update_process_length": primal_update_process_length,
-    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing}
-    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing) 
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__mirror_ascent": mirror_ascent, "dual__mirror_ascent_step_size": mirror_ascent_stepsize}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, mirror_ascent, mirror_ascent_stepsize) 
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-        [1], [True], [True, False])
+        [1], [True], [True, False], [True, False], [0.1])
 ]
 
 # ensure the primal update process length is the same for both moreau and dual

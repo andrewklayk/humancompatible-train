@@ -140,7 +140,9 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             "moreau__mu": moreau_mu,
             "dual__primal_update_process_length": primal_update_process_length,
             "dual__gamma_annealing": gamma_annealing,
-            "dual__penalty_annealing": penalty_annealing
+            "dual__penalty_annealing": penalty_annealing,
+            "dual__mirror_ascent": mirror_ascent, 
+            "dual__mirror_ascent_step_size": mirror_ascent_stepsize
         }
         for (
                 lr,
@@ -152,7 +154,9 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 moreau_mu,
                 primal_update_process_length,
                 gamma_annealing,
-                penalty_annealing
+                penalty_annealing,
+                mirror_ascent,
+                mirror_ascent_stepsize
             ) in product (
             [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 0.1, 0.5, 0.9, 1.0],
@@ -163,7 +167,9 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [0., 2.],
             [1],
             [True],
-            [True, False]
+            [True, False],
+            [True, False], 
+            [0.1]
             )
     ]
     # ensure the primal update process length is the same for both moreau and dual

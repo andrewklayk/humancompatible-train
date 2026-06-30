@@ -4,14 +4,14 @@ from torch.optim import Optimizer
 from typing import Any, Tuple, Callable
 from torch import clamp_, Tensor
 from .barrier import quad_log, quad_log_der, quad_recipr, quad_recipr_der
-
+import numpy as np
 
 class PBM(Optimizer):
     def __init__(
         self,
         m: int = None,
         penalty_mult: float = 0.1,
-        gamma: float = 0.1,
+        gamma: float = 0.1, # used only if mirror_ascent = False
         delta: float = 1.0,
         penalty_update: str = "dimin_adapt",
         *,
@@ -24,7 +24,9 @@ class PBM(Optimizer):
         primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm,
         gamma_annealing=True,
         penalty_annealing=True,
-        epoch_length = None # set this if gamma_annealing=True
+        epoch_length = None, # set this if gamma_annealing=True,
+        mirror_ascent = False,
+        mirror_ascent_step_size = 0.8 # used only is mirror_ascent = True
     ) -> None:
 
         self.dual_range = dual_range
@@ -37,6 +39,8 @@ class PBM(Optimizer):
         self.epoch_iter = 0 # epoch iters (for gamma update only)
         self.epoch_length = epoch_length
         self.epoch_counter = 0
+        self.mirror_ascent = mirror_ascent
+        self.mirror_ascent_step_size = mirror_ascent_step_size
 
         if (gamma_annealing or penalty_annealing) and epoch_length is None:
             raise ValueError("For gamma / penalty annealing, 'epoch_length' must be set to len(train_loader)!")
@@ -63,6 +67,11 @@ class PBM(Optimizer):
             self.K_schedule = K_schedule
         else: # constant schedule - no change in gamma
             self.K_schedule = lambda step_num, K: K # constant 
+
+        if self.mirror_ascent: 
+            if init_duals == None:
+                init_duals = dual_range[0]
+            init_duals = np.log(init_duals)
 
         params, defaults = self._init_constraint_group(
             m,
@@ -263,18 +272,34 @@ class PBM(Optimizer):
                 # update gamma and K
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
                 p_mult = self.K_schedule(self.epoch_counter, p_mult)
-                    
+
+                if self.mirror_ascent:
+                    gamma = self.mirror_ascent_step_size
+
                 with torch.no_grad():
-                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma)
-                    clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                    _update_penalties(
-                        penalties,
-                        p_mult,
-                        duals,
-                        penalty_barrier_funcs[pbf]["d"](group_constraints),
-                        delta,
-                        cdivp,
-                    )
+                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma, 
+                        mirror_ascent=self.mirror_ascent)
+                    if self.mirror_ascent: 
+                        clamp_(duals, min=np.log(self.dual_range[0]), max=np.log(self.dual_range[1]))
+                        _update_penalties(
+                                penalties,
+                                p_mult,
+                                torch.exp(duals),
+                                penalty_barrier_funcs[pbf]["d"](group_constraints),
+                                delta,
+                                cdivp,
+                            )
+                    else:     
+                        clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+                        _update_penalties(
+                            penalties,
+                            p_mult,
+                            duals,
+                            penalty_barrier_funcs[pbf]["d"](group_constraints),
+                            delta,
+                            cdivp,
+                        )
+
                     clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
         # update the iter
@@ -314,7 +339,12 @@ class PBM(Optimizer):
             # calculate lagrangian
             cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
-            lagrangian.add_(duals.mul(penalties) @ pbf_val)
+
+            if self.mirror_ascent: # log space 
+                duals = torch.exp(duals)
+                lagrangian.add_(duals.mul(penalties) @ pbf_val)
+            else: 
+                lagrangian.add_(duals.mul(penalties) @ pbf_val)
 
         return lagrangian
 
@@ -372,19 +402,36 @@ class PBM(Optimizer):
                 # update gamma and K is annealing
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
                 p_mult = self.K_schedule(self.epoch_counter, p_mult)
+
+                # if mirror ascenting in log space, dont use gamma but step size
+                if self.mirror_ascent:
+                    gamma = self.mirror_ascent_step_size
+
                 with torch.no_grad():
                     _update_duals(
-                        duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma
+                        duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma, 
+                        mirror_ascent=self.mirror_ascent
                     )
-                    clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                    _update_penalties(
-                        penalties,
-                        p_mult,
-                        duals,
-                        penalty_barrier_funcs[pbf]["d"](group_constraints),
-                        delta,
-                        cdivp,
-                    )
+                    if self.mirror_ascent: 
+                        clamp_(duals, min=np.log(self.dual_range[0]), max=np.log(self.dual_range[1]))
+                        _update_penalties(
+                                penalties,
+                                p_mult,
+                                torch.exp(duals),
+                                penalty_barrier_funcs[pbf]["d"](group_constraints),
+                                delta,
+                                cdivp,
+                            )
+                    else:     
+                        clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+                        _update_penalties(
+                            penalties,
+                            p_mult,
+                            duals,
+                            penalty_barrier_funcs[pbf]["d"](group_constraints),
+                            delta,
+                            cdivp,
+                        )
                     clamp_(
                         penalties, min=self.penalty_range[0], max=self.penalty_range[1]
                     )
@@ -392,10 +439,12 @@ class PBM(Optimizer):
             cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
 
-            # change duals to 0 for them < 1e-4, but do not overwrite the actual duals to keep the momentum working
-            active = duals >= 1e-5
-            if active.any():
-                lagrangian.add_(duals[active].mul(penalties[active]) @ pbf_val[active])
+            if self.mirror_ascent: # log space 
+                duals = torch.exp(duals)
+                lagrangian.add_(duals.mul(penalties) @ pbf_val)
+            
+            else: # original PBM
+                lagrangian.add_(duals.mul(penalties) @ pbf_val)
 
         # update the iter
         self.inner_iter = (self.inner_iter + 1) % self.primal_update_process_length
@@ -482,11 +531,17 @@ penalty_barrier_funcs = {
 
 
 def _update_duals(
-    duals: Tensor, cdivp: Tensor, pbf_der: Callable, gamma: float
+    duals: Tensor, cdivp: Tensor, pbf_der: Callable, gamma: float, mirror_ascent=False
 ) -> None:
-    pbf_der_val = pbf_der(cdivp)
-    upd = pbf_der_val.mul(duals)
-    duals.mul_(gamma).add_(upd, alpha=1 - gamma)
+
+    if mirror_ascent: # mirror ascent 
+        pbf_der_val = pbf_der(cdivp)
+        duals.add_(torch.log(pbf_der_val), alpha=gamma)
+
+    else: # original PBM paper 
+        pbf_der_val = pbf_der(cdivp)
+        upd = pbf_der_val.mul(duals)
+        duals.mul_(gamma).add_(upd, alpha=1 - gamma)
 
 
 def _update_penalties_const(
