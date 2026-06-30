@@ -88,7 +88,7 @@ def plot_cdf(spec: ExperimentSpec, methods=None, out="cdf.pdf", tail=1, split='t
 
     ax.set_xlabel("Train loss threshold $L$")
     ax.set_ylabel("Frac. configs feasible \\& $\\leq L$")
-    ax.set_ylim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 4.02)
     ax.legend(loc="lower right")
     fig.savefig(out)
     plt.close(fig)
@@ -104,15 +104,10 @@ if __name__ == "__main__":
     REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     RESULTS = os.path.join(REPO_ROOT, "results")
 
-    name = 'E3'
-    spec = ExperimentSpec(
-        name=name,
-        data="folktables",                       # <-- match your real results/ dir prefix
-        task="folktables_positive_rate_pair",    # <-- match your real task name
-        bound=0.101,
-        seeds=(0, 1, 2, 3, 4),
-        results_root=RESULTS,
-    )
+    from experiment_specs import specs
+
+    name = 'E5'
+    spec = specs[name]
 
     # write the figure next to results/, at the repo root
     plot_cdf(spec, out=os.path.join(REPO_ROOT, f"./results/plots/cdf_{name}.pdf"), tail=5, split='train')
