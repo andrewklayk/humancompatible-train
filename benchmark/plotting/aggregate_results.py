@@ -232,6 +232,26 @@ if __name__ == "__main__":
 
     print(f"Aggregating {spec.name} from {spec.results_root}/ ...")
     agg = aggregate_experiment(spec, split='train', tail=tail)
+    
     for method, df in agg.items():
+        # sort by a metric if we have one, else by whatever columns exist
+        sort_cols = [c for c in ("loss_mean", "max_constraint") if c in df.columns]
+        if not sort_cols:
+            sort_cols = list(df.columns)[:1]          # fallback: first column
+        df_sorted = df.sort_values(sort_cols).reset_index(drop=True)
+
         print(f"\n=== {method} ===")
-        print(df.head().to_string(index=False))
+        print(df_sorted.loc[:15].to_string(index=False))
+
+        out_path = "./results/logs/" + f"{spec.name}_{method}.csv"
+        df_sorted.to_csv(out_path, index=False)
+        print(f"  -> wrote {out_path}")
+        
+        if method == 'pbm':
+            grid = pd.read_csv("./results/folktables_cifar100/grid_pbm.csv").reset_index(names="config")
+            merged = df_sorted.merge(grid, on="config")          # metrics + hyperparams, all configs
+
+            # print(merged)
+            print(merged[merged["dual__primal_update_process_length"] == 5])
+            # print(best_configs_2[:15])
+            # print(grid.loc[best_configs_2['config']])

@@ -139,7 +139,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             "dual__delta": 1.,
             "moreau__mu": moreau_mu,
             "dual__primal_update_process_length": primal_update_process_length,
-            "dual__gamma_annealing": gamma_annealing
+            "dual__gamma_annealing": gamma_annealing,
+            "dual__penalty_annealing": penalty_annealing
         }
         for (
                 lr,
@@ -150,7 +151,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
                 dual_gamma,
                 moreau_mu,
                 primal_update_process_length,
-                gamma_annealing
+                gamma_annealing,
+                penalty_annealing
             ) in product (
             [0.001, 0.005, 0.01, 0.02, 0.05],
             [0., 0.1, 0.5, 0.9, 1.0],
@@ -159,7 +161,8 @@ def main(data_cfg, task_cfg, n_epochs, constraint_cfg, device, seed):
             [[1e-1, 1.], [1., 2.]],
             [0.9],
             [0., 2.],
-            [1, 2, 3],
+            [1],
+            [True],
             [True, False]
             )
     ]

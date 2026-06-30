@@ -164,12 +164,12 @@ if __name__ == "__main__":
     running_average = True
     best_validation_window = 5
 
-    name = 'E1'
+    name = 'E5'
     spec = ExperimentSpec(
         name=name,
         data="folktables",
-        task="weight_norm",
-        bound=2.0,
+        task="cifar10",
+        bound=0.1,
         pinns=False,
         seeds=(0, 1, 2, 3, 4),
         results_root="results",
