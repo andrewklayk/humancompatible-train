@@ -131,7 +131,7 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
                               bound=1e-4, pinns=True, seeds=(0, 1),
                               results_root="results")
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
+        methods = ["adam", "pbm", "alm_proj", "alm_max"]#, "ssg"]
 
     inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_lastK)
     if not inputs["train_losses_list"]:
@@ -154,15 +154,28 @@ if __name__ == "__main__":
 
     # True is a running window mean; False is a tail
     running_average = True
-    best_validation_window = 5
+    best_validation_window = 20
 
-    spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
-                              bound=1e-4, pinns=True, seeds=(0, 1),
-                              results_root="results")
+    name = "E8"
+    specs = {
+        "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                              results_root="results"),
+        "E8": ExperimentSpec(name="E8", data="burgers", task="pinn",
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                              results_root="results"),
+        "E9": ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                              results_root="results"),
+    }
+
+    spec = specs[name]
     constraint_titles = ["Initial Condition", "Boundary Condition"]
+    if name == "E9":
+        constraint_titles += ["Boundary Condition 2"]
 
     # takes the best validation loss config, then takes the solution from that config and plots the 
     # train / test loss and train constraints
     # the plot uses the weight (E1) plotting function
-    plot_PINNs(spec = spec, save_path="./results/plots/pinn_burgers.png", 
+    plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.png", 
                constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)

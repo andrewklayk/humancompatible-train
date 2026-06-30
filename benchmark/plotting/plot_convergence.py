@@ -111,17 +111,22 @@ if __name__ == "__main__":
     import os
     REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     RESULTS = os.path.join(REPO_ROOT, "results")
+    
+    from experiment_specs import specs
 
-    name = 'E3'
-    spec = ExperimentSpec(
-        name=name,
-        data="folktables",                       # <-- match your real results/ dir prefix
-        task="folktables_positive_rate_pair",    # <-- match your real task name
-        bound=0.1,
-        pinns=False,
-        seeds=(0, 1, 2),
-        results_root=RESULTS,
-    )
+    name = 'E5'
+    spec = specs['E5']
+
+    # name = 'E3'
+    # spec = ExperimentSpec(
+    #     name=name,
+    #     data="folktables",                       # <-- match your real results/ dir prefix
+    #     task="folktables_positive_rate_pair",    # <-- match your real task name
+    #     bound=0.1,
+    #     pinns=False,
+    #     seeds=(0, 1, 2),
+    #     results_root=RESULTS,
+    # )
     # display_split="train" shows optimizer dynamics; switch to "val" or "test"
     plot_convergence(spec, display_split="train",
                      out=os.path.join(REPO_ROOT, f"./results/plots/convergence_{name}.pdf"))

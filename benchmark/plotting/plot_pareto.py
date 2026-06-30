@@ -63,6 +63,11 @@ def plot_scatter(
         methods = [m for m in ["pbm", "alm_proj", "alm_max", "ssg"]
                    if m in agg]
 
+
+    # if methods is None:
+    #     methods = [m for m in ["pbm"]
+    #                if m in agg]
+
     fig, ax = plt.subplots(figsize=(COL_WIDTH, COL_WIDTH * 0.85))
 
     _fallback_idx = 0
@@ -118,15 +123,10 @@ if __name__ == "__main__":
     REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     RESULTS = os.path.join(REPO_ROOT, "results")
 
-    name = "E3"
-    spec = ExperimentSpec(
-        name=name,
-        data="folktables",
-        task="folktables_positive_rate_pair",
-        bound=0.1,
-        seeds=(0, 1, 2, 3, 4),
-        results_root=RESULTS,
-    )
+    from experiment_specs import specs
+
+    name = 'E4'
+    spec = specs[name]
 
     plot_scatter(spec, out=os.path.join(REPO_ROOT, f"./results/plots/pareto_{name}.pdf"),
                  tail=1, split="train", pareto_filter=True)

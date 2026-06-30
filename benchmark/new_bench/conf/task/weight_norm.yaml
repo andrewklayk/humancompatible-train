@@ -1,0 +1,7 @@
+name: weight_norm
+batch_size: 32
+model: mlp
+loss: bce
+constraint:
+  kind: weight_norm
+  bound: 2.0

@@ -1,0 +1,19 @@
+# Slurm launcher for multirun, via the hydra-submitit-launcher plugin.
+# Requires:  pip install hydra-submitit-launcher
+# Use with: python run.py -m hydra/launcher=slurm +sweep=pbm data=income task=... seed=0,1,2
+#
+# Extends the plugin's base `submitit_slurm` config (same hydra/launcher group)
+# and overrides the resources. Mirrors the old conf/hydra/launcher/configured_submitit_slurm.yaml.
+defaults:
+  - submitit_slurm
+
+# --- resources (edit for your cluster) ---
+mem_per_cpu: 16G
+cpus_per_task: 4
+partition: amd
+timeout_min: 1440          # 24h wall clock per job
+# tasks_per_node: 1
+# array_parallelism: 50    # cap simultaneously-running array tasks
+# additional_parameters: { account: my_account }
+# setup:                   # shell lines run before each task (env activation, modules)
+#   - "source activate hc-dev"

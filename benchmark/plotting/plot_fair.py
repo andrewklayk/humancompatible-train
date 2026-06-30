@@ -67,13 +67,16 @@ def _load_config_trajectory(spec, method, config_idx, split_train="train", split
     return loss, test, cons_tr, cons_te, cons_tr.shape[1]
 
 # ── assemble the lists the plotting function expects ─────────────────────────
-def build_plot_inputs(spec: ExperimentSpec, methods, best_validation_lastK=1):
+def build_plot_inputs(spec: ExperimentSpec, methods, best_validation_lastK=1, select_split="val",
+                      plot_split="test", threshold=None):
     """Returns the argument lists for plot_losses_and_constraints_stochastic:
         train_losses (PDE residual), test_losses (solution error),
         train_constraints (m x epochs), and their stds; plus titles.
-    Each list is per-method; arrays are mean / std across seeds."""
-    best = select_best_configs(spec, methods, split="val", best_validation_lastK=best_validation_lastK,
-                               threshold=spec.bound)
+    Each list is per-method; arrays are mean / std across seeds.
+    `threshold` is the constraint bound used to choose the best config; if None,
+    falls back to `spec.bound`."""
+    best = select_best_configs(spec, methods, split=select_split, best_validation_lastK=best_validation_lastK,
+                               threshold=spec.bound if threshold is None else threshold)
 
     train_losses, train_losses_std = [], []
     test_losses, test_losses_std = [], []
@@ -84,7 +87,7 @@ def build_plot_inputs(spec: ExperimentSpec, methods, best_validation_lastK=1):
     for method in methods:
         if method not in best:
             continue
-        traj = _load_config_trajectory(spec, method, best[method], split_train="train", split_test="test")
+        traj = _load_config_trajectory(spec, method, best[method], split_train="train", split_test=plot_split)
         if traj is None:
             print(f"  {method}: no trajectory for config {best[method]}, skipping")
             continue
@@ -118,7 +121,8 @@ METHOD_LABELS = {
 }
 
 
-def plot(spec=None, methods=None, save_path=None, constraint_titles=None, best_validation_lastK=1):
+def plot(spec=None, methods=None, save_path=None, constraint_titles=None, best_validation_lastK=1,
+         select_split="val", plot_split="test", threshold=None):
     if spec is None:
         spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
@@ -126,7 +130,8 @@ def plot(spec=None, methods=None, save_path=None, constraint_titles=None, best_v
     if methods is None:
         methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
-    inputs = build_plot_inputs(spec, methods, best_validation_lastK=best_validation_lastK)
+    inputs = build_plot_inputs(spec, methods, best_validation_lastK=best_validation_lastK,
+                               select_split=select_split, plot_split=plot_split, threshold=threshold)
     if not inputs["train_losses_list"]:
         print("no data to plot")
         return
@@ -160,39 +165,31 @@ def plot(spec=None, methods=None, save_path=None, constraint_titles=None, best_v
 
 if __name__ == "__main__":
 
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Plot fair/PINN results.")
+    parser.add_argument("--select-split", default="val",
+                        help="Split on which the best config is selected (e.g. 'val', 'test'). Default: 'val'.")
+    parser.add_argument("--plot-split", default="test", choices=["val", "test"],
+                        help="Which result is plotted alongside train: 'val' or 'test'. Default: 'test'.")
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="Constraint bound used to choose the best config. Default: spec.bound.")
+    args = parser.parse_args()
+
     # True is a running window mean; False is a tail
     running_average = True
-    best_validation_window = 5
+    best_validation_window = 1
+
+    from experiment_specs import specs
 
     name = 'E5'
-    spec = ExperimentSpec(
-        name=name,
-        data="folktables",
-        task="cifar10",
-        bound=0.1,
-        pinns=False,
-        seeds=(0, 1, 2, 3, 4),
-        results_root="results",
-    )
+    spec = specs[name]
+
     constraint_titles = list(range(300))
 
-    # name = 'E2'
-    # spec = ExperimentSpec(
-    #     name=name,
-    #     data="folktables",
-    #     task="equalized_odds_vec",
-    #     bound=0.2,
-    #     pinns=False,
-    #     seeds=(0, 1, 2, 3, 4),
-    #     results_root="results",
-    # )
-    # constraint_titles = list(range(300))
-
-
-    # TODO: !!!! change val to test in the load config function
-
-    # takes the best validation loss config, then takes the solution from that config and plots the 
+    # takes the best config (selected on --select-split), then takes the solution from that config and plots the
     # train / test loss and train constraints
     # the plot uses the weight (E1) plotting function
-    plot(spec = spec, save_path=f"./results/plots/{name}.png", 
-               constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+    plot(spec = spec, save_path=f"./results/plots/{name}.png",
+               constraint_titles=constraint_titles, best_validation_lastK=best_validation_window,
+               select_split=args.select_split, plot_split=args.plot_split, threshold=args.threshold)
