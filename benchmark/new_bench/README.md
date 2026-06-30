@@ -93,10 +93,41 @@ are read at the val-selected epoch — the test set is never used for selection.
 Defaults: `n_folds=5`, `init_seed` swept over 3 values, `cv_seed=0`. Cost per method
 ≈ `n_configs × n_folds × n_init_seeds`.
 
+## Two approaches: `ml` vs `opt`
+
+Set `approach=` on any run (default `ml`):
+
+- **`ml`** — the machine-learning view above: K-fold CV, train/val/test, val-based
+  selection.
+- **`opt`** — a pure stochastic-optimization view: the **entire dataset is the
+  training set**, no val/test split and no folds (`init_seed` is the only randomness
+  axis). Selection falls back to the **train** curve. Run the `scripts/E1_opt_*.sh`
+  launchers (one `init_seed` multirun each, no fold loop) then `scripts/E1_opt_select.sh`.
+
+In `opt` mode, each epoch also logs **full-batch KKT optimality metrics** to `opt.csv`
+(at the frozen end-of-epoch iterate, on the whole training set — *not* an epoch-mean
+of minibatch values, which would carry a gradient-noise floor):
+
+| column | meaning |
+|--------|---------|
+| `grad_norm` | ‖∇ₓ L‖ with `L = f + λᵀ(c−b)` (stationarity residual; `‖∇f‖` for ssg/adam) |
+| `L` | Lagrangian value (primal-dual methods) |
+| `max_viol` | `maxⱼ(cⱼ−b)` — primal feasibility (≤0 feasible) |
+| `compl` | `Σⱼ abs(λⱼ(cⱼ−b))` — complementarity (primal-dual) |
+| `lambda_j` | dual variables (primal-dual) |
+
+For **tabular** tasks this is exact (the whole set fits one forward+backward). For
+**image** tasks it is computed on a fixed, class-balanced subsample of size
+`opt_eval_size` (default 10000; lower it if the backward OOMs) — exact for that
+subsampled problem, and CIFAR is class-balanced so the subsample is representative.
+`ml` and `opt` runs must be selected **separately** (`select_best.py --approach`,
+separate `--out`); mixing them in one selection cell errors out.
+
 ## Select best configs
 
 ```bash
-python select_best.py --runs multirun/ --out selection/ --tols 1.0,1.1,1.25 --tail 5
+python select_best.py --runs multirun/ --out selection/ --approach ml --tols 1.0,1.1,1.25 --tail 5
+python select_best.py --runs multirun/ --out selection/opt --approach opt --tail 5   # opt cells
 ```
 
 Per `(task, data, algorithm)` cell, matches configs across the `fold × init_seed`
@@ -132,6 +163,21 @@ python plot_fair.py   --task folktables_positive_rate_pair --data income --bound
 curves at plot time. `plot_fair` plots train + a `--companion {val,test}` split
 (default `test`) and reads the winner from `best_*.json` (pick the slack with
 `--tol`); its renderer is reused from `../../plotting/`.
+
+**KKT closeness (`opt` approach only).** `plot_kkt.py` reads the `opt` split and plots
+the composite KKT residual `r = ‖∇L‖ + max(0,max_viol) + abs(compl)` (each config
+collapsed to the mean of its last `--tail` epochs):
+
+```bash
+python plot_kkt.py --agg ../selection/opt/aggregated \
+    --task folktables_positive_rate_pair --data income --mode cdf --metric residual
+```
+
+`--mode cdf` (default) / `pdf` give the closeness-over-configurations view (fraction
+of configs reaching each residual / its histogram); `scatter` is one point per config;
+`conv` is residual-vs-epoch (faint per config, bold best); `all` is the 2×2 grid.
+`--metric {residual,grad_norm,max_viol,compl}` isolates a single KKT component;
+`--linear` switches off the default log metric axis.
 
 ## Reference
 

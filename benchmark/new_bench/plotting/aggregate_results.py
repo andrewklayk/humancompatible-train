@@ -138,6 +138,34 @@ def config_trajectory(spec: ExperimentSpec, method: str, config_index: int, spli
     return loss_mean, loss_std, cons_mean, cons_std
 
 
+def list_configs(spec: ExperimentSpec, method: str):
+    """Sorted config indices available for one method in this cell (empty if none)."""
+    cell = _discover(spec.agg_root, spec.task, spec.data)
+    return sorted(cell.get(method, {}).keys())
+
+
+def metric_trajectory(spec: ExperimentSpec, method: str, config_index: int,
+                      split: str, metric: str):
+    """Seed-averaged per-epoch curve of an arbitrary metric column.
+
+    Returns (mean[L], std[L]|None, std_init[L]|None, epochs[L]) or None if the
+    config / split / metric is absent. ``metric`` is the bare name (e.g. 'grad_norm',
+    'max_viol', 'compl', 'L'); the stored columns are '<metric>_mean' etc. Used by the
+    KKT plots over the 'opt' split.
+    """
+    cell = _discover(spec.agg_root, spec.task, spec.data)
+    payload = cell.get(method, {}).get(int(config_index))
+    if payload is None:
+        return None
+    df = _split_frame(payload, split)
+    if df is None or f"{metric}_mean" not in df.columns:
+        return None
+    mean = df[f"{metric}_mean"].to_numpy()
+    std = df[f"{metric}_std"].to_numpy() if f"{metric}_std" in df.columns else None
+    std_init = df[f"{metric}_std_init"].to_numpy() if f"{metric}_std_init" in df.columns else None
+    return mean, std, std_init, df["epoch"].to_numpy()
+
+
 if __name__ == "__main__":
     import sys
     spec = ExperimentSpec(

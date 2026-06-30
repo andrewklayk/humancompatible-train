@@ -53,7 +53,7 @@ def main(cfg: DictConfig):
     bundle = data_mod.build_data(
         cfg_data, batch_size=int(cfg.task.batch_size), device=device,
         cv_seed=cv_seed, n_folds=n_folds, fold=fold, init_seed=init_seed,
-        approach=approach)
+        approach=approach, opt_eval_size=int(cfg.get("opt_eval_size", 10000)))
 
     # --- task (model factory, loss, constraint, m, bound) ---
     task = tasks_mod.build_task(OmegaConf.to_container(cfg.task, resolve=True), bundle)
@@ -72,8 +72,9 @@ def main(cfg: DictConfig):
           f"m={task.m} bound={task.bound} device={device}")
 
     # --- train ---
-    h_train, h_val, h_test = train(model, algorithm, task, bundle,
-                                   n_epochs=int(cfg.n_epochs), device=device)
+    h_train, h_val, h_test, h_opt = train(model, algorithm, task, bundle,
+                                          n_epochs=int(cfg.n_epochs), device=device,
+                                          approach=approach)
 
     # --- write raw results to this job's output dir ---
     hc = HydraConfig.get()
@@ -82,6 +83,7 @@ def main(cfg: DictConfig):
     _write_history(h_train, os.path.join(out_dir, "train.csv"))
     _write_history(h_val, os.path.join(out_dir, "val.csv"))
     _write_history(h_test, os.path.join(out_dir, "test.csv"))
+    _write_history(h_opt, os.path.join(out_dir, "opt.csv"))  # KKT metrics (opt mode)
 
     # Config-group choices identify the "benchmark cell" (data+task+algorithm) that
     # the selection step groups by; the same hyperparameters under different seeds

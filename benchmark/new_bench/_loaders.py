@@ -285,12 +285,33 @@ def get_data_dutch(drop_small_groups=True, print_stats=True):
     return features, groups_onehot, labels, group_dict
 
 
+def _balanced_subsample(X, targets, eye, num_classes, size, seed, device):
+    """Fixed class-balanced subsample (size//num_classes per class), drawn with a
+    dedicated ``seed`` so the optimality-eval set is identical across init seeds and
+    epochs. Returns an (X, sens_onehot, targets) tuple. CIFAR is class-balanced, so
+    a large balanced subsample is representative of the full empirical problem."""
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
+    per = max(1, size // num_classes)
+    idxs = []
+    for k in range(num_classes):
+        cls_idx = (targets == k).nonzero(as_tuple=True)[0]
+        perm = torch.randperm(len(cls_idx), generator=g, device=device)[:per]
+        idxs.append(cls_idx[perm])
+    idx = torch.cat(idxs)
+    return X[idx], eye[targets[idx]], targets[idx]
+
+
 def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
-                    balanced=False, device='cpu', approach="ml"):
+                    balanced=False, device='cpu', approach="ml", opt_eval_size=10000):
     """CIFAR-10 / CIFAR-100 with K-fold over the training set; the canonical
     torchvision test set is the fixed held-out TEST. ``sens`` is the class one-hot
     (for the "equal loss across classes" constraint). Stratified by class.
-    With approach='opt' the full training set is used; val and test are None."""
+
+    Returns ``(trainloader, valloader, testloader, opt_eval)``. With approach='opt'
+    the full training set is used (val/test None) and ``opt_eval`` is a fixed
+    class-balanced subsample (<= ``opt_eval_size``) for the end-of-epoch optimality
+    eval; otherwise ``opt_eval`` is None."""
     import torchvision
     from torchvision import transforms
 
@@ -316,7 +337,9 @@ def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
             trainloader = torch.utils.data.DataLoader(ds_tr, batch_sampler=sampler, generator=g)
         else:
             trainloader = torch.utils.data.DataLoader(ds_tr, batch_size=batch_size, shuffle=True, generator=g)
-        return trainloader, None, None
+        # cv_seed (not init_seed) -> same eval subsample across init seeds.
+        opt_eval = _balanced_subsample(X, targets, eye, num_classes, opt_eval_size, cv_seed, device)
+        return trainloader, None, None, opt_eval
 
     # K-fold the training set (stratified by class); held fold = validation.
     strat = targets.cpu().numpy()
@@ -346,4 +369,4 @@ def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
     ds_test = torch.utils.data.TensorDataset(X_test, eye[t_test], t_test)
     testloader = torch.utils.data.DataLoader(ds_test, batch_size=batch_size, generator=g)
 
-    return trainloader, valloader, testloader
+    return trainloader, valloader, testloader, None

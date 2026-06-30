@@ -8,6 +8,10 @@ n_epochs: 30
 
 # --- approach: ml (K-fold CV, train/val/test) or opt (full dataset, train only) ---
 approach: ml
+# Fixed class-balanced subsample size for the end-of-epoch optimality eval on IMAGE
+# tasks in opt mode (tabular uses the whole set). Lower it if the full-batch backward
+# OOMs; raise it for a tighter KKT estimate.
+opt_eval_size: 10000
 
 # --- randomness axes (separated; see README "Cross-validation") ---
 init_seed: 0      # model init + batch order (optimization randomness); sweep e.g. 0,1,2

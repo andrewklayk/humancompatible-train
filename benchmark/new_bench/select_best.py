@@ -75,15 +75,18 @@ def _decompose(df, col):
     return by_epoch["m"].std(ddof=0), by_epoch["s"].mean()
 
 
+_NON_METRIC = {"epoch", "time", "fold", "init_seed"}
+
+
 def _aggregate_split(runs, split, filt):
     """Aggregate one config's per-epoch curve for one split over the (fold, init_seed)
     grid.
 
-    Returns (DataFrame, constraint_cols) or (None, []). Per epoch:
-    loss_mean; loss_std (overall, across all runs); loss_std_fold / loss_std_init
-    (DATA / OPTIMIZATION variance components); (if constraints) maxc_mean/std plus
-    maxc_std_fold / maxc_std_init and c_i_mean/std; n_seeds (total runs) and
-    n_folds / n_inits.
+    Returns (DataFrame, constraint_cols) or (None, []). Metric-agnostic: EVERY numeric
+    column (loss, maxc, each c_i, and the opt-split KKT metrics grad_norm/L/compl/
+    lambda_i/max_viol) gets ``_mean``, ``_std`` (overall), and the variance components
+    ``_std_fold`` (DATA) / ``_std_init`` (OPTIMIZATION). Non-numeric columns (e.g. the
+    stringified ``acc`` array) are skipped. Also emits n_seeds / n_folds / n_inits.
     """
     frames, cc = [], []
     for r in runs:
@@ -99,25 +102,19 @@ def _aggregate_split(runs, split, filt):
         return None, []
     allruns = pd.concat(frames, ignore_index=True)
     g = allruns.groupby("epoch")
-    loss_sf, loss_si = _decompose(allruns, "loss")
     cols = {
-        "loss_mean": g["loss"].mean(),
-        "loss_std": g["loss"].std(ddof=0),     # overall (across all runs)
-        "loss_std_fold": loss_sf,              # data variance
-        "loss_std_init": loss_si,              # optimization variance
-        "n_seeds": g["loss"].size(),           # total runs (folds x inits)
+        "n_seeds": g.size(),                   # total runs (folds x inits)
         "n_folds": g["fold"].nunique(),
         "n_inits": g["init_seed"].nunique(),
     }
-    if cc:
-        maxc_sf, maxc_si = _decompose(allruns, "maxc")
-        cols["maxc_mean"] = g["maxc"].mean()
-        cols["maxc_std"] = g["maxc"].std(ddof=0)
-        cols["maxc_std_fold"] = maxc_sf
-        cols["maxc_std_init"] = maxc_si
-        for c in cc:
-            cols[f"{c}_mean"] = g[c].mean()
-            cols[f"{c}_std"] = g[c].std(ddof=0)
+    metric_cols = [c for c in allruns.columns
+                   if c not in _NON_METRIC and pd.api.types.is_numeric_dtype(allruns[c])]
+    for col in metric_cols:
+        sf, si = _decompose(allruns, col)
+        cols[f"{col}_mean"] = g[col].mean()
+        cols[f"{col}_std"] = g[col].std(ddof=0)   # overall (across all runs)
+        cols[f"{col}_std_fold"] = sf              # data variance
+        cols[f"{col}_std_init"] = si              # optimization variance
     return pd.DataFrame(cols).reset_index(), cc
 
 
@@ -129,7 +126,7 @@ def _aggregate_config(runs, filt):
     the selection split when val is absent (opt/train-only mode).
     """
     splits, m = {}, 0
-    for split in ("train", "val", "test"):
+    for split in ("train", "val", "test", "opt"):
         res, cc = _aggregate_split(runs, split, filt)
         if res is not None:
             splits[split] = res
@@ -310,6 +307,11 @@ def main():
     ap.add_argument("--rolling", action="store_true",
                     help="select the epoch minimising the rolling-`tail` mean val loss "
                          "(default: mean over the last `tail` epochs)")
+    ap.add_argument("--approach", default=None, choices=["ml", "opt"],
+                    help="only aggregate runs of this approach (ml: CV/val-selected; "
+                         "opt: full-data, train-selected, with KKT metrics). Required if "
+                         "the scanned tree mixes approaches -- ml and opt must not share "
+                         "a cell. Use a separate --out per approach (e.g. selection/opt).")
     args = ap.parse_args()
     tol_mults = _parse_tols(args.tols)
     last_epoch = not args.rolling
@@ -317,17 +319,29 @@ def main():
     os.makedirs(agg_dir, exist_ok=True)
 
     # Discover runs; nest as cell -> config signature -> {meta, runs:[{dir,fold,init_seed}]}.
-    
+    # ml and opt runs differ in splits/metrics, so they must not merge into one cell:
+    # filter by --approach (or require it if the tree mixes approaches).
     cells = {}
+    approaches_seen = set()
     for meta_path in glob.glob(os.path.join(args.runs, "**", "run_meta.json"), recursive=True):
         d = os.path.dirname(meta_path)
         with open(meta_path) as f:
             meta = json.load(f)
+        appr = meta.get("approach", "ml")
+        if args.approach is not None and appr != args.approach:
+            continue
+        approaches_seen.add(appr)
         cell = (meta["task"], meta.get("data"), meta["algorithm"])
         sig = _config_signature(meta)
         entry = cells.setdefault(cell, {}).setdefault(sig, {"meta": meta, "runs": []})
         entry["runs"].append({"dir": d, "fold": int(meta.get("fold", 0)),
                               "init_seed": int(meta.get("init_seed", 0))})
+
+    if args.approach is None and len(approaches_seen) > 1:
+        print(f"Runs under {args.runs} mix approaches {sorted(approaches_seen)}; ml and "
+              f"opt cannot share a cell. Re-run with --approach ml or --approach opt "
+              f"(and a per-approach --out, e.g. --out selection/opt).")
+        return
 
     if not cells:
         print(f"No runs (run_meta.json) found under {args.runs}")
