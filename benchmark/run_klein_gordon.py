@@ -38,7 +38,7 @@ pbm_grid = [
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-        [1], [True], [True, False], [True, False], [0.1])
+        [1], [True], [True, False], [False], [0.1])
 ]
 
 # ensure the primal update process length is the same for both moreau and dual

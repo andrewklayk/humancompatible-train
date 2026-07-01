@@ -1,0 +1,23 @@
+name: pbm_mirror
+updater: primal_dual
+constraints_to_eq: false
+select_filter: upper
+primal:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.01
+moreau:
+  mu: 1.0
+dual:
+  _target_: humancompatible.train.dual_optim.PBM
+  _partial_: true
+  penalty_mult: 0.5
+  penalty_update: dimin_adapt
+  pbf: quadratic_logarithmic
+  gamma: 0.9
+  delta: 1.0
+  penalty_range: [0.1, 1.0]
+  gamma_annealing: false
+  primal_update_process_length: 1
+  mirror_ascent: true
+  mirror_ascent_step_size: 0.1
