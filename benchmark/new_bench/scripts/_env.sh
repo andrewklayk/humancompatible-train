@@ -38,3 +38,17 @@ fi
 # Manual grid via Hydra's BASIC sweeper (the default): each +sweep=<algo> file
 # declares hydra.sweeper.params as choice()/range() grids, enumerated as a full
 # cartesian product. No extra sweeper args needed.
+#
+# SLURM ARRAY-SIZE LIMIT. submitit submits ONE job array per `run.py -m` call, one
+# task per grid point, so a single invocation's grid must stay under the cluster's
+# MaxArraySize (`scontrol show config | grep MaxArraySize`; e.g. 1001). NOTE:
+# `array_parallelism` in conf/hydra/launcher/slurm*.yaml only caps CONCURRENCY
+# (the `%N` in --array=0-M%N); it does NOT change the array size and will NOT fix
+# "Invalid job array specification". These scripts already loop fold/init_seed
+# OUTSIDE the -m call so each array = grid size only. Current grids: pbm 600,
+# alm_max 225, ssg 75, alm_proj 16 -- all under 1001.
+#
+# If you enlarge a grid past MaxArraySize, peel its biggest axis into an outer shell
+# loop: remove that line from conf/sweep/<algo>.yaml and pass it as a scalar override,
+# e.g.  for lr in 0.001 0.005 0.01; do python run.py -m +sweep=pbm ... \
+#          algorithm.primal.lr=$lr; done   # each array = grid / (#lr values)

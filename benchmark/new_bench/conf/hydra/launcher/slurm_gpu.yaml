@@ -40,4 +40,6 @@ additional_parameters:
 #       sacctmgr -n show qos format=Name,MaxSubmitJobsPerUser).
 # NOTE: this bounds *concurrency*, not the array's total size -- that's the separate
 # MaxArraySize (1001 here) constraint documented in scripts/_env.sh.
-array_parallelism: 200
+array_parallelism: 199
+# setup:                   # shell lines run before each task (env activation, modules)
+#   - "source activate hc-dev"

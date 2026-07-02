@@ -120,32 +120,49 @@ For **tabular** tasks this is exact (the whole set fits one forward+backward). F
 **image** tasks it is computed on a fixed, class-balanced subsample of size
 `opt_eval_size` (default 10000; lower it if the backward OOMs) — exact for that
 subsampled problem, and CIFAR is class-balanced so the subsample is representative.
-`ml` and `opt` runs must be selected **separately** (`select_best.py --approach`,
-separate `--out`); mixing them in one selection cell errors out.
+`ml` and `opt` runs must be **aggregated separately** (`aggregate.py --approach`,
+separate `--out`); mixing them in one cell errors out.
 
-## Select best configs
+## Aggregate + select (two stages)
+
+Selection is split into two re-runnable scripts sharing the `selection/aggregated/`
+files as the single source of truth (also read by the plots):
 
 ```bash
-python select_best.py --runs multirun/ --out selection/ --approach ml --tols 1.0,1.1,1.25 --tail 5
-python select_best.py --runs multirun/ --out selection/opt --approach opt --tail 5   # opt cells
+# stage 1 — raw multirun -> per-config seed-averaged curves
+python aggregate.py   --runs multirun/ --out selection/ --approach ml
+# stage 2 — aggregated curves -> best config per cell (cheap; re-run at any --tols)
+python select_best.py --agg selection/aggregated --out selection/ --tols 1.0,1.1,1.25 --tail 5
 ```
 
-Per `(task, data, algorithm)` cell, matches configs across the `fold × init_seed`
-grid and writes per-epoch curves for **every split**, including each constraint `c_i`,
-the max violation, and the `_std_fold`/`_std_init` variance components. Selection: each config's val curve is collapsed over a window
-(mean of the last `--tail` epochs, or `--rolling` for the rolling-`tail` argmin-loss
-epoch); among configs feasible at `bound·mult` the min-loss one wins, once per
-`--tols` slack level (`adam`/`filter=none` → plain argmin loss). Output under `--out`:
+For `opt`, aggregate into a separate dir: `aggregate.py --approach opt --out selection/opt`
+then `select_best.py --agg selection/opt/aggregated --out selection/opt`. (The
+`E1_select.sh` / `E1_opt_select.sh` scripts run both stages for you.)
+
+**`aggregate.py`** — per `(task, data, algorithm)` cell, matches configs across the
+`fold × init_seed` grid and writes per-epoch curves for **every split**, including each
+constraint `c_i`, the max violation, and the `_std_fold`/`_std_init` variance
+components:
 
 ```text
-aggregated/<cell>__cfgNNN.json   # per config: hyperparameters + all-split per-constraint curves
-aggregated/<cell>__cfgNNN.csv    # the val curve, for eyeballing
+aggregated/<cell>.csv    # all curves, long: one row per (config, split, epoch)
+aggregated/<cell>.json   # per-config metadata + hyperparameters (curves live in the CSV)
+```
+
+**`select_best.py`** — reads those JSONs (never the raw runs), collapses each config's
+selection-split curve over a window (mean of the last `--tail` epochs, or `--rolling`
+for the rolling-`tail` argmin-loss epoch), and among configs feasible at `bound·mult`
+takes the min-loss one, once per `--tols` slack level (`adam`/`filter=none` → plain
+argmin loss):
+
+```text
 best_<cell>__tol<mult>.json      # selected config per (cell, slack)
 best_summary.csv                 # one row per (cell, slack)
 ```
 
-Selection is auditable and re-runnable without retraining. The windowed `collapse`
-is shared with the plotting backend, so selection and plots always agree.
+Both stages are auditable and re-runnable without retraining. The windowed `collapse`
+lives in `select_best.py` and is imported by the plotting backend, so selection and
+plots always agree.
 
 ## Plotting
 

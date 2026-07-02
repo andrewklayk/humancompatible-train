@@ -4,13 +4,13 @@ Two steps, equivalent to ../../plotting/plot_fair.py:
   1) SELECT: read each method's winning config from select_best.py's best_*.json
      (select_best.py is the single selector -- no re-selection here).
   2) PLOT: for that config, load the seed-averaged per-epoch train/test loss and
-     per-constraint curves from selection/aggregated/, and feed them to the shared
-     renderer plot_losses_and_constraints_stochastic (from ../../plotting/plotting.py).
+     per-constraint curves from aggregate.py's selection/aggregated/, and feed them to
+     the shared renderer plot_losses_and_constraints_stochastic (from ../../plotting/plotting.py).
 
 The second column plots a chosen companion split alongside train: ``--companion``
 (``val`` or ``test``, default ``test``).
 
-Usage (run select_best.py first):
+Usage (run aggregate.py then select_best.py first):
     python plot_fair.py --task folktables_positive_rate_pair --data income \
         --bound 0.1 [--tol 1.0] [--companion val|test] [--out plots/fair.png]
 """
@@ -21,7 +21,7 @@ import sys
 
 import numpy as np
 
-from aggregate_results import ExperimentSpec, config_trajectory
+from benchmark.new_bench.plotting.prepare_results_plotting import ExperimentSpec, config_trajectory
 
 # Shared renderer lives in the sibling ../../plotting package (pure matplotlib/numpy).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plotting"))
@@ -148,7 +148,9 @@ def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=Non
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--agg", default="../selection/aggregated",
-                    help="dir of select_best.py aggregated JSONs (run select_best.py first)")
+                    help="dir of aggregate.py's per-cell aggregates (curves); select_best.py's "
+                         "best_*.json winners are read from its parent. Run aggregate.py then "
+                         "select_best.py first.")
     ap.add_argument("--task", default="weight_norm")
     ap.add_argument("--data", default="income_norm")
     ap.add_argument("--bound", type=float, default=0.1)

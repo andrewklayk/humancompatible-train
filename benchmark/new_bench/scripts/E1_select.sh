@@ -9,6 +9,7 @@ if [ -f ../env_humancompatible/bin/activate ]; then
   source ../env_humancompatible/bin/activate
 fi
 : "${TOLS:=1.0,1.1,1.25}"
-# --approach ml: aggregate only the CV/val-selected runs (opt runs go to selection/opt
-# via E1_opt_select.sh). Keeps the two approaches in separate selection dirs.
-python3 select_best.py --runs multirun/ --out selection/ --approach ml --tols "${TOLS}"
+# Two stages: aggregate (raw runs -> selection/aggregated/) then select (-> best_*.json).
+# --approach ml keeps the CV/val-selected runs separate from opt (E1_opt_select.sh).
+python3 aggregate.py   --runs multirun/ --out selection/ --approach ml
+python3 select_best.py --agg selection/aggregated --out selection/ --tols "${TOLS}"
