@@ -134,6 +134,28 @@ def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f,
         val_err = torch.linalg.norm((u_model(X_val) - y_val), 2).item() / torch.linalg.norm(y_val, 2).item()
         test_err = torch.linalg.norm((u_model(X_test) - y_test), 2).item() / torch.linalg.norm(y_test, 2).item()
 
+
+        # ── KKT on the entire train set (post-step, current weights) ──── ADDED
+        # min f=loss1  s.t.  g=[loss2,loss3]-THRESHOLD <= 0 ; L = f + λᵀg.
+        X_k = Variable(data, requires_grad=True).to(device)
+        u_k = u_model(X_k)
+        ut_k, ux_k, uxx_k = calculate_all_partial(u_k, X_k)
+        f = loss_f(ut_k + u_k*ux_k - nu*uxx_k, torch.zeros_like(ut_k))
+        out_ini_k, out_bdry_k = u_model(X_ini), u_model(X_bdry)
+        g = torch.stack([loss_f(out_ini_k - u_ini, torch.zeros_like(out_ini_k)),
+                         loss_f(out_bdry_k, torch.zeros_like(out_bdry_k))]) - THRESHOLD
+        lam = dual_opt.duals.detach().reshape(-1) if dual_opt is not None \
+              else torch.zeros(2, device=device)
+        L = f + lam @ g
+        params = [p for p in u_model.parameters() if p.requires_grad]
+        grads = torch.autograd.grad(L, params, allow_unused=True)
+        grad_norm = torch.sqrt(sum((gr**2).sum() for gr in grads if gr is not None)).item()
+        max_viol = g.max().item()
+        compl = (lam * g).abs().sum().item()
+        kkt_list.append({"kkt_r": grad_norm + max(0., max_viol) + compl,
+                         "kkt_grad": grad_norm, "kkt_viol": max_viol, "kkt_compl": compl,
+                         "lambda_0": lam[0].item(), "lambda_1": lam[1].item()})
+
         loss_list.append((loss1 + loss2).item())
         loss_list1.append(loss1.item())
         loss_list2.append(loss2.item())
@@ -216,7 +238,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
         history = []
         t0 = _time.time()
         for t in range(0, EPOCH):
-            loss, loss1, loss2, val_err, test_err = train(
+            loss, loss1, loss2, val_err, test_err, kkt = train(
                 u_model, b, trainloader=train_loader, bdry_data=bdry,
                 val_test=val_test, optimizer=optimizer, loss_f=nn.MSELoss(),
                 dual_opt=dual, clamp=clamp, mode=mode, sw_dual=sw_dual)

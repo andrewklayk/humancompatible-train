@@ -61,6 +61,9 @@ class PBM(Optimizer):
         # K schedule for annealing penalty changes
         if self.penalty_annealing:
             def K_schedule(step_num, K0):
+                if K0 == 1:
+                    return 1.0 # constant
+                    
                 k0 = 1.0 / (1.0 - K0)
                 return 1.0 - 1.0 / (step_num**0.5 + k0)
                 
