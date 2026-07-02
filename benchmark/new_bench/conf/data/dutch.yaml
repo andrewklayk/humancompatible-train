@@ -1,0 +1,2 @@
+name: dutch
+# Sensitive groups (sex x age) are fixed inside the dutch loader; kwargs unused.

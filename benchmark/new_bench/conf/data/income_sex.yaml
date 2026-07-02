@@ -1,0 +1,4 @@
+name: folktables
+kwargs:
+  sens_attrs: ['SEX']
+  states: ['VA']
