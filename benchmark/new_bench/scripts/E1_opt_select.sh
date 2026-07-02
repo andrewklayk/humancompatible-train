@@ -9,6 +9,8 @@ if [ -f ../env_humancompatible/bin/activate ]; then
   source ../env_humancompatible/bin/activate
 fi
 : "${TOLS:=1.0,1.1,1.25}"
-python3 select_best.py --runs multirun/ --out selection/opt --approach opt --tols "${TOLS}"
+# Two stages: aggregate (opt runs -> selection/opt/aggregated/) then select.
+python3 aggregate.py   --runs multirun/ --out selection/opt --approach opt
+python3 select_best.py --agg selection/opt/aggregated --out selection/opt --tols "${TOLS}"
 echo "KKT plots:  cd plotting && python plot_kkt.py --agg ../selection/opt/aggregated \\"
 echo "              --task <task> --data <data> --mode cdf --metric residual"

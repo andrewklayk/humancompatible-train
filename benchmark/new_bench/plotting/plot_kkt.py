@@ -1,6 +1,6 @@
 """plot_kkt.py (new_bench) — closeness-to-KKT over configurations (opt approach).
 
-Reads the seed-averaged ``opt`` split that ``select_best.py`` persists for
+Reads the seed-averaged ``opt`` split that ``aggregate.py`` persists for
 ``approach=opt`` runs (full-batch KKT metrics: ``grad_norm`` = ‖∇L‖ stationarity,
 ``max_viol`` = primal feasibility, ``compl`` = complementarity). The composite KKT
 residual per config/epoch is
@@ -20,7 +20,7 @@ Modes (``--mode``):
 
 ``--metric {residual,grad_norm,max_viol,compl}`` plots a single component instead.
 
-Run ``select_best.py --approach opt --out selection/opt`` first, then point
+Run ``aggregate.py --approach opt --out selection/opt`` first, then point
 ``--agg`` at ``selection/opt/aggregated``.
 
 Usage:
@@ -34,11 +34,11 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from aggregate_results import ExperimentSpec, list_configs, metric_trajectory
+from prepare_results_plotting import ExperimentSpec, list_configs, metric_trajectory
 from plot_style import set_neurips_style, style_for, COL_WIDTH
 
 SPLIT = "opt"
-METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
+METHODS = ["adam", "pbm", "pbm_mirror", "alm_proj", "alm_max", "ssg"]
 _AXLABEL = {"residual": "KKT residual $r$", "grad_norm": r"$\|\nabla_x L\|$",
             "max_viol": "feasibility $\\max_j(c_j-b)_+$", "compl": "complementarity $\\sum_j|\\lambda_j g_j|$"}
 
@@ -140,7 +140,7 @@ def _plot_conv(ax, finals, log):
         best = min(rows, key=lambda r: r[1])
         for cfg, _final, traj, epochs in rows:
             ax.plot(epochs, traj, color=st["color"], alpha=0.12, lw=0.6)
-        ax.plot(best[3], best[2], color=st["color"], ls=st["ls"], lw=1.4, label=st["label"])
+        # ax.plot(best[3], best[2], color=st["color"], ls=st["ls"], lw=1.4, label=st["label"])
     ax.set_xlabel("epoch")
     if log:
         ax.set_yscale("log")
@@ -154,7 +154,7 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
     finals = _finals_by_method(spec, methods, metric, tail)
     if not finals:
         print(f"no '{SPLIT}' metrics found under {spec.agg_root} "
-              f"(run select_best.py --approach opt first)")
+              f"(run aggregate.py --approach opt first)")
         return None
 
     print(f"\n--- final {metric} (mean of last {tail} epochs), per method ---")
@@ -193,19 +193,19 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--agg", default="../selection/opt/aggregated",
-                    help="dir of select_best.py --approach opt aggregated JSONs")
+                    help="dir of aggregate.py --approach opt per-cell aggregates")
     ap.add_argument("--task", default="folktables_positive_rate_pair")
     ap.add_argument("--data", default="income")
     ap.add_argument("--bound", type=float, default=0.1)
     ap.add_argument("--mode", default="cdf", choices=["cdf", "pdf", "scatter", "conv", "all"])
     ap.add_argument("--metric", default="residual",
                     choices=["residual", "grad_norm", "max_viol", "compl"])
-    ap.add_argument("--tail", type=int, default=5,
-                    help="window (last K epochs) collapsed to each config's final value")
+    # ap.add_argument("--tail", type=int, default=1,
+    #                 help="window (last K epochs) collapsed to each config's final value")
     ap.add_argument("--linear", action="store_true", help="linear metric axis (default: log)")
     ap.add_argument("--out", default="plots/kkt_cdf.pdf")
     args = ap.parse_args()
     spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
                           bound=args.bound, agg_root=args.agg)
-    plot_kkt(spec, mode=args.mode, metric=args.metric, tail=args.tail,
+    plot_kkt(spec, mode=args.mode, metric=args.metric, tail=1,
              log=not args.linear, out=args.out)
