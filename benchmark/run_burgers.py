@@ -82,6 +82,7 @@ def calculate_all_partial(u, x) :
 def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f, dual_opt=None, clamp=False, mode='lagrangian',
            sw_dual=None, constraint_tol=0.) :  # +clamp, +mode, +sw_dual, +constraint_tol
     loss_list, loss_list1, loss_list2, loss_list3, val_list, test_list = [], [], [], [], [], []
+    kkt_list = []  # ADDED: per-batch KKT dicts (full-batch loader -> whole train set)
     X_ini, u_ini, X_bdry, u_bdry = ini_bdry_data
     X_val, y_val, X_test, y_test = val_test
 
@@ -139,6 +140,29 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         u_model.eval()
         val_err = torch.linalg.norm((u_model(X_val) - y_val),2).item() / torch.linalg.norm(y_val,2).item()
         test_err = torch.linalg.norm((u_model(X_test) - y_test),2).item() / torch.linalg.norm(y_test,2).item()
+        # train_L = torch.linalg.norm((output - u_model(X_v)),2).item()
+
+        # ── KKT on the entire train set (post-step, current weights) ──── ADDED
+        # min f=loss1  s.t.  g=[loss2,loss3]-THRESHOLD <= 0 ; L = f + λᵀg.
+        X_k = Variable(data, requires_grad=True).to(device)
+        u_k = u_model(X_k)
+        ut_k, ux_k, uxx_k = calculate_all_partial(u_k, X_k)
+        f = loss_f(ut_k + u_k*ux_k - nu*uxx_k, torch.zeros_like(ut_k))
+        out_ini_k, out_bdry_k = u_model(X_ini), u_model(X_bdry)
+        g = torch.stack([loss_f(out_ini_k - u_ini, torch.zeros_like(out_ini_k)),
+                         loss_f(out_bdry_k, torch.zeros_like(out_bdry_k))]) - THRESHOLD
+        lam = dual_opt.duals.detach().reshape(-1) if dual_opt is not None \
+              else torch.zeros(2, device=device)
+        L = f + lam @ g
+        params = [p for p in u_model.parameters() if p.requires_grad]
+        grads = torch.autograd.grad(L, params, allow_unused=True)
+        grad_norm = torch.sqrt(sum((gr**2).sum() for gr in grads if gr is not None)).item()
+        max_viol = g.max().item()
+        compl = (lam * g).abs().sum().item()
+        kkt_list.append({"kkt_r": grad_norm + max(0., max_viol) + compl,
+                         "kkt_grad": grad_norm, "kkt_viol": max_viol, "kkt_compl": compl,
+                         "lambda_0": lam[0].item(), "lambda_1": lam[1].item()})
+
 
         loss_list.append((loss1+loss2+loss3).item())
         loss_list1.append(loss1.item())
@@ -147,8 +171,9 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         val_list.append(val_err)
         test_list.append(test_err)
         
+    kkt = {k: float(np.mean([d[k] for d in kkt_list])) for k in kkt_list[0]}  # ADDED
     return np.mean(loss_list), np.mean(loss_list1), np.mean(loss_list2),\
-           np.mean(loss_list3), np.mean(val_list), np.mean(test_list)
+           np.mean(loss_list3), np.mean(val_list), np.mean(test_list), kkt
 
 
 # ── saving helpers (ADDED) ───────────────────────────────────────────────────
@@ -231,12 +256,13 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
         history = []
         t0 = _time.time()
         for t in range(0, EPOCH):
-            loss, loss1, loss2, loss3, val_err, test_err = train(
+            loss, loss1, loss2, loss3, val_err, test_err, kkt = train(
                 u_model, b, trainloader=train_loader, ini_bdry_data=ini_bdry,
                 val_test=val_test, optimizer=optimizer, loss_f=nn.MSELoss(),
                 dual_opt=dual, clamp=clamp, mode=mode, sw_dual=sw_dual)
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
-                            "c_0": loss2, "c_1": loss3, "val": val_err, "test": test_err})
+                            "c_0": loss2, "c_1": loss3, "val": val_err, "test": test_err,
+                            **kkt})
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2 + loss3, val_err, test_err))
