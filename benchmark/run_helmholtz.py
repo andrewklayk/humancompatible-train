@@ -278,8 +278,8 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
         return ALM(m=1, **dp, device=device)
 
     # ===== ADAM =====
-    # histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    # save_method(result_dir, "adam", histories, adam_grid)
+    histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+    save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) Log  =====
     # ensure the pbm has the size of the epoch (for penalty annealing)

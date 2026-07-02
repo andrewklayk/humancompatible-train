@@ -40,7 +40,7 @@ pbm_grid = [
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-        [1], [True], [True, False], [False], [0.1])
+        [1], [True], [True, False], [False], [None])
 ]
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
@@ -291,8 +291,8 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
         return ALM(m=2, **dp, device=device)
 
     # ===== ADAM =====
-    # histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    # save_method(result_dir, "adam", histories, adam_grid)
+    histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+    save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) Log  =====
     # ensure the pbm has the size of the epoch (for gamma annealing)

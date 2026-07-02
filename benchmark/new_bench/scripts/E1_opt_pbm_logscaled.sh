@@ -7,7 +7,7 @@
 set -euo pipefail
 source scripts/_env.sh
 
-ALGO=pbm_mirror
+ALGO=pbm_logscaled
 INIT_CSV=$(echo "${INIT_SEEDS}" | tr ' ' ',')
 python3 -u run.py -m ${LAUNCHER_ARG} \
   +sweep=${ALGO} data=${DATA} task=${TASK} \
