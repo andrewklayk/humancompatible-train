@@ -10,7 +10,11 @@ defaults:
 
 # --- resources (edit for your cluster) ---
 partition: amdgpufast             # <-- your GPU partition name
-tasks_per_node: 4
+# MUST stay 1: submitit runs the job's function ONCE PER TASK. run.py is a single
+# process (not torch.distributed), so tasks_per_node>1 launches N duplicate processes
+# that share one Hydra output dir and write train.csv/opt.csv concurrently -> torn,
+# interleaved CSV rows. To pack many jobs on a node, use array_parallelism, not tasks.
+tasks_per_node: 1
 cpus_per_task: 4          # dataloading workers / host-side work
 mem_per_cpu: 8G
 
@@ -25,6 +29,17 @@ additional_parameters:
 # comment out additional_parameters.gres above and use instead:
 # gpus_per_node: 1         # -> `#SBATCH --gpus-per-node=1`
 
-# array_parallelism: 8     # cap simultaneously-running GPU array tasks
+# Caps how many array tasks are active at once -> renders as `#SBATCH --array=0-M%N`.
+# Two reasons to set it:
+#   1) throttle concurrent GPU use (be a good cluster citizen), and
+#   2) stay under the QOS submit limit. If sbatch fails with
+#      "QOSMaxSubmitJobPerUserLimit ... job submit limit", your QOS caps how many jobs
+#      you may have submitted (pending+running) at once; the `%N` throttle makes Slurm
+#      hold the rest so only N count against that limit. Set this <= your limit
+#      (find it with:  sacctmgr -n show assoc user=$USER format=QOS,MaxSubmit  or
+#       sacctmgr -n show qos format=Name,MaxSubmitJobsPerUser).
+# NOTE: this bounds *concurrency*, not the array's total size -- that's the separate
+# MaxArraySize (1001 here) constraint documented in scripts/_env.sh.
+array_parallelism: 199
 # setup:                   # shell lines run before each task (env activation, modules)
 #   - "source activate hc-dev"
