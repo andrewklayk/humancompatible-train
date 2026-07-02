@@ -35,9 +35,8 @@ pbm_grid = [
      "dual__delta": 1., "moreau__mu": mu,
     "dual__primal_update_process_length": primal_update_process_length,
     "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
-    "dual__mirror_ascent": mirror_ascent, "dual__mirror_ascent_step_size": mirror_ascent_stepsize}
-    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, 
-         mirror_ascent, mirror_ascent_stepsize) 
+    "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
@@ -50,18 +49,18 @@ for arr_dict in pbm_grid:
     if arr_dict["dual__gamma_annealing"] == True:
         arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
-pbm_mirror_grid = [
+pbm_logascaled_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
      "dual__delta": 1., "moreau__mu": mu,
     "dual__primal_update_process_length": primal_update_process_length,
     "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
-    "dual__mirror_ascent": mirror_ascent, "dual__mirror_ascent_step_size": mirror_ascent_stepsize}
-    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, mirror_ascent, mirror_ascent_stepsize) 
+    "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-        [1], [False], [True, False], [True, False], [0.1, 0.01, 0.5])
+        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [None], [0., 1., 2.], 
+        [1], [None], [True, False], [True], [0.1, 0.01, 0.5])
 ]
 
 alm_proj_grid = [
@@ -295,13 +294,13 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
     # histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
     # save_method(result_dir, "adam", histories, adam_grid)
 
-    # ===== SPBM (PBM) Mirror =====
+    # ===== SPBM (PBM) Log  =====
     # ensure the pbm has the size of the epoch (for gamma annealing)
-    for arr_dict in pbm_grid_mirror:   
+    for arr_dict in pbm_logascaled_grid:   
         arr_dict["dual__epoch_length"] = len(train_loader)
 
-    histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
-    save_method(result_dir, "pbm", histories, pbm_grid)
+    histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
+    save_method(result_dir, "pbm", histories, pbm_logascaled_grid)
 
     # ===== SPBM (PBM) =====
     # ensure the pbm has the size of the epoch (for gamma annealing)
