@@ -162,7 +162,7 @@ def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f,
         g = loss_f(output_bdry, torch.zeros_like(output_bdry)).reshape(-1)
 
         lam = dual_opt.duals.detach() if dual_opt is not None \
-              else torch.zeros(1, device=device)
+              else beta * torch.ones(1, device=device)
         L = f + lam @ g
         
         params = [p for p in u_model.parameters() if p.requires_grad]

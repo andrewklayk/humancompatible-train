@@ -166,7 +166,7 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         g = torch.stack([loss_f(out_ini_k - u_ini, torch.zeros_like(out_ini_k)),
                          loss_f(out_bdry_k, torch.zeros_like(out_bdry_k))]) - THRESHOLD
         lam = dual_opt.duals.detach().reshape(-1) if dual_opt is not None \
-              else torch.zeros(2, device=device)
+              else beta * torch.ones(2, device=device)
         L = f + lam @ g
         params = [p for p in u_model.parameters() if p.requires_grad]
         grads = torch.autograd.grad(L, params, allow_unused=True)
