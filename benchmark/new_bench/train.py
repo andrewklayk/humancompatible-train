@@ -133,7 +133,7 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
     return rec
 
 
-def train(model, algorithm, task, bundle, n_epochs, device, approach="ml"):
+def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbose=False):
     """Run training; returns (history_train, history_val, history_test, history_opt)
     as lists of dicts. ``history_opt`` holds the full-batch KKT optimality metrics
     (only populated when ``approach='opt'`` on a tabular task; empty otherwise)."""
@@ -178,6 +178,18 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml"):
 
         train_time = time.perf_counter() - train_start
         history_train.append(_epoch_record(epoch, train_time, losses, constraints, accs))
+
+        # print verbose if needed
+        if verbose:
+            constraints_print = np.mean(constraints, axis=0)
+            constraints_max = constraints_print.max()
+            print(
+                f"epoch: {epoch}\n"
+                f"time: {train_time}\n"
+                f"loss: {np.mean(losses)}\n"
+                f"acc: {np.mean(accs, axis=0)}\n"
+                f"constraint max: {constraints_max}"
+            )
 
         if bundle.val is not None:
             model.eval()

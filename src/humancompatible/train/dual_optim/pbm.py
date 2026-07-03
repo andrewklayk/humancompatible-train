@@ -75,7 +75,7 @@ class PBM(Optimizer):
         if self.logscaled_dual_update: 
             if gamma is not None or gamma_annealing is not None:
                 raise ValueError("For 'log-scaled dual update', 'gamma' and 'gamma_annealing' must be set to 'None'!")
-            
+                
             if init_duals == None:
                 init_duals = dual_range[0]
             init_duals = np.log(init_duals)
