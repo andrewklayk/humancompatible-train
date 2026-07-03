@@ -16,4 +16,4 @@ ml Hydra/1.3.2-GCCcore-14.3.0
 ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
 source ../env_humancompatible/bin/activate
 
-python3 -u run_helmholtz.py task=helmholtz seed=$SLURM_ARRAY_TASK_ID algorithms="[adam]"
+python3 -u run_helmholtz.py task=helmholtz seed=$SLURM_ARRAY_TASK_ID algorithms="[pbm_logscaled]"
