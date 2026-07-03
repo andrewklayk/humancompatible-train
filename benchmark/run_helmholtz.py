@@ -287,7 +287,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
         arr_dict["dual__epoch_length"] = len(train_loader)
 
     histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
-    save_method(result_dir, "pbm", histories, pbm_logascaled_grid)
+    save_method(result_dir, "pbm_logscaled", histories, pbm_logascaled_grid)
 
     # ===== SPBM (PBM) =====
     for arr_dict in pbm_grid:   
