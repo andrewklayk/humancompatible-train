@@ -8,15 +8,18 @@ building blocks (build_data / build_task / build_algorithm / train), always with
 approach='opt' (full dataset as train, no val/test -- so the only randomness axis
 is init_seed; there are no folds).
 
-Per-trial objective (all on train, tail-mean over the last --tail epochs, then
-averaged over --init-seeds):
-    primal-dual (pbm, pbm_logscaled, alm_proj, alm_max):  minimize the Lagrangian L
-    ssg (switching):   feasibility-first -- loss if feasible (max_viol <= 0),
-                       else loss + --penalty * max_viol
-    adam (plain):      minimize train loss
-(The Lagrangian objective can reward tiny-lambda configs that sit low on f while
-still infeasible; if that shows up, switch _trial_score's primal-dual branch to the
-KKT residual grad_norm + max(0, max_viol) + compl -- the pieces are all in opt.csv.)
+Per-trial objective -- the composite KKT residual, for every CONSTRAINED method:
+    r = ||grad_x L|| + relu(max_viol) + |compl|
+computed per epoch, then tail-averaged over the last --tail epochs and averaged over
+--init-seeds (opt mode has no folds). This is EXACTLY plotting/plot_kkt's residual
+(_residual_traj), so tuning optimizes precisely what the KKT plots rank configs on.
+The compl term is absent (-> 0) for ssg (no duals), leaving r = ||grad_x f|| +
+relu(max_viol). (Chosen over minimizing the Lagrangian L directly, which can reward
+tiny-lambda configs that sit low on f while still infeasible.)
+
+EXCEPTION: adam (updater='plain') is the UNCONSTRAINED reference -- it is tuned on
+plain train loss, ignoring feasibility, so it stays a genuine "ignore the constraints"
+baseline rather than being pushed toward feasible regions by the residual.
 
 After the trials, the best config is re-run at full CV (all --init-seeds) and its
 per-epoch histories are written in run.py's multirun layout, so aggregate.py /
@@ -112,27 +115,34 @@ def _run_one(cfg, init_seed, device):
     return algorithm, task, h_train, h_opt
 
 
-def _tail_mean(history, key, tail):
-    vals = [r[key] for r in history[-tail:] if key in r]
+def _train_loss(h_train, tail):
+    """Tail-averaged train loss -- the objective for the unconstrained adam reference."""
+    vals = [r["loss"] for r in h_train[-tail:] if "loss" in r]
     return float(np.mean(vals)) if vals else float("nan")
 
 
-def _trial_score(algorithm, h_train, h_opt, tail, penalty):
-    """The single scalar this (config, seed) contributes to the objective."""
-    dual = getattr(algorithm, "dual", None)
-    has_duals = dual is not None and hasattr(dual, "duals")
-    if has_duals:                                     # pbm / pbm_logscaled / alm_*
-        return _tail_mean(h_opt, "L", tail)
-    loss = _tail_mean(h_train, "loss", tail)
-    if algorithm.updater == "switching":              # ssg: feasibility-first
-        max_viol = _tail_mean(h_opt, "max_viol", tail)
-        if not np.isfinite(max_viol):
-            return float("nan")
-        return loss if max_viol <= 0 else loss + penalty * max_viol
-    return loss                                       # adam (plain): plain loss
+def _kkt_residual(h_opt, tail):
+    """The scalar this (config, seed) contributes: the composite KKT residual
+    r = ||grad_x L|| + relu(max_viol) + |compl|, formed per epoch (like
+    plot_kkt._residual_traj) then averaged over the last ``tail`` epochs. The
+    max_viol / compl terms drop out when a metric is absent (ssg / adam have no
+    compl). NaN if no usable opt rows (diverged / opt eval unavailable)."""
+    res = []
+    for r in h_opt[-tail:]:
+        gn = r.get("grad_norm")
+        if gn is None or not np.isfinite(gn):
+            continue
+        val = float(gn)
+        mv, cp = r.get("max_viol"), r.get("compl")
+        if mv is not None and np.isfinite(mv):
+            val += max(float(mv), 0.0)
+        if cp is not None and np.isfinite(cp):
+            val += abs(float(cp))
+        res.append(val)
+    return float(np.mean(res)) if res else float("nan")
 
 
-def _make_objective(base_cfg, algo, init_seeds, tail, penalty, device):
+def _make_objective(base_cfg, algo, init_seeds, tail, device):
     def objective(trial):
         overrides = suggest(trial, algo)
         # stash the resolved dotted-key overrides so finalize can replay the winner
@@ -142,7 +152,10 @@ def _make_objective(base_cfg, algo, init_seeds, tail, penalty, device):
         scores = []
         for seed in init_seeds:
             algorithm, _task, h_train, h_opt = _run_one(cfg, seed, device)
-            scores.append(_trial_score(algorithm, h_train, h_opt, tail, penalty))
+            # adam (plain, unconstrained reference) is tuned on loss; the constrained
+            # methods on the KKT residual.
+            scores.append(_train_loss(h_train, tail) if algorithm.updater == "plain"
+                          else _kkt_residual(h_opt, tail))
         score = float(np.mean(scores))
         return score if np.isfinite(score) else _BIG
     return objective
@@ -197,9 +210,7 @@ def main():
     ap.add_argument("--n-trials", type=int, default=50, help="trials THIS worker runs")
     ap.add_argument("--n-epochs", type=int, default=60)
     ap.add_argument("--tail", type=int, default=5,
-                    help="window (last N epochs) the per-run objective averages over")
-    ap.add_argument("--penalty", type=float, default=10.0,
-                    help="infeasibility penalty weight in the ssg feasibility-first objective")
+                    help="window (last N epochs) the per-run KKT residual averages over")
     ap.add_argument("--init-seeds", default="0,1,2",
                     help="comma-separated init seeds averaged per trial (opt mode has no folds)")
     ap.add_argument("--study", default=None, help="Optuna study name (default E1opt_<algo>_<data>)")
@@ -236,7 +247,7 @@ def main():
         print(f"[tune] study={study_name} algo={args.algo} data={args.data} task={args.task}\n"
               f"[tune] {args.n_trials} trials, {len(init_seeds)} seeds/trial {init_seeds}, "
               f"tail={args.tail}, device={device}")
-        study.optimize(_make_objective(base_cfg, args.algo, init_seeds, args.tail, args.penalty, device),
+        study.optimize(_make_objective(base_cfg, args.algo, init_seeds, args.tail, device),
                        n_trials=args.n_trials)
 
     if args.finalize:
