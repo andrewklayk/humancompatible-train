@@ -38,7 +38,7 @@ pbm_grid = [
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-        [1], [True], [True, False], [False], [0.1])
+        [1], [True], [True, False], [False], [None])
 ]
 
 # ensure the primal update process length is the same for both moreau and dual
@@ -47,6 +47,19 @@ for arr_dict in pbm_grid:
     if arr_dict["dual__gamma_annealing"] == True:
         arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
+pbm_logascaled_grid = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
+    in product(
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
+        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [None], [0., 1., 2.], 
+        [1], [None], [True, False], [True], [0.1, 0.01, 0.5])
+]
 
 alm_proj_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
@@ -175,8 +188,9 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         g = torch.stack([loss2, loss3, loss4], dim=0) - THRESHOLD
 
         # stack dual variables
-        lam = dual_opt.duals.detach() if dual_opt is not None \
-              else beta * torch.ones(1, device=device)
+        lam = dual_opt.duals.detach().reshape(-1) if dual_opt is not None \
+              else beta * torch.ones(3, device=device)
+
         L = f + lam @ g
         
         params = [p for p in u_model.parameters() if p.requires_grad]
@@ -186,7 +200,7 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         compl = (lam * g).abs().sum().item()
         kkt_list.append({"kkt_r": grad_norm + max(0., max_viol) + compl,
                          "kkt_grad": grad_norm, "kkt_viol": max_viol, "kkt_compl": compl,
-                         "lambda_0": lam[0].item()})
+                         "lambda_0": lam[0].item(), "lambda_1": lam[1].item(), "lambda_2": lam[2].item()})
 
         loss_list.append((loss1 + loss2 + loss3 + loss4).item())
         loss_list1.append(loss1.item())
@@ -297,8 +311,16 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
         return ALM(m=3, **dp, device=device)
 
     # ===== ADAM =====
-    histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    save_method(result_dir, "adam", histories, adam_grid)
+    # histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+    # save_method(result_dir, "adam", histories, adam_grid)
+
+    # ===== SPBM (PBM) Log  =====
+    # ensure the pbm has the size of the epoch (for penalty annealing)
+    for arr_dict in pbm_logascaled_grid:   
+        arr_dict["dual__epoch_length"] = len(train_loader)
+
+    histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
+    save_method(result_dir, "pbm_logscaled", histories, pbm_logascaled_grid)
 
     # ===== SPBM (PBM) =====
     for arr_dict in pbm_grid:   
