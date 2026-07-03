@@ -122,6 +122,8 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
     rec = {"max_viol": float(g.max().detach().cpu())}
     if has_duals:
         lam = dual.duals.detach().reshape(-1)
+        if getattr(dual, "logscaled_dual_update", False):
+            lam = lam.exp()
         lagrangian = f + lam @ g
         rec["L"] = float(lagrangian.detach().cpu())
         rec["grad_norm"] = _flat_grad_norm(lagrangian, params)
