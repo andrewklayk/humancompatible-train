@@ -18,4 +18,5 @@ dual:
   delta: 1.0
   penalty_range: [0.1, 1.0]
   gamma_annealing: true
+  penalty_annealing: false
   primal_update_process_length: 1

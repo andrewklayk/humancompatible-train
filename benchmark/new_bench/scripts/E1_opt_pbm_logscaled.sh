@@ -7,7 +7,7 @@
 set -euo pipefail
 source scripts/_env.sh
 
-ALGO=pbm_mirror
+ALGO=pbm_logscaled
 # init_seed AND lr loop OUTSIDE the multirun so each -m invocation submits ONE array of
 # size = grid/#lr (not grid x n_init_seeds), staying under Slurm's MaxArraySize and the
 # QOS submit cap. The launcher blocks per -m, so these chunks run one at a time.
