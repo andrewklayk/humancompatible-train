@@ -223,7 +223,13 @@ def main():
     base_cfg = _base_cfg(args.algo, args.data, args.task, args.n_epochs)
 
     storage = _make_storage(storage_path)
-    study = optuna.create_study(study_name=study_name, storage=storage,
+    # constant_liar: with N workers sharing the study, up to N trials are RUNNING (not
+    # yet COMPLETE) when a worker samples, so TPE can't condition on them. This flag
+    # makes the sampler treat running trials as bad values -> concurrent workers spread
+    # out instead of all chasing the same region. No sampler seed: each worker should
+    # draw an independent startup sequence (a shared seed would collide across workers).
+    sampler = optuna.samplers.TPESampler(constant_liar=True)
+    study = optuna.create_study(study_name=study_name, storage=storage, sampler=sampler,
                                 direction="minimize", load_if_exists=True)
 
     if args.n_trials > 0:
