@@ -19,6 +19,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from humancompatible.train.dual_optim import ALM, MoreauEnvelope, PBM
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
  
 from networks import set_model, u_Net_shallow_wide, u_Net_shallow_wide_resnet, u_Net_deep_narrow, u_Net_deep_narrow_resnet
 # Equation parameter
@@ -269,6 +270,20 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
             dual = dual_ctor(params)
         history = []
         t0 = _time.time()
+
+        # setup scheduler
+        total_steps  = EPOCH
+        warmup_steps = int(0.05 * total_steps)
+
+        sched = SequentialLR(
+            optimizer,
+            schedulers=[
+                LinearLR(optimizer, total_iters=warmup_steps),
+                CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps),
+            ],
+            milestones=[warmup_steps],
+        )
+
         for t in range(0, EPOCH):
             loss, loss1, loss2, loss3, val_err, test_err, kkt = train(
                 u_model, b, trainloader=train_loader, ini_bdry_data=ini_bdry,
@@ -277,6 +292,10 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
                             "c_0": loss2, "c_1": loss3, "val": val_err, "test": test_err,
                             **kkt})
+
+            # step the lr scheduler
+            sched.step()
+
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2 + loss3, val_err, test_err))

@@ -256,6 +256,20 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
             optimizer = MoreauEnvelope(torch.optim.Adam([{'params': u_model.parameters()}], **primal), **moreau)
             dual = dual_ctor(params)
         history = []
+
+        # setup scheduler
+        total_steps  = EPOCH
+        warmup_steps = int(0.05 * total_steps)
+
+        sched = SequentialLR(
+            optimizer,
+            schedulers=[
+                LinearLR(optimizer, total_iters=warmup_steps),
+                CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps),
+            ],
+            milestones=[warmup_steps],
+        )
+
         t0 = _time.time()
         for t in range(0, EPOCH):
             loss, loss1, loss2, val_err, test_err, kkt = train(
@@ -264,6 +278,10 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
                 dual_opt=dual, clamp=clamp, mode=mode, sw_dual=sw_dual)
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
                             "c_0": loss2, "val": val_err, "test": test_err, **kkt})
+
+            # step the lr scheduler
+            sched.step()
+
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2, val_err, test_err))
