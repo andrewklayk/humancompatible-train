@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 import torch
-
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 
 def calc_constraints(constraint_fn, bounds, fuse, constraints_to_eq, model, out, sens, labels, loss):
     """Raw constraints and their bounded(/equality) form (c - bound)."""
@@ -146,6 +146,21 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
 
     history_train, history_val, history_test, history_opt = [], [], [], []
 
+    # setup scheduler
+    steps_per_epoch = len(bundle.train_loader)
+    total_steps  = n_epochs * steps_per_epoch
+    warmup_steps = int(0.05 * total_steps)
+
+    sched = SequentialLR(
+    algorithm.primal,
+    schedulers=[
+        LinearLR(algorithm.primal, 
+        total_iters=warmup_steps),
+        CosineAnnealingLR(algorithm.primal, T_max=total_steps - warmup_steps),
+    ],
+    milestones=[warmup_steps],
+)
+
     for epoch in range(n_epochs + 1):
         losses, constraints, accs = [], [], []
         train_start = time.perf_counter()
@@ -175,6 +190,10 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
                 losses.append(loss_mean.detach().cpu().numpy().item())
                 constraints.append(c.detach().cpu().numpy())
                 accs.append(acc := calc_perclass_acc(sens, labels, out))
+
+                # step the lr scheduler
+                sched.step()
+
 
         train_time = time.perf_counter() - train_start
         history_train.append(_epoch_record(epoch, train_time, losses, constraints, accs))
