@@ -7,6 +7,7 @@
 task: burgers
 seed: 0          # overridden by task.seed=$SLURM_ARRAY_TASK_ID
 
+algorithms: [adam, pbm, pbm_logscaled, alm_proj, alm_max, ssg]
 model: deep_narrow
 beta: 1.0
 lr: 0.001

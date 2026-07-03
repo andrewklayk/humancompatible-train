@@ -19,6 +19,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from humancompatible.train.dual_optim import ALM, MoreauEnvelope, PBM
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
  
 from networks import set_model, u_Net_shallow_wide, u_Net_shallow_wide_resnet, u_Net_deep_narrow, u_Net_deep_narrow_resnet
 # Equation parameter
@@ -214,7 +215,7 @@ def save_method(result_dir, method, histories, grid):
               open(f"{result_dir}/best_{method}.json", "w"), indent=2)
 
 
-def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
+def main_function(model_name, beta, lr, EPOCH, device, seed, cfg) :     # +seed
     
     result_dir = f"results/burgers_pinn{seed}"                     # ADDED
     os.makedirs(result_dir, exist_ok=True)                         # ADDED
@@ -254,7 +255,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
         dual_p = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
         moreau = {k.removeprefix("moreau__"): v for k, v in params.items() if k.startswith("moreau__")}
         b = params.get("beta", beta)
-        torch.manual_seed(0)                                       # same init per config (as old code reseeded per block)
+        torch.manual_seed(seed)                                       # same init per config (as old code reseeded per block)
         u_model = set_model(model_name, device)
         sw_dual = None
         if mode == 'sw':                                           # SSw: both primal and dual are Moreau-wrapped Adam on model params (separate LRs)
@@ -269,6 +270,20 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
             dual = dual_ctor(params)
         history = []
         t0 = _time.time()
+
+        # setup scheduler
+        total_steps  = EPOCH
+        warmup_steps = int(0.05 * total_steps)
+
+        sched = SequentialLR(
+            optimizer,
+            schedulers=[
+                LinearLR(optimizer, total_iters=warmup_steps),
+                CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps),
+            ],
+            milestones=[warmup_steps],
+        )
+
         for t in range(0, EPOCH):
             loss, loss1, loss2, loss3, val_err, test_err, kkt = train(
                 u_model, b, trainloader=train_loader, ini_bdry_data=ini_bdry,
@@ -277,6 +292,10 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
                             "c_0": loss2, "c_1": loss3, "val": val_err, "test": test_err,
                             **kkt})
+
+            # step the lr scheduler
+            sched.step()
+
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2 + loss3, val_err, test_err))
@@ -291,36 +310,42 @@ def main_function(model_name, beta, lr, EPOCH, device, seed) :     # +seed
         return ALM(m=2, **dp, device=device)
 
     # ===== ADAM =====
-    histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    save_method(result_dir, "adam", histories, adam_grid)
+    if 'adam' in cfg.algorithms:
+        histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+        save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) Log  =====
     # ensure the pbm has the size of the epoch (for gamma annealing)
-    for arr_dict in pbm_logascaled_grid:   
-        arr_dict["dual__epoch_length"] = len(train_loader)
+    if 'pbm_logscaled' in cfg.algorithms:
+        for arr_dict in pbm_logascaled_grid:   
+            arr_dict["dual__epoch_length"] = len(train_loader)
 
-    histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
-    save_method(result_dir, "pbm_logscaled", histories, pbm_logascaled_grid)
+        histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
+        save_method(result_dir, "pbm_logscaled", histories, pbm_logascaled_grid)
 
     # ===== SPBM (PBM) =====
     # ensure the pbm has the size of the epoch (for gamma annealing)
-    for arr_dict in pbm_grid:   
-        arr_dict["dual__epoch_length"] = len(train_loader)
+    if 'pbm' in cfg.algorithms:
+        for arr_dict in pbm_grid:   
+            arr_dict["dual__epoch_length"] = len(train_loader)
 
-    histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
-    save_method(result_dir, "pbm", histories, pbm_grid)
+        histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
+        save_method(result_dir, "pbm", histories, pbm_grid)
 
     # ===== ALM projection (raw signed constraints) =====
-    histories = [run_config(p, make_alm, clamp=False) for p in tqdm(alm_proj_grid, desc="alm_proj")]
-    save_method(result_dir, "alm_proj", histories, alm_proj_grid)
+    if 'alm_proj' in cfg.algorithms:
+        histories = [run_config(p, make_alm, clamp=False) for p in tqdm(alm_proj_grid, desc="alm_proj")]
+        save_method(result_dir, "alm_proj", histories, alm_proj_grid)
 
     # ===== ALM max (clamped constraints) =====
-    histories = [run_config(p, make_alm, clamp=True) for p in tqdm(alm_max_grid, desc="alm_max")]
-    save_method(result_dir, "alm_max", histories, alm_max_grid)
+    if 'alm_max' in cfg.algorithms:
+        histories = [run_config(p, make_alm, clamp=True) for p in tqdm(alm_max_grid, desc="alm_max")]
+        save_method(result_dir, "alm_max", histories, alm_max_grid)
 
     # ===== SSw (switching subgradient) =====
-    histories = [run_config(p, None, mode='sw') for p in tqdm(ssg_grid, desc="ssg")]
-    save_method(result_dir, "ssg", histories, ssg_grid)
+    if 'ssg' in cfg.algorithms:
+        histories = [run_config(p, None, mode='sw') for p in tqdm(ssg_grid, desc="ssg")]
+        save_method(result_dir, "ssg", histories, ssg_grid)
 
 
 @hydra.main(version_base=None, config_path="conf/task/", config_name="burgers")   # CHANGED: argparse -> Hydra
@@ -330,7 +355,7 @@ def main(cfg: DictConfig):
     seed = cfg.get("seed", 0)
     torch.manual_seed(seed)
     main_function(cfg.get("model", "deep_narrow"), cfg.get("beta", 1.0),
-                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 100), device, seed)
+                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 100), device, seed, cfg)
  
  
 if __name__ == "__main__":
