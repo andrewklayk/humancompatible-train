@@ -275,7 +275,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
         dual_p = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
         moreau = {k.removeprefix("moreau__"): v for k, v in params.items() if k.startswith("moreau__")}
         b = params.get("beta", beta)
-        torch.manual_seed(0)
+        torch.manual_seed(seed)
         u_model = set_model(model_name, device)
         sw_dual = None
         if mode == 'sw':                                           # SSw: both primal and dual are Moreau-wrapped Adam on model params (separate LRs)
