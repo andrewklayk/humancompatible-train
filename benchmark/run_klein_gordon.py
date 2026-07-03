@@ -104,6 +104,7 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
           dual_opt=None, clamp=False, mode='lagrangian', sw_dual=None, constraint_tol=0.):
     loss_list, loss_list1, loss_list2, loss_list3, loss_list4 = [], [], [], [], []
     val_list, test_list = [], []
+    kkt_list = []  # ADDED: per-batch KKT dicts (full-batch loader -> whole train set)
     X_ini, u_ini, u_ini_t, X_bdry, u_bdry = ini_bdry_data
     X_val, y_val, X_test, y_test = val_test
 
@@ -155,6 +156,37 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         u_model.eval()
         val_err = torch.linalg.norm((u_model(X_val) - y_val), 2).item() / torch.linalg.norm(y_val, 2).item()
         test_err = torch.linalg.norm((u_model(X_test) - y_test), 2).item() / torch.linalg.norm(y_test, 2).item()
+
+        # compute KKT
+        X_v = Variable(data, requires_grad=True).to(device)
+        output = u_model(X_v)
+        output_ini = u_model(X_ini)
+        output_ini_t = calculate_derivative(output_ini, X_ini)[:, 0].view(-1, 1)
+        output_bdry = u_model(X_bdry)
+
+        u_tt, u_xx = calculate_all_partial(output, X_v)
+        f = loss_f(u_tt + alpha * u_xx + delta * output + gamma * (output ** k) - f_forcing(X_v),
+                       torch.zeros_like(output))
+        loss2 = loss_f(output_ini, u_ini)
+        loss3 = loss_f(output_ini_t, u_ini_t)
+        loss4 = loss_f(output_bdry, u_bdry)
+
+        # stack constraints
+        g = torch.stack([loss2, loss3, loss4], dim=0) - THRESHOLD
+
+        # stack dual variables
+        lam = dual_opt.duals.detach() if dual_opt is not None \
+              else beta * torch.ones(1, device=device)
+        L = f + lam @ g
+        
+        params = [p for p in u_model.parameters() if p.requires_grad]
+        grads = torch.autograd.grad(L, params, allow_unused=True)
+        grad_norm = torch.sqrt(sum((gr**2).sum() for gr in grads if gr is not None)).item()
+        max_viol = g.max().item()
+        compl = (lam * g).abs().sum().item()
+        kkt_list.append({"kkt_r": grad_norm + max(0., max_viol) + compl,
+                         "kkt_grad": grad_norm, "kkt_viol": max_viol, "kkt_compl": compl,
+                         "lambda_0": lam[0].item()})
 
         loss_list.append((loss1 + loss2 + loss3 + loss4).item())
         loss_list1.append(loss1.item())
@@ -265,8 +297,8 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
         return ALM(m=3, **dp, device=device)
 
     # ===== ADAM =====
-    # histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    # save_method(result_dir, "adam", histories, adam_grid)
+    histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+    save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) =====
     for arr_dict in pbm_grid:   

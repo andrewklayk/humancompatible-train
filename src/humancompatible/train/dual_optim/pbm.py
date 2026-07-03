@@ -11,7 +11,7 @@ class PBM(Optimizer):
         self,
         m: int = None,
         penalty_mult: float = 0.1,
-        gamma: float = 0.1, # used only if mirror_ascent = False
+        gamma: float = 0.1, # used only if logscaled_dual_update = False
         delta: float = 1.0,
         penalty_update: str = "dimin_adapt",
         *,
@@ -25,8 +25,8 @@ class PBM(Optimizer):
         gamma_annealing=True,
         penalty_annealing=True,
         epoch_length = None, # set this if gamma_annealing=True,
-        mirror_ascent = False,
-        mirror_ascent_step_size = 0.8 # used only is mirror_ascent = True
+        logscaled_dual_update = False,
+        logscaled_dual_step_size = None # used only is logscaled_dual_update = True
     ) -> None:
 
         self.dual_range = dual_range
@@ -39,8 +39,8 @@ class PBM(Optimizer):
         self.epoch_iter = 0 # epoch iters (for gamma update only)
         self.epoch_length = epoch_length
         self.epoch_counter = 0
-        self.mirror_ascent = mirror_ascent
-        self.mirror_ascent_step_size = mirror_ascent_step_size
+        self.logscaled_dual_update = logscaled_dual_update
+        self.logscaled_dual_step_size = logscaled_dual_step_size
 
         if (gamma_annealing or penalty_annealing) and epoch_length is None:
             raise ValueError("For gamma / penalty annealing, 'epoch_length' must be set to len(train_loader)!")
@@ -63,7 +63,7 @@ class PBM(Optimizer):
             def K_schedule(step_num, K0):
                 if K0 == 1:
                     return 1.0 # constant
-                    
+                
                 k0 = 1.0 / (1.0 - K0)
                 return 1.0 - 1.0 / (step_num**0.5 + k0)
                 
@@ -71,10 +71,19 @@ class PBM(Optimizer):
         else: # constant schedule - no change in gamma
             self.K_schedule = lambda step_num, K: K # constant 
 
-        if self.mirror_ascent: 
+        # set duals if are not set and logscaled_dual_update is True
+        if self.logscaled_dual_update: 
+            if gamma is not None or gamma_annealing is not None:
+                raise ValueError("For 'log-scaled dual update', 'gamma' and 'gamma_annealing' must be set to 'None'!")
+            
             if init_duals == None:
                 init_duals = dual_range[0]
             init_duals = np.log(init_duals)
+
+        # check if the dual step sizes are not used
+        else: 
+            if logscaled_dual_step_size is not None: 
+                 raise ValueError("For 'log-scaled dual update == False', 'logscaled_dual_step_size' must be set to 'None'!")
 
         params, defaults = self._init_constraint_group(
             m,
@@ -84,7 +93,6 @@ class PBM(Optimizer):
             pbf,
             init_duals,
             init_penalties,
-            gamma,
             dual_range,
             penalty_range,
             primal_update_process_length,
@@ -101,7 +109,6 @@ class PBM(Optimizer):
         pbf: str = None,
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
-        dual_momentum: float = None,
         dual_range: Tuple[float, float] = None,
         penalty_range: Tuple[float, float] = None,
         primal_update_process_length: int = 1,
@@ -150,7 +157,6 @@ class PBM(Optimizer):
             "penalty_update": penalty_update_f,
             "delta": delta,
             "pbf": pbf,
-            "dual_momentum": dual_momentum,
             "primal_update_process_length": primal_update_process_length,
         }
         settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
@@ -223,7 +229,6 @@ class PBM(Optimizer):
             pbf,
             init_duals,
             init_penalties,
-            momentum,
             self.dual_range,
             self.penalty_range,
             primal_update_process_length,
@@ -250,7 +255,6 @@ class PBM(Optimizer):
                 _update_penalties,
                 delta,
                 pbf,
-                momentum,
                 primal_update_process_length,
             ) = (
                 group["params"][0],
@@ -259,7 +263,6 @@ class PBM(Optimizer):
                 group["penalty_update"],
                 group["delta"],
                 group["pbf"],
-                group["dual_momentum"],
                 group["primal_update_process_length"],
             )
             group_constraints = constraints[_last_c_group_index : _last_c_group_index + len(duals)]
@@ -276,13 +279,13 @@ class PBM(Optimizer):
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
                 p_mult = self.K_schedule(self.epoch_counter, p_mult)
 
-                if self.mirror_ascent:
-                    gamma = self.mirror_ascent_step_size
+                if self.logscaled_dual_update:
+                    gamma = self.logscaled_dual_step_size
 
                 with torch.no_grad():
                     _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma, 
-                        mirror_ascent=self.mirror_ascent)
-                    if self.mirror_ascent: 
+                        logscaled_dual_update=self.logscaled_dual_update)
+                    if self.logscaled_dual_update: 
                         clamp_(duals, min=np.log(self.dual_range[0]), max=np.log(self.dual_range[1]))
                         _update_penalties(
                                 penalties,
@@ -343,7 +346,7 @@ class PBM(Optimizer):
             cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
 
-            if self.mirror_ascent: # log space 
+            if self.logscaled_dual_update: # log space 
                 duals = torch.exp(duals)
                 lagrangian.add_(duals.mul(penalties) @ pbf_val)
             else: 
@@ -379,7 +382,6 @@ class PBM(Optimizer):
                 _update_penalties,
                 delta,
                 pbf,
-                momentum,
                 primal_update_process_length,
             ) = (
                 group["params"][0],
@@ -388,7 +390,6 @@ class PBM(Optimizer):
                 group["penalty_update"],
                 group["delta"],
                 group["pbf"],
-                group["dual_momentum"],
                 group["primal_update_process_length"],
             )
             group_constraints = constraints[
@@ -407,15 +408,15 @@ class PBM(Optimizer):
                 p_mult = self.K_schedule(self.epoch_counter, p_mult)
 
                 # if mirror ascenting in log space, dont use gamma but step size
-                if self.mirror_ascent:
-                    gamma = self.mirror_ascent_step_size
+                if self.logscaled_dual_update:
+                    gamma = self.logscaled_dual_step_size
 
                 with torch.no_grad():
                     _update_duals(
                         duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma, 
-                        mirror_ascent=self.mirror_ascent
+                        logscaled_dual_update=self.logscaled_dual_update
                     )
-                    if self.mirror_ascent: 
+                    if self.logscaled_dual_update: 
                         clamp_(duals, min=np.log(self.dual_range[0]), max=np.log(self.dual_range[1]))
                         _update_penalties(
                                 penalties,
@@ -442,7 +443,7 @@ class PBM(Optimizer):
             cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
 
-            if self.mirror_ascent: # log space 
+            if self.logscaled_dual_update: # log space 
                 duals = torch.exp(duals)
                 lagrangian.add_(duals.mul(penalties) @ pbf_val)
             
@@ -534,10 +535,10 @@ penalty_barrier_funcs = {
 
 
 def _update_duals(
-    duals: Tensor, cdivp: Tensor, pbf_der: Callable, gamma: float, mirror_ascent=False
+    duals: Tensor, cdivp: Tensor, pbf_der: Callable, gamma: float, logscaled_dual_update=False
 ) -> None:
 
-    if mirror_ascent: # mirror ascent 
+    if logscaled_dual_update: # log space 
         pbf_der_val = pbf_der(cdivp)
         duals.add_(torch.log(pbf_der_val), alpha=gamma)
 
