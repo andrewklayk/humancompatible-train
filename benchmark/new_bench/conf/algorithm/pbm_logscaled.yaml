@@ -11,7 +11,8 @@ moreau:
 dual:
   _target_: humancompatible.train.dual_optim.PBM
   _partial_: true
-  penalty_mult: 1.0
+  penalty_mult: 0.1
+  penalty_annealing: true
   penalty_update: dimin_adapt
   pbf: quadratic_logarithmic
   gamma: null
@@ -20,4 +21,4 @@ dual:
   gamma_annealing: null
   primal_update_process_length: 1
   logscaled_dual_update: true
-  logscaled_dual_step_size: 0.1
+  logscaled_dual_step_size: 1.0

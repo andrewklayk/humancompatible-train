@@ -12,6 +12,6 @@ hydra:
       algorithm.primal.lr: choice(0.001, 0.005, 0.01, 0.02, 0.05)
       algorithm.dual.penalty_mult: choice(0.0, 0.1, 0.5, 0.9, 1.0)
       algorithm.dual.penalty_range: choice([0.1, 1.0], [0.01, 2.0])
-      algorithm.dual.primal_update_process_length: choice(1, 2, 3)
+      algorithm.dual.primal_update_process_length: choice(1)
       algorithm.moreau.mu: choice(0.0, 2.0)
       algorithm.dual.logscaled_dual_step_size: choice(0.1, 0.5, 0.8)

@@ -5,6 +5,7 @@ defaults:
   - _self_
 
 n_epochs: 30
+verbose: true
 
 # --- approach: ml (K-fold CV, train/val/test) or opt (full dataset, train only) ---
 approach: ml
