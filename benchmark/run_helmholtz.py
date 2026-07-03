@@ -209,7 +209,7 @@ def save_method(result_dir, method, histories, grid):
               open(f"{result_dir}/best_{method}.json", "w"), indent=2)
 
 
-def main_function(model_name, beta, lr, EPOCH, device, seed):
+def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
 
     result_dir = f"results/helmholtz_pinn{seed}"
     os.makedirs(result_dir, exist_ok=True)
@@ -243,7 +243,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
         dual_p = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
         moreau = {k.removeprefix("moreau__"): v for k, v in params.items() if k.startswith("moreau__")}
         b = params.get("beta", beta)
-        torch.manual_seed(0)
+        torch.manual_seed(seed)
         u_model = set_model(model_name, device)
         sw_dual = None
         if mode == 'sw':                                           # SSw: both primal and dual are Moreau-wrapped Adam on model params (separate LRs)
@@ -297,34 +297,41 @@ def main_function(model_name, beta, lr, EPOCH, device, seed):
         return ALM(m=1, **dp, device=device)
 
     # ===== ADAM =====
-    histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    save_method(result_dir, "adam", histories, adam_grid)
+
+    if 'adam' in cfg.algorithms:
+        histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+        save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) Log  =====
     # ensure the pbm has the size of the epoch (for penalty annealing)
-    for arr_dict in pbm_logascaled_grid:   
-        arr_dict["dual__epoch_length"] = len(train_loader)
+    if 'pbm_logscaled' in cfg.algorithms:
+        for arr_dict in pbm_logascaled_grid:   
+            arr_dict["dual__epoch_length"] = len(train_loader)
 
-    histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
-    save_method(result_dir, "pbm_logscaled", histories, pbm_logascaled_grid)
+        histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
+        save_method(result_dir, "pbm_logscaled", histories, pbm_logascaled_grid)
 
     # ===== SPBM (PBM) =====
-    for arr_dict in pbm_grid:   
-        arr_dict["dual__epoch_length"] = len(train_loader)
-    histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
-    save_method(result_dir, "pbm", histories, pbm_grid)
+    if 'pbm' in cfg.algorithms:
+        for arr_dict in pbm_grid:   
+            arr_dict["dual__epoch_length"] = len(train_loader)
+        histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
+        save_method(result_dir, "pbm", histories, pbm_grid)
 
     # ===== ALM projection (raw signed constraints) =====
-    histories = [run_config(p, make_alm, clamp=False) for p in tqdm(alm_proj_grid, desc="alm_proj")]
-    save_method(result_dir, "alm_proj", histories, alm_proj_grid)
+    if 'alm_proj' in cfg.algorithms:    
+        histories = [run_config(p, make_alm, clamp=False) for p in tqdm(alm_proj_grid, desc="alm_proj")]
+        save_method(result_dir, "alm_proj", histories, alm_proj_grid)
 
     # ===== ALM max (clamped constraints) =====
-    histories = [run_config(p, make_alm, clamp=True) for p in tqdm(alm_max_grid, desc="alm_max")]
-    save_method(result_dir, "alm_max", histories, alm_max_grid)
+    if 'alm_max' in cfg.algorithms:
+        histories = [run_config(p, make_alm, clamp=True) for p in tqdm(alm_max_grid, desc="alm_max")]
+        save_method(result_dir, "alm_max", histories, alm_max_grid)
 
     # ===== SSw (switching subgradient) =====
-    histories = [run_config(p, None, mode='sw') for p in tqdm(ssg_grid, desc="ssg")]
-    save_method(result_dir, "ssg", histories, ssg_grid)
+    if 'ssg' in cfg.algorithms:
+        histories = [run_config(p, None, mode='sw') for p in tqdm(ssg_grid, desc="ssg")]
+        save_method(result_dir, "ssg", histories, ssg_grid)
 
 
 @hydra.main(version_base=None, config_path="conf/task/", config_name="helmholtz")
@@ -334,7 +341,7 @@ def main(cfg: DictConfig):
     seed = cfg.get("seed", 0)
     torch.manual_seed(seed)
     main_function(cfg.get("model", "deep_narrow"), cfg.get("beta", 1.0),
-                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 1000), device, seed)
+                  cfg.get("lr", 1e-3), cfg.get("n_epochs", 1000), device, seed, cfg)
 
 
 if __name__ == "__main__":
