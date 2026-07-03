@@ -16,6 +16,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from humancompatible.train.dual_optim import ALM, MoreauEnvelope, PBM
 
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 from networks import set_model, u_Net_shallow_wide, u_Net_shallow_wide_resnet, u_Net_deep_narrow, u_Net_deep_narrow_resnet
 
 # Equation parameters
