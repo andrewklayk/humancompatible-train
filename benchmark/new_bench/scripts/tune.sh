@@ -41,17 +41,20 @@ if [ "${LAUNCHER}" = "local" ]; then
 fi
 
 # Slurm. Modules loaded above are inherited by the job (--export=ALL default).
-# 1) N_WORKERS workers optimize the shared study (no finalize).
+# 1) N_WORKERS workers optimize the shared study. Each worker writes EVERY trial's
+#    per-epoch curves into multirun/ (like the grid); --no-finalize just skips the
+#    best_params.json pointer, which the finalize job writes once.
 JID=$(sbatch --parsable --array=0-$((N_WORKERS-1)) \
   --job-name=tune_${ALGO} --partition=amdgpufast --gres=gpu:1 \
   --cpus-per-task=4 --mem-per-cpu=8G --time=${TIME} \
   --wrap="cd ${PWD} && python3 -u tune.py ${COMMON} --n-trials ${N_TRIALS} --no-finalize")
 echo "submitted worker array ${JID} (${N_WORKERS} workers x ${N_TRIALS} trials)"
 
-# 2) one finalize job, after ALL workers succeed: re-run the best config at full CV.
+# 2) one finalize job, after ALL workers succeed: just reads the study and writes
+#    best_params.json (no training -> no GPU needed; all trial curves already saved).
 FID=$(sbatch --parsable --dependency=afterok:${JID} \
-  --job-name=tune_${ALGO}_final --partition=amdgpufast --gres=gpu:1 \
-  --cpus-per-task=4 --mem-per-cpu=8G --time=00:30:00 \
+  --job-name=tune_${ALGO}_final --partition=amdgpufast \
+  --cpus-per-task=1 --mem-per-cpu=4G --time=00:10:00 \
   --wrap="cd ${PWD} && python3 -u tune.py ${COMMON} --n-trials 0")
 echo "submitted finalize job ${FID} (afterok:${JID})"
 echo "When done:  bash scripts/E1_opt_select.sh"

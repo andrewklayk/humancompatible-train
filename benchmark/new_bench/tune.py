@@ -21,9 +21,12 @@ EXCEPTION: adam (updater='plain') is the UNCONSTRAINED reference -- it is tuned 
 plain train loss, ignoring feasibility, so it stays a genuine "ignore the constraints"
 baseline rather than being pushed toward feasible regions by the residual.
 
-After the trials, the best config is re-run at full CV (all --init-seeds) and its
-per-epoch histories are written in run.py's multirun layout, so aggregate.py /
-select_best.py / plot_kkt pick it up as one more config in the (task, data, algo) cell.
+EVERY trial's per-epoch histories are written into run.py's multirun layout as it
+runs (one dir per trial x init_seed), exactly like the fixed grid -- so aggregate.py /
+select_best.py / plot_kkt see the full set of tuned configs, not just the winner. The
+Optuna study itself (JournalStorage) separately records each trial's params + objective
+scalar. Finalize does NOT re-run; it just writes best_params.json pointing at the
+objective-best trial (select_best applies its own feasibility-first criterion).
 
 Usage
 -----
@@ -142,20 +145,29 @@ def _kkt_residual(h_opt, tail):
     return float(np.mean(res)) if res else float("nan")
 
 
-def _make_objective(base_cfg, algo, init_seeds, tail, device):
+def _make_objective(base_cfg, args, init_seeds, device):
+    run_root = os.path.join(args.out_runs, args.task, args.algo, "opt")
+
     def objective(trial):
-        overrides = suggest(trial, algo)
-        # stash the resolved dotted-key overrides so finalize can replay the winner
+        overrides = suggest(trial, args.algo)
+        # stash the resolved dotted-key overrides so finalize can identify the winner
         # without reconstructing them from trial.params (which lose the mapped values).
         trial.set_user_attr("overrides", overrides)
         cfg = _apply(base_cfg, overrides)
         scores = []
         for seed in init_seeds:
-            algorithm, _task, h_train, h_opt = _run_one(cfg, seed, device)
+            algorithm, task, h_train, h_opt = _run_one(cfg, seed, device)
+            # Persist EVERY trial's per-epoch curves into the multirun tree, exactly
+            # like the fixed grid: aggregate.py groups by hyperparameter signature, so
+            # each trial is one more config in the (task, data, algo) cell (seeds
+            # averaged). This is what feeds select_best.py / plot_kkt's over-configs plots.
+            _write_run(os.path.join(run_root, f"trial{trial.number}_init{seed}"),
+                       cfg, task, algorithm, h_train, h_opt,
+                       args.algo, args.data, args.task, init_seed=seed, fold=0)
             # adam (plain, unconstrained reference) is tuned on loss; the constrained
             # methods on the KKT residual.
-            scores.append(_train_loss(h_train, tail) if algorithm.updater == "plain"
-                          else _kkt_residual(h_opt, tail))
+            scores.append(_train_loss(h_train, args.tail) if algorithm.updater == "plain"
+                          else _kkt_residual(h_opt, args.tail))
         score = float(np.mean(scores))
         return score if np.isfinite(score) else _BIG
     return objective
@@ -179,25 +191,23 @@ def _write_run(out_dir, cfg, task, algorithm, h_train, h_opt, algo, data_name, t
         json.dump(meta, f, indent=2, default=str)
 
 
-def _finalize(study, base_cfg, args, init_seeds, device):
-    """Re-run the best config at full CV and write it into the multirun tree."""
+def _finalize(study, args):
+    """Record the objective-best trial. NO re-run: every trial's per-epoch curves are
+    already saved under <out_runs>/<task>/<algo>/opt/trial<n>_init<seed>/ during the
+    study, so aggregate.py + select_best.py consume them directly. This just writes a
+    pointer to which trial the KKT-residual objective preferred (select_best applies its
+    OWN feasibility-first criterion over all configs, so its pick can differ)."""
     best = study.best_trial
-    overrides = best.user_attrs.get("overrides")
-    if overrides is None:
-        raise RuntimeError("best trial has no stored 'overrides' user_attr; cannot finalize.")
-    cfg = _apply(base_cfg, overrides)
-    print(f"[finalize] best trial #{best.number}  value={best.value:.6g}\n"
-          f"           overrides={overrides}")
     run_root = os.path.join(args.out_runs, args.task, args.algo, "opt")
-    for seed in init_seeds:
-        algorithm, task, h_train, h_opt = _run_one(cfg, seed, device)
-        out_dir = os.path.join(run_root, f"tuned_fold0_init{seed}")
-        _write_run(out_dir, cfg, task, algorithm, h_train, h_opt,
-                   args.algo, args.data, args.task, init_seed=seed, fold=0)
-        print(f"[finalize] wrote {out_dir}")
+    os.makedirs(run_root, exist_ok=True)
     with open(os.path.join(run_root, "best_params.json"), "w") as f:
-        json.dump({"study": args.study, "value": best.value,
-                   "overrides": overrides, "params": best.params}, f, indent=2, default=str)
+        json.dump({"study": args.study, "best_trial": best.number, "value": best.value,
+                   "overrides": best.user_attrs.get("overrides"), "params": best.params},
+                  f, indent=2, default=str)
+    print(f"[finalize] objective-best = trial #{best.number}  value={best.value:.6g}\n"
+          f"           overrides={best.user_attrs.get('overrides')}\n"
+          f"[finalize] all {len(study.trials)} trials' curves under "
+          f"{run_root}/trial*_init*/  -> run aggregate.py + select_best.py")
 
 
 def main():
@@ -247,11 +257,11 @@ def main():
         print(f"[tune] study={study_name} algo={args.algo} data={args.data} task={args.task}\n"
               f"[tune] {args.n_trials} trials, {len(init_seeds)} seeds/trial {init_seeds}, "
               f"tail={args.tail}, device={device}")
-        study.optimize(_make_objective(base_cfg, args.algo, init_seeds, args.tail, device),
+        study.optimize(_make_objective(base_cfg, args, init_seeds, device),
                        n_trials=args.n_trials)
 
     if args.finalize:
-        _finalize(study, base_cfg, args, init_seeds, device)
+        _finalize(study, args)
 
 
 if __name__ == "__main__":
