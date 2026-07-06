@@ -5,4 +5,4 @@ defaults:
 hydra:
   sweeper:
     params:
-      algorithm.primal.lr: choice(0.001, 0.005, 0.01, 0.05)
+      algorithm.primal.lr: choice(0.001, 0.005, 0.01, 0.02, 0.05)
