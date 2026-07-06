@@ -4,7 +4,7 @@ defaults:
   - algorithm: pbm
   - _self_
 
-n_epochs: 60
+n_epochs: 80
 verbose: true
 
 # --- approach: ml (K-fold CV, train/val/test) or opt (full dataset, train only) ---

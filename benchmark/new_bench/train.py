@@ -122,6 +122,8 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
     rec = {"max_viol": float(g.max().detach().cpu())}
     if has_duals:
         lam = dual.duals.detach().reshape(-1)
+        if getattr(dual, "logscaled_dual_update", False):
+            lam = lam.exp()
         lagrangian = f + lam @ g
         rec["L"] = float(lagrangian.detach().cpu())
         rec["grad_norm"] = _flat_grad_norm(lagrangian, params)
@@ -186,6 +188,8 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
                 loss_for_c = loss if algorithm.passes_loss_to_constraints else None
                 c, c_eq = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model, out, sens, labels, loss_for_c)
                 loss_mean = loss.mean() if loss.dim() > 0 else loss
+                if algorithm.name == 'ssg' and constraint_tol := getattr(algorithm, "constraint_tol", 0.0):
+                    algorithm.constraint_tol = constraint_tol * (1 - epoch / n_epochs)  # linear decay to 0
                 algorithm.step(loss_mean, c_eq)
                 losses.append(loss_mean.detach().cpu().numpy().item())
                 constraints.append(c.detach().cpu().numpy())

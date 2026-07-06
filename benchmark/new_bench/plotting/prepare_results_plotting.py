@@ -14,6 +14,8 @@ Public API (consumed by the plot_* scripts):
         -> (loss_mean[L], loss_std[L], cons_mean[m,L]|None, cons_std[m,L]|None) | None
     metric_trajectory(spec, method, cfg, split, metric)
         -> (mean[L], std[L]|None, std_init[L]|None, epochs[L]) | None
+    dual_trajectory(spec, method, cfg, split)
+        -> (lambda_mean[m,L], lambda_std[m,L], epochs[L]) | None
     list_configs(spec, method) -> [config_index, ...]
 """
 import glob
@@ -139,6 +141,25 @@ def metric_trajectory(spec, method, config_index, split, metric):
         return curve[name].to_numpy() if name in curve.columns else None
 
     return col(f"{metric}_mean"), col(f"{metric}_std"), col(f"{metric}_std_init"), curve["epoch"].to_numpy()
+
+
+def dual_trajectory(spec, method, config_index, split="opt"):
+    """Seed-averaged per-epoch dual variables for one config/split:
+    (lambda_mean[m,L], lambda_std[m,L], epochs[L]), or None if the split has no
+    lambda_j columns (unconstrained methods / SSG store no duals). m = number of
+    constraints, rows ordered lambda_0..lambda_{m-1}."""
+    curve = _curve(spec, method, config_index, split)
+    if curve is None:
+        return None
+    lam = sorted((c[:-5] for c in curve.columns if re.fullmatch(r"lambda_\d+_mean", c)),
+                 key=lambda s: int(s.split("_")[1]))
+    if not lam:
+        return None
+
+    def stack(suffix):
+        return np.vstack([curve[f"{c}_{suffix}"].to_numpy() for c in lam])
+
+    return stack("mean"), stack("std"), curve["epoch"].to_numpy()
 
 
 if __name__ == "__main__":

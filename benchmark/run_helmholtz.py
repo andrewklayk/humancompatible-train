@@ -100,7 +100,7 @@ def calculate_all_partial(u_out, x):
 
 
 def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f,
-          dual_opt=None, clamp=False, mode='lagrangian', sw_dual=None, constraint_tol=0.):
+          dual_opt=None, clamp=False, mode='lagrangian', sw_dual=None, constraint_tol=1.):
     loss_list, loss_list1, loss_list2 = [], [], []
     val_list, test_list = [], []
     kkt_list = []  # ADDED: per-batch KKT dicts (full-batch loader -> whole train set)
@@ -127,8 +127,6 @@ def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f,
         elif mode == 'sw':
             cons = torch.stack([loss2], dim=0) - THRESHOLD
             max_c = cons.max()
-            optimizer.zero_grad()
-            sw_dual.zero_grad()
             if max_c > constraint_tol:
                 max_c.backward()
                 sw_dual.step()
@@ -137,6 +135,7 @@ def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f,
                 optimizer.step()
             optimizer.zero_grad()
             sw_dual.zero_grad()
+            constraint_tol = constraint_tol * (1 - epoch / n_epochs)  # linear decay to 0
 
         elif dual_opt is not None:
             constraint = loss2 - THRESHOLD
