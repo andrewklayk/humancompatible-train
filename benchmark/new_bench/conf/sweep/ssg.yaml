@@ -9,4 +9,4 @@ hydra:
     params:
       algorithm.primal.lr: choice(0.001, 0.005, 0.01, 0.02, 0.05)
       algorithm.dual.lr: choice(0.001, 0.005, 0.01, 0.02, 0.05)
-      algorithm.moreau.mu: choice(0.0, 1.0, 2.0)
+      algorithm.moreau.mu: choice(0.0, 1.0)

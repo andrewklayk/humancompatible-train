@@ -9,6 +9,7 @@
 ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
 ml Hydra/1.3.2-GCCcore-14.3.0
 ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
+ml Optuna/4.6.0-foss-2025b
 
 # Launcher plugin (install only if missing). The sweep uses Hydra's built-in
 # BASIC sweeper (manual grids in conf/sweep/), so no Optuna plugin is needed.
