@@ -100,6 +100,8 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
     kkt_list = []  # ADDED: per-batch KKT dicts (full-batch loader -> whole train set)
     X_ini, u_ini, X_bdry, u_bdry = ini_bdry_data
     X_val, y_val, X_test, y_test = val_test
+    
+    n_epochs = len(trainloader)  # ADDED: for linear decay of constraint_tol in SSw
 
     for i, (data,) in enumerate(trainloader) :
         u_model.train()
@@ -138,7 +140,7 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
                 optimizer.step()
             optimizer.zero_grad()
             sw_dual.zero_grad()
-            constraint_tol = constraint_tol * (1 - epoch / n_epochs)  # linear decay to 0
+            constraint_tol = constraint_tol * (1 - i / n_epochs)  # linear decay to 0
 
         elif dual_opt is not None:
             threshold = THRESHOLD                                  # CHANGED: was 1e-4 literal
@@ -252,8 +254,8 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg) :     # +seed
 
     # helper: run ONE config's full training, return history list (ADDED)
     def run_config(params, dual_ctor, clamp=False, mode='lagrangian'):
-        primal = {k.removeprefix("primal__"): v for k, v in params.items() if k.startswith("primal__")}
-        dual_p = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
+        primal = {"weight_decay": 0.01, **{k.removeprefix("primal__"): v for k, v in params.items() if k.startswith("primal__")}}
+        dual_p = {"weight_decay": 0.01, **{k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}}
         moreau = {k.removeprefix("moreau__"): v for k, v in params.items() if k.startswith("moreau__")}
         b = params.get("beta", beta)
         torch.manual_seed(seed)                                       # same init per config (as old code reseeded per block)
