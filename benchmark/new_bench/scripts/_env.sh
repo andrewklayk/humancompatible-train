@@ -5,11 +5,13 @@
 # Assumes the working directory is benchmark/new_bench/ (run.py, multirun/, and
 # ../env_humancompatible are relative to it -- same convention as scripts/E3.sh).
 
-# Cluster modules (skipped off-cluster, e.g. a local conda env).
-ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
-ml Hydra/1.3.2-GCCcore-14.3.0
-ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
-ml Optuna/4.6.0-foss-2025b
+# Cluster modules (skipped off-cluster, e.g. a local conda env, where `ml` is absent).
+if command -v ml >/dev/null 2>&1; then
+  ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
+  ml Hydra/1.3.2-GCCcore-14.3.0
+  ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
+  ml Optuna/4.6.0-foss-2025b
+fi
 
 # Launcher plugin (install only if missing). The sweep uses Hydra's built-in
 # BASIC sweeper (manual grids in conf/sweep/), so no Optuna plugin is needed.

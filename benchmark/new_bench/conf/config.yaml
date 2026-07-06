@@ -8,7 +8,7 @@ n_epochs: 80
 verbose: true
 
 # --- approach: ml (K-fold CV, train/val/test) or opt (full dataset, train only) ---
-approach: ml
+approach: opt
 # Fixed class-balanced subsample size for the end-of-epoch optimality eval on IMAGE
 # tasks in opt mode (tabular uses the whole set). Lower it if the full-batch backward
 # OOMs; raise it for a tighter KKT estimate.
