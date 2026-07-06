@@ -119,7 +119,9 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
     dual = getattr(algorithm, "dual", None)
     has_duals = dual is not None and hasattr(dual, "duals")
 
-    rec = {"max_viol": float(g.max().detach().cpu())}
+    # f = full-batch objective (loss) at the frozen iterate; logged for every method so
+    # tune.py's feasibility-first objective can read it (max_viol is the paired residual).
+    rec = {"f": float(f.detach().cpu()), "max_viol": float(g.max().detach().cpu())}
     if has_duals:
         lam = dual.duals.detach().reshape(-1)
         if getattr(dual, "logscaled_dual_update", False):

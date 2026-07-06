@@ -8,18 +8,17 @@ building blocks (build_data / build_task / build_algorithm / train), always with
 approach='opt' (full dataset as train, no val/test -- so the only randomness axis
 is init_seed; there are no folds).
 
-Per-trial objective -- the composite KKT residual, for every CONSTRAINED method:
-    r = ||grad_x L|| + relu(max_viol) + |compl|
-computed per epoch, then tail-averaged over the last --tail epochs and averaged over
---init-seeds (opt mode has no folds). This is EXACTLY plotting/plot_kkt's residual
-(_residual_traj), so tuning optimizes precisely what the KKT plots rank configs on.
-The compl term is absent (-> 0) for ssg (no duals), leaving r = ||grad_x f|| +
-relu(max_viol). (Chosen over minimizing the Lagrangian L directly, which can reward
-tiny-lambda configs that sit low on f while still infeasible.)
+Per-trial objective -- FEASIBILITY-FIRST for every CONSTRAINED method: minimize the
+full-batch objective f (loss), with an infinite penalty for infeasibility:
+    score = f   if   max_viol = maxⱼ(cⱼ - b) <= --feas-tol   else   +inf
+Both f and max_viol are the full-batch values evaluate_optimality logs at the frozen
+end-of-epoch iterate (opt.csv); each is tail-averaged over the last --tail epochs and
+averaged over --init-seeds (opt mode has no folds). +inf is represented as a large
+finite penalty (_BIG) so the TPE sampler stays well-behaved.
 
-EXCEPTION: adam (updater='plain') is the UNCONSTRAINED reference -- it is tuned on
-plain train loss, ignoring feasibility, so it stays a genuine "ignore the constraints"
-baseline rather than being pushed toward feasible regions by the residual.
+EXCEPTION: adam (updater='plain') is the UNCONSTRAINED reference -- it is tuned on the
+objective f alone (no feasibility penalty), so it stays a genuine "ignore the
+constraints" baseline.
 
 EVERY trial's per-epoch histories are written into run.py's multirun layout as it
 runs (one dir per trial x init_seed), exactly like the fixed grid -- so aggregate.py /
@@ -118,31 +117,23 @@ def _run_one(cfg, init_seed, device):
     return algorithm, task, h_train, h_opt
 
 
-def _train_loss(h_train, tail):
-    """Tail-averaged train loss -- the objective for the unconstrained adam reference."""
-    vals = [r["loss"] for r in h_train[-tail:] if "loss" in r]
+def _tail_mean(history, key, tail):
+    """Mean of ``key`` over the last ``tail`` epochs, or NaN if absent."""
+    vals = [r[key] for r in history[-tail:] if key in r]
     return float(np.mean(vals)) if vals else float("nan")
 
 
-def _kkt_residual(h_opt, tail):
-    """The scalar this (config, seed) contributes: the composite KKT residual
-    r = ||grad_x L|| + relu(max_viol) + |compl|, formed per epoch (like
-    plot_kkt._residual_traj) then averaged over the last ``tail`` epochs. The
-    max_viol / compl terms drop out when a metric is absent (ssg / adam have no
-    compl). NaN if no usable opt rows (diverged / opt eval unavailable)."""
-    res = []
-    for r in h_opt[-tail:]:
-        gn = r.get("grad_norm")
-        if gn is None or not np.isfinite(gn):
-            continue
-        val = float(gn)
-        mv, cp = r.get("max_viol"), r.get("compl")
-        if mv is not None and np.isfinite(mv):
-            val += max(float(mv), 0.0)
-        if cp is not None and np.isfinite(cp):
-            val += abs(float(cp))
-        res.append(val)
-    return float(np.mean(res)) if res else float("nan")
+def _feasibility_first(h_opt, tail, feas_tol):
+    """Feasibility-first objective for the constrained methods: the tail-mean full-batch
+    objective f if the config is feasible -- tail-mean max_viol = maxⱼ(cⱼ-b) <= ``feas_tol``
+    -- else +inf, a hard reject (encodes  min f  s.t.  max_viol <= feas_tol). +inf too if
+    f / max_viol is missing or non-finite (diverged). Both f and max_viol are the
+    full-batch values evaluate_optimality logs at the same frozen iterate (h_opt)."""
+    f = _tail_mean(h_opt, "f", tail)
+    max_viol = _tail_mean(h_opt, "max_viol", tail)
+    if not np.isfinite(f) or not np.isfinite(max_viol):
+        return float("inf")
+    return f if max_viol <= feas_tol else float("inf")
 
 
 def _make_objective(base_cfg, args, init_seeds, device):
@@ -164,10 +155,10 @@ def _make_objective(base_cfg, args, init_seeds, device):
             _write_run(os.path.join(run_root, f"trial{trial.number}_init{seed}"),
                        cfg, task, algorithm, h_train, h_opt,
                        args.algo, args.data, args.task, init_seed=seed, fold=0)
-            # adam (plain, unconstrained reference) is tuned on loss; the constrained
-            # methods on the KKT residual.
-            scores.append(_train_loss(h_train, args.tail) if algorithm.updater == "plain"
-                          else _kkt_residual(h_opt, args.tail))
+            # adam (plain, unconstrained reference) is tuned on the objective f alone;
+            # the constrained methods use feasibility-first (f, +inf if infeasible).
+            scores.append(_tail_mean(h_opt, "f", args.tail) if algorithm.updater == "plain"
+                          else _feasibility_first(h_opt, args.tail, args.feas_tol))
         score = float(np.mean(scores))
         return score if np.isfinite(score) else _BIG
     return objective
@@ -220,7 +211,10 @@ def main():
     ap.add_argument("--n-trials", type=int, default=50, help="trials THIS worker runs")
     ap.add_argument("--n-epochs", type=int, default=60)
     ap.add_argument("--tail", type=int, default=5,
-                    help="window (last N epochs) the per-run KKT residual averages over")
+                    help="window (last N epochs) the per-run objective f / max_viol average over")
+    ap.add_argument("--feas-tol", type=float, default=1e-3,
+                    help="feasibility tolerance on max_viol; a constrained config is a hard "
+                         "reject (+inf) if its tail-mean max_viol exceeds this")
     ap.add_argument("--init-seeds", default="0,1,2",
                     help="comma-separated init seeds averaged per trial (opt mode has no folds)")
     ap.add_argument("--study", default=None, help="Optuna study name (default E1opt_<algo>_<data>)")
