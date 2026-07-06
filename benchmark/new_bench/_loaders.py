@@ -57,7 +57,7 @@ def _cv_indices(n, strat, cv_seed, n_folds, fold, test_size):
 
 def _cv_load(features, groups, labels, *, batch_size, device, cv_seed, n_folds, fold,
              init_seed, test_size, dtype=torch.float32, balanced=True,
-             extend_groups=False, val_test_batch=None, approach="ml"):
+             extend_groups=False, val_test_batch=None, approach="opt"):
     """Shared tabular tail: stratified test hold-out + K-fold dev split + loaders.
 
     Returns the standard 4-tuple
@@ -152,7 +152,7 @@ def comb_cat_dummies(df):
     return df
 
 
-def load_data_norm(batch_size, device, *, cv_seed, n_folds, fold, init_seed, test_size=0.2, approach="ml"):
+def load_data_norm(batch_size, device, *, cv_seed, n_folds, fold, init_seed, test_size=0.2, approach="opt"):
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
     acs_data = data_source.get_data(states=["FL"], download=True)
@@ -176,7 +176,7 @@ def load_data_norm(batch_size, device, *, cv_seed, n_folds, fold, init_seed, tes
 
 def load_data_FT(batch_size, device, sens_attrs, states=['FL'], group_size_threshold=0,
                  sens_groups=None, extend_groups=False, dtype=torch.float32,
-                 *, cv_seed, n_folds, fold, init_seed, test_size=0.2, approach="ml"):
+                 *, cv_seed, n_folds, fold, init_seed, test_size=0.2, approach="opt"):
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
     ACSProblem = BasicProblem(
@@ -232,7 +232,7 @@ def load_data_FT(batch_size, device, sens_attrs, states=['FL'], group_size_thres
 
 
 def load_data_DUTCH(batch_size, device='cpu', extend_groups=False,
-                    *, cv_seed, n_folds, fold, init_seed, test_size=0.4, approach="ml"):
+                    *, cv_seed, n_folds, fold, init_seed, test_size=0.4, approach="opt"):
     features, groups, labels, _ = get_data_dutch(drop_small_groups=True, print_stats=True)
     return _cv_load(features, groups, labels, batch_size=batch_size, device=device,
                     cv_seed=cv_seed, n_folds=n_folds, fold=fold, init_seed=init_seed,
@@ -303,7 +303,7 @@ def _balanced_subsample(X, targets, eye, num_classes, size, seed, device):
 
 
 def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
-                    balanced=False, device='cpu', approach="ml", opt_eval_size=10000):
+                    balanced=False, device='cpu', approach="opt", opt_eval_size=10000):
     """CIFAR-10 / CIFAR-100 with K-fold over the training set; the canonical
     torchvision test set is the fixed held-out TEST. ``sens`` is the class one-hot
     (for the "equal loss across classes" constraint). Stratified by class.

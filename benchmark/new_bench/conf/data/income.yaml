@@ -1,5 +1,5 @@
 name: folktables
 kwargs:
   sens_attrs: ['MAR', 'SEX']
-  states: ['VA']
+  states: ['FL']
   extend_groups: false
