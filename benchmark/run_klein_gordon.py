@@ -34,17 +34,17 @@ pbm_grid = [
      "dual__delta": 1., "moreau__mu": mu,
     "dual__primal_update_process_length": primal_update_process_length,
     "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
-    "dual__mirror_ascent": mirror_ascent, "dual__mirror_ascent_step_size": mirror_ascent_stepsize}
-    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, mirror_ascent, mirror_ascent_stepsize) 
+    "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-        [1], [True], [True, False], [False], [None])
+        [1], [True], [True], [False], [None])
 ]
-
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
     arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
+
     if arr_dict["dual__gamma_annealing"] == True:
         arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
@@ -59,7 +59,7 @@ pbm_logascaled_grid = [
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [None], [0., 1., 2.], 
-        [1], [None], [True, False], [True], [0.1, 0.01, 0.5])
+        [1], [None], [True], [True], [0.1, 0.01, 0.5])
 ]
 
 alm_proj_grid = [
