@@ -188,8 +188,7 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
                 loss_for_c = loss if algorithm.passes_loss_to_constraints else None
                 c, c_eq = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model, out, sens, labels, loss_for_c)
                 loss_mean = loss.mean() if loss.dim() > 0 else loss
-                if algorithm.name == 'ssg' and constraint_tol := getattr(algorithm, "constraint_tol", 0.0):
-                    algorithm.constraint_tol = constraint_tol * (1 - epoch / n_epochs)  # linear decay to 0
+                
                 algorithm.step(loss_mean, c_eq)
                 losses.append(loss_mean.detach().cpu().numpy().item())
                 constraints.append(c.detach().cpu().numpy())
@@ -197,6 +196,8 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
 
                 # step the lr scheduler
                 sched.step()
+            if algorithm.name == 'ssg' and (constraint_tol := getattr(algorithm, "constraint_tol", 0.0)):
+                    algorithm.constraint_tol = constraint_tol * (1 - epoch / n_epochs)  # linear decay to 0
 
 
         train_time = time.perf_counter() - train_start
