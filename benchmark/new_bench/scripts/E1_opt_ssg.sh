@@ -9,13 +9,12 @@ set -euo pipefail
 source scripts/_env.sh
 
 ALGO=ssg
-# init_seed AND lr loop OUTSIDE the multirun so each -m invocation submits ONE array of
-# size = grid/#lr (not grid x n_init_seeds), staying under Slurm's MaxArraySize and the
-# QOS submit cap. The launcher blocks per -m, so these chunks run one at a time.
+# init_seed loops OUTSIDE the multirun (one -m per seed): each seed re-runs the SAME
+# grid, so select_best matches configs across seeds by hyperparameter signature. The
+# FULL grid (lr included) is swept INSIDE each -m, so hydra.job.num is unique per config
+# and runs never overwrite each other. The launcher blocks per -m (chunks run serially).
 for s in ${INIT_SEEDS}; do
-  for lr in $(sweep_lrs ${ALGO}); do
-    python3 -u run.py -m ${LAUNCHER_ARG} \
-      +sweep=${ALGO} data=${DATA} task=${TASK} \
-      approach=opt init_seed=${s} algorithm.primal.lr=${lr}
-  done
+  python3 -u run.py -m ${LAUNCHER_ARG} \
+    +sweep=${ALGO} data=${DATA} task=${TASK} \
+    approach=opt init_seed=${s}
 done

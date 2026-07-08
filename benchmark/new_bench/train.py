@@ -86,15 +86,6 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
     a fixed class-balanced subsample for image tasks (exact for that subsampled
     empirical problem; CIFAR is class-balanced so a large subsample is representative).
     Returns ``None`` when ``bundle.opt_eval`` is ``None`` (e.g. ml mode).
-
-    With ``g_j = c_j - bound`` the signed inequality residual (``<= 0`` feasible) and
-    ``lambda`` the dual variables:
-      grad_norm = || d/dx [ f + lambda^T g ] ||   (primal-dual)  -- stationarity
-                = || d/dx f ||                     (ssg / adam: no multipliers)
-      L         = f + lambda^T g                   (primal-dual only)  -- Lagrangian
-      max_viol  = max_j g_j                        -- primal feasibility
-      compl     = sum_j |lambda_j * g_j|           (primal-dual only)  -- complementarity
-      lambda_j  = dual variables                   (primal-dual only)
     """
     if bundle.opt_eval is None:
         return None
@@ -121,7 +112,14 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
 
     # f = full-batch objective (loss) at the frozen iterate; logged for every method so
     # tune.py's feasibility-first objective can read it (max_viol is the paired residual).
-    rec = {"f": float(f.detach().cpu()), "max_viol": float(g.max().detach().cpu())}
+    # c are the RAW constraints (feasible <= bound)
+    # g are the RESIDUALS/VIOLATIONS (feasible <= 0)
+    # max_viol is the MAX RESIDUAL/VIOLATION (feasible <= 0)
+    g_flat = g.detach().flatten()
+    rec = {"loss": float(f.detach().cpu()), "max_viol": float(g_flat.max().cpu())}
+    c_flat = c.detach().flatten()
+    for j in range(c_flat.numel()):
+        rec[f"c_{j}"] = float(c_flat[j].cpu())
     if has_duals:
         lam = dual.duals.detach().reshape(-1)
         if getattr(dual, "logscaled_dual_update", False):

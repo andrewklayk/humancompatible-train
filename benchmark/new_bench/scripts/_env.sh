@@ -47,40 +47,19 @@ if [ -n "${LAUNCHER}" ] && [ "${LAUNCHER}" != "local" ]; then
   LAUNCHER_ARG="hydra/launcher=${LAUNCHER}"
 fi
 
-# Manual grid via Hydra's BASIC sweeper (the default): each +sweep=<algo> file
-# declares hydra.sweeper.params as choice()/range() grids, enumerated as a full
-# cartesian product. No extra sweeper args needed.
+# Manual grid via Hydra's BASIC sweeper (the default): each +sweep=<algo> file declares
+# hydra.sweeper.params as choice() grids, enumerated as a full cartesian product. The
+# opt drivers loop only init_seed outside the -m call; the FULL grid (lr included) is
+# swept INSIDE each -m, so hydra.job.num is unique per config and runs never overwrite.
 #
-# SLURM ARRAY-SIZE LIMIT. submitit submits ONE job array per `run.py -m` call, one
-# task per grid point, so a single invocation's grid must stay under the cluster's
-# MaxArraySize (`scontrol show config | grep MaxArraySize`; e.g. 1001). NOTE:
-# `array_parallelism` in conf/hydra/launcher/slurm*.yaml only caps CONCURRENCY
-# (the `%N` in --array=0-M%N); it does NOT change the array size and will NOT fix
-# "Invalid job array specification". These scripts already loop fold/init_seed
-# OUTSIDE the -m call so each array = grid size only. Current grids: pbm 600,
-# alm_max 225, ssg 75, alm_proj 16 -- all under 1001.
-#
-# If you enlarge a grid past MaxArraySize, peel its biggest axis into an outer shell
-# loop: remove that line from conf/sweep/<algo>.yaml and pass it as a scalar override,
-# e.g.  for lr in 0.001 0.005 0.01; do python run.py -m +sweep=pbm ... \
-#          algorithm.primal.lr=$lr; done   # each array = grid / (#lr values)
-#
-# QOS SUBMIT LIMIT (a SEPARATE, second cap). Even a valid-size array is rejected with
-# "sbatch: error: QOSMaxSubmitJobPerUserLimit" if it would push your queued+running
-# job count over the QOS cap -- and, unlike the running-job cap, array_parallelism
-# (`%N`) does NOT relieve it (pending array tasks still count). We stay under it by
-# ALSO peeling algorithm.primal.lr into an outer loop (below), so each `run.py -m`
-# submits only grid/#lr tasks. This is safe WITHOUT any throttle because the submitit
-# launcher BLOCKS per `-m` (it waits on job.results()), so chunks run strictly one at
-# a time and never stack -- provided each chunk (grid/#lr) is itself under the cap.
-# If a single lr-chunk is still too big, peel a second axis the same way.
-#
-# sweep_lrs echoes the lr grid from an algo's own sweep yaml (kept as the single
-# source of truth), space-separated, for the peel loop. Each value is passed as a
-# PLAIN override algorithm.primal.lr=<v>, which takes precedence over the yaml's
-# sweeper param and collapses that axis to one value. (The hydra.sweeper.params.*
-# override form is rejected -- Hydra cannot sweep its own config namespace.)
-sweep_lrs() {  # $1 = algo name (matches conf/sweep/<algo>.yaml)
-  grep 'algorithm.primal.lr' "conf/sweep/$1.yaml" \
-    | sed -E 's/.*choice\(([^)]*)\).*/\1/; s/,/ /g'
-}
+# SLURM LIMITS. submitit submits ONE job array per `run.py -m` call (one task per grid
+# point), so a grid must stay under both:
+#   - MaxArraySize    (`scontrol show config | grep MaxArraySize`, e.g. 1001), and
+#   - the QOS submit cap (queued+running jobs). NOTE `array_parallelism`/`%N` throttles
+#     RUNNING tasks but does NOT relieve the submit cap -- pending array tasks still count.
+# Current opt grids are small (adam 5, ssg 50, alm_proj 100, pbm 100), well under both.
+# If you enlarge a grid past a limit, peel its biggest axis into an outer shell loop
+# (remove that line from conf/sweep/<algo>.yaml and pass it as a scalar override, e.g.
+# `for lr in 0.001 0.01; do run.py -m +sweep=pbm ... algorithm.primal.lr=$lr; done`).
+# Peeled chunks are collision-safe automatically: the multirun subdir is a per-config
+# hash (conf/config.yaml -> run.py:_hp_hash), so every distinct config gets its own dir.

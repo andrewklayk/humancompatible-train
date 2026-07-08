@@ -16,6 +16,7 @@ cross-validation axes:
     python run.py -m +sweep=pbm data=income task=folktables_positive_rate_pair \
         fold=0,1,2,3,4 init_seed=0,1,2
 """
+import hashlib
 import json
 import os
 
@@ -29,6 +30,20 @@ import algorithms as algo_mod
 import data as data_mod
 import tasks as tasks_mod
 from train import train
+
+
+def _hp_hash(algo_cfg):
+    """Short, stable hash of the algorithm hyperparameters. Used as the per-config
+    multirun subdir (conf/config.yaml hydra.sweep.subdir) so distinct configs never
+    share a directory and re-running a config just overwrites its own dir. It hashes the
+    SAME signature aggregate.py groups configs by, so one hash == one aggregated config."""
+    sig = json.dumps(OmegaConf.to_container(algo_cfg, resolve=True), sort_keys=True, default=str)
+    return hashlib.md5(sig.encode()).hexdigest()[:10]
+
+
+# Registered at import so it's available when Hydra resolves the output dir (on both the
+# launching side and each submitit task, which import run.py).
+OmegaConf.register_new_resolver("hp_hash", _hp_hash, replace=True)
 
 
 def _write_history(history, path):

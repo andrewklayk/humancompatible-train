@@ -11,6 +11,9 @@ experiments/data
 .vscode/
 .claude/
 benchmark/results/plots/
+selection
+benchmark/new_bench/multirun
+*.out
 *.svg
 *.png
 docs/source/tutorials/*.ipynb

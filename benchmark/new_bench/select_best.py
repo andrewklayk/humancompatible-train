@@ -34,7 +34,7 @@ def collapse(df, tail, last_epoch):
     last_epoch=True -> mean over the last ``tail`` epochs (epoch = window end);
     else -> the row at the epoch minimising the rolling-``tail`` mean loss. Returns
     {epoch, loss_mean/std/std_fold/std_init, viol_mean/std/std_fold/std_init}; viol_*
-    map to the maxc columns and are NaN when the curve has no constraints.
+    map to the max_viol columns and are NaN when the curve has no constraints.
     """
     if last_epoch:
         win = df.tail(tail)
@@ -49,32 +49,32 @@ def collapse(df, tail, last_epoch):
     return {"epoch": int(r["epoch"]),
             "loss_mean": v("loss_mean"), "loss_std": v("loss_std"),
             "loss_std_fold": v("loss_std_fold"), "loss_std_init": v("loss_std_init"),
-            "viol_mean": v("maxc_mean"), "viol_std": v("maxc_std"),
-            "viol_std_fold": v("maxc_std_fold"), "viol_std_init": v("maxc_std_init")}
+            "viol_mean": v("max_viol_mean"), "viol_std": v("max_viol_std"),
+            "viol_std_fold": v("max_viol_std_fold"), "viol_std_init": v("max_viol_std_init")}
 
 
 def _prefix_collapse(c, prefix):
-    """Rename a collapse dict's loss_*/viol_* to <prefix>_loss_*/<prefix>_maxc_*."""
+    """Rename a collapse dict's loss_*/viol_* to <prefix>_loss_*/<prefix>_max_viol_*."""
     out = {f"{prefix}_loss_{k}": c[f"loss_{k}"] for k in ("mean", "std", "std_fold", "std_init")}
-    out.update({f"{prefix}_maxc_{k}": c[f"viol_{k}"] for k in ("mean", "std", "std_fold", "std_init")})
+    out.update({f"{prefix}_max_viol_{k}": c[f"viol_{k}"] for k in ("mean", "std", "std_fold", "std_init")})
     return out
 
 
 def _stats_at(df, epoch, prefix):
-    """Prefixed loss/maxc stats of one split at a fixed epoch (the selected epoch)."""
+    """Prefixed loss/max_viol stats of one split at a fixed epoch (the selected epoch)."""
     sub = df[df["epoch"] == epoch]
     if sub.empty:
         return {}
     r = sub.iloc[0]
     keys = ("loss_mean", "loss_std", "loss_std_fold", "loss_std_init",
-            "maxc_mean", "maxc_std", "maxc_std_fold", "maxc_std_init")
+            "max_viol_mean", "max_viol_std", "max_viol_std_fold", "max_viol_std_init")
     return {f"{prefix}_{k}": float(r[k]) for k in keys if k in sub.columns}
 
 
-def _select(items, filt, tol, tail, last_epoch):
+def _select(items, filt, tol, tail, last_epoch, split=None):
     """Collapse each config's selection-split curve; return the feasible min-loss
     winner's collapse dict (+ config_index, n_seeds), or None if none is feasible."""
-    sel = items[0]["sel_split"]
+    sel = items[0]["sel_split"] if split is None else split
     rows = [{"config_index": it["index"],
              "n_seeds": int(it["splits"][sel]["n_seeds"].max()),
              **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
@@ -128,6 +128,8 @@ def main():
                     help="window for the per-config collapse (mean of the last `tail` epochs)")
     ap.add_argument("--rolling", action="store_true",
                     help="instead select the epoch minimising the rolling-`tail` mean loss")
+    ap.add_argument("--selection_split", default="opt",
+                    help="which split to select by; defaults to opt.")
     args = ap.parse_args()
     tol_mults = [float(x) for x in args.tols.split(",") if x.strip()]
     last_epoch = not args.rolling
@@ -148,7 +150,7 @@ def main():
         for mult in ([None] if filt == "none" else tol_mults):
             tol = None if mult is None else bound * mult
             tag = "none" if mult is None else f"{mult:g}"
-            best = _select(items, filt, tol, args.tail, last_epoch)
+            best = _select(items, filt, tol, args.tail, last_epoch, args.selection_split)
             if best is None:
                 print(f"[infeasible] {_cell_name(cell)} tol_mult={tag}: none met tol={tol}")
                 continue
@@ -163,7 +165,7 @@ def main():
                 "tail": args.tail, "select_mode": "rolling" if args.rolling else "last_mean",
                 "config_index": int(best["config_index"]), "best_epoch": epoch,
                 "n_seeds": int(best["n_seeds"]), "sel_split": winner["sel_split"],
-                **_prefix_collapse(best, "val"), **test_stats,
+                **_prefix_collapse(best, args.selection_split), **test_stats,
                 "aggregated_file": winner["agg_file"],
                 "best_hyperparameters": winner["hyperparameters"],
             }

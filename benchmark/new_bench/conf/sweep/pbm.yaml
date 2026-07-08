@@ -1,8 +1,8 @@
 # @package _global_
 # PBM hyperparameter grid for E1 (manual grid, BASIC sweeper).
-# Enumerated as a full cartesian product by Hydra's default (basic) sweeper:
-# 5 * 5 * 2 * 3 * 2 * 3 = 900 configs. Use with:  bash scripts/E1_pbm.sh
-# (penalty_update / pbf / gamma / delta are fixed in conf/algorithm/pbm.yaml.)
+# Full cartesian product: 5 * 5 * 2 * 2 = 100 configs (lr x penalty_mult x penalty_range x mu;
+# pupl / gamma_annealing / penalty_annealing are single-valued here, the rest fixed in
+# conf/algorithm/pbm.yaml).
 defaults:
   - override /algorithm: pbm
 

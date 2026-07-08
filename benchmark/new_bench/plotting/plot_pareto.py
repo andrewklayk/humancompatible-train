@@ -18,7 +18,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from benchmark.new_bench.plotting.prepare_results_plotting import ExperimentSpec, aggregate_experiment
+from prepare_results_plotting import ExperimentSpec, aggregate_experiment
 from plot_style import set_neurips_style, style_for, COL_WIDTH
 
 METHOD_MARKER = {"adam": "o", "pbm": "s", "alm_proj": "^", "alm_max": "D", "ssg": "v"}
@@ -80,12 +80,12 @@ def plot_scatter(spec, methods=None, out="pareto.pdf", tail=1, split="train", pa
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--agg", default="../selection/aggregated",
+    ap.add_argument("--agg", default="../selection/opt/aggregated",
                     help="dir of aggregate.py's per-cell <cell>.csv/.json (run aggregate.py first)")
     ap.add_argument("--task", default="folktables_positive_rate_pair")
     ap.add_argument("--data", default="income")
     ap.add_argument("--bound", type=float, default=0.1)
-    ap.add_argument("--split", default="val", choices=["train", "val", "test"])
+    ap.add_argument("--split", default="train", choices=["train", "val", "test"])
     ap.add_argument("--tail", type=int, default=1)
     ap.add_argument("--pareto", action="store_true", help="keep only non-dominated configs per method")
     ap.add_argument("--out", default="plots/pareto.pdf")
