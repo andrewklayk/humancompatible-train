@@ -16,7 +16,9 @@ Public API (consumed by the plot_* scripts):
         -> (mean[L], std[L]|None, std_init[L]|None, epochs[L]) | None
     dual_trajectory(spec, method, cfg, split)
         -> (lambda_mean[m,L], lambda_std[m,L], epochs[L]) | None
-    list_configs(spec, method) -> [config_index, ...]
+    config_params(spec, method, cfg) -> {dotted_hparam: value}   (e.g. 'moreau.mu': 0.0)
+    list_configs(spec, method, where=None) -> [config_index, ...]
+        where: {dotted_hparam: value|predicate} keeps only matching configs
 """
 import glob
 import json
@@ -61,6 +63,35 @@ def _load(agg_root, task, data):
     return out
 
 
+def _flatten(d, prefix=""):
+    """Flatten a nested hyperparameters dict to {dotted_key: value}; non-dict leaves
+    (incl. lists like penalty_range) are kept as-is. E.g. {'primal': {'lr': 0.01}} ->
+    {'primal.lr': 0.01}."""
+    flat = {}
+    for k, v in d.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict):
+            flat.update(_flatten(v, prefix=key + "."))
+        else:
+            flat[key] = v
+    return flat
+
+
+@lru_cache(maxsize=None)
+def _load_hparams(agg_root, task, data):
+    """(task, data) -> {method: {config_index: flat_hparams}}. Reads each matching
+    <cell>.json's `configs` list and flattens hyperparameters to dotted keys."""
+    out = {}
+    for json_path in sorted(glob.glob(os.path.join(agg_root, "*.json"))):
+        with open(json_path) as f:
+            meta = json.load(f)
+        if meta.get("task") != task or meta.get("data") != data:
+            continue
+        out[meta["algorithm"]] = {int(c["config_index"]): _flatten(c.get("hyperparameters", {}))
+                                  for c in meta.get("configs", [])}
+    return out
+
+
 def _curve(spec, method, config_index, split):
     """Per-epoch DataFrame for one (method, config, split), epoch-sorted, or None."""
     df = _load(spec.agg_root, spec.task, spec.data).get(method, {}).get(int(config_index))
@@ -72,9 +103,36 @@ def _curve(spec, method, config_index, split):
     return df.drop(columns=["config", "split"]).sort_values("epoch").reset_index(drop=True)
 
 
-def list_configs(spec, method):
-    """Sorted config indices available for one method (empty if none)."""
-    return sorted(_load(spec.agg_root, spec.task, spec.data).get(method, {}))
+def config_params(spec, method, config_index):
+    """Flattened dotted-key hyperparameters for one config (e.g. {'primal.lr': 0.01,
+    'moreau.mu': 0.0, 'dual.penalty_mult': 0.5}), or {} if unavailable. Handy for
+    labeling filtered curves."""
+    return _load_hparams(spec.agg_root, spec.task, spec.data).get(method, {}).get(int(config_index), {})
+
+
+def list_configs(spec, method, where=None):
+    """Sorted config indices for one method (empty if none). If ``where`` is given, keep
+    only configs whose (flattened, dotted) hyperparameters match EVERY entry: map a
+    dotted key to a value for equality (e.g. ``{'moreau.mu': 0.0}``) or to a callable
+    predicate for ranges (e.g. ``{'primal.lr': lambda v: v < 0.02}``). Keys may be given
+    with or without an 'algorithm.' prefix; a key absent from a config excludes it."""
+    idx = sorted(_load(spec.agg_root, spec.task, spec.data).get(method, {}))
+    if not where:
+        return idx
+    hp = _load_hparams(spec.agg_root, spec.task, spec.data).get(method, {})
+
+    def match(ci):
+        params = hp.get(ci, {})
+        for key, cond in where.items():
+            k = key[len("algorithm."):] if key.startswith("algorithm.") else key
+            if k not in params:
+                return False
+            val = params[k]
+            if not (cond(val) if callable(cond) else val == cond):
+                return False
+        return True
+
+    return [ci for ci in idx if match(ci)]
 
 
 def aggregate_method(spec, method, split="val", tail=10, last_epoch=True):

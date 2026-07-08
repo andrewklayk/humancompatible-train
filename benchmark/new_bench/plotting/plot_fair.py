@@ -21,7 +21,7 @@ import sys
 
 import numpy as np
 
-from benchmark.new_bench.plotting.prepare_results_plotting import ExperimentSpec, config_trajectory
+from prepare_results_plotting import ExperimentSpec, config_trajectory
 
 # Shared renderer lives in the sibling ../../plotting package (pure matplotlib/numpy).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plotting"))
@@ -127,7 +127,7 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test"):
 def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=None,
          companion="test"):
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
+        methods = ["adam", "pbm", "pbm_logscaled", "alm_proj", "alm_max", "ssg"]
     inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult, companion=companion)
     if not inputs["train_losses_list"]:
         print("no data to plot")
@@ -157,7 +157,7 @@ if __name__ == "__main__":
     ap.add_argument("--tol", type=float, default=1.0,
                     help="which select_best.py feasibility-slack winner to plot "
                          "(matches a --tols value, e.g. 1.0, 1.1, 1.25)")
-    ap.add_argument("--companion", default="test", choices=["val", "test"],
+    ap.add_argument("--companion", default="test", choices=["train", "val", "test"],
                     help="which split to plot alongside train (second column)")
     ap.add_argument("--out", default="plots/fair.png")
     args = ap.parse_args()
