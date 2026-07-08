@@ -237,9 +237,13 @@ used for selection. Launchers: `scripts/E1_{pbm,alm_proj,alm_max,ssg,adam}.sh` +
 ## Reference
 
 - **data:** `income`, `income_sex`, `income_all`, `dutch`, `income_norm`, `cifar10`, `cifar100`
-- **task:** `folktables_positive_rate_pair`, `dutch_positive_rate_pair`, `folktables_positive_rate_vec`, `weight_norm`, `cifar10_loss`
+- **task:** `folktables_positive_rate_pair`, `dutch_positive_rate_pair`, `folktables_positive_rate_vec`, `weight_norm`, `cifar10_loss`, `cifar100_loss`
 - **algorithm:** `adam`, `pbm`, `pbm_logscaled`, `alm_proj`, `alm_max`, `ssg`
   (grid `opt` drivers exist for adam/alm_proj/pbm/ssg; `tune.py` covers all six)
+- **model** (`task.model`): `mlp` (tabular), `conv` (small ConvNet), `resnet`
+  (torchvision resnet18, ImageNet stem — matches the original benchmark), `resnet_cifar`
+  (resnet18 with a 3×3/stride-1 stem and no maxpool, for 32×32 inputs). `cifar100_loss`
+  defaults to `resnet`; override per run, e.g. `task.model=resnet_cifar`.
 
 The training loop is verified bit-exact against the old `run_train` on folktables.
 (ssg's primal is Moreau-wrapped here — a fix vs the old `utils.py`.)
