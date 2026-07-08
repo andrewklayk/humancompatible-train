@@ -127,7 +127,7 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test"):
 def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=None,
          companion="test"):
     if methods is None:
-        methods = ["adam", "pbm", "pbm_logscaled", "alm_proj", "alm_max", "ssg"]
+        methods = ["adam", "pbm", "alm_proj", "ssg"]
     inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult, companion=companion)
     if not inputs["train_losses_list"]:
         print("no data to plot")
@@ -147,7 +147,7 @@ def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=Non
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--agg", default="../selection/aggregated",
+    ap.add_argument("--agg", default="../selection/opt/aggregated",
                     help="dir of aggregate.py's per-cell aggregates (curves); select_best.py's "
                          "best_*.json winners are read from its parent. Run aggregate.py then "
                          "select_best.py first.")
