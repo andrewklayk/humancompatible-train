@@ -1,6 +1,6 @@
 # @package _global_
 # Switching-subgradient (SSG) hyperparameter grid for E1 (manual grid, BASIC sweeper).
-# Full cartesian product: 5 * 5 * 3 = 75 configs. Use with: bash scripts/E1_ssg.sh
+# Full cartesian product: 5 * 5 * 2 = 50 configs (lr x dual.lr x mu).
 defaults:
   - override /algorithm: ssg
 

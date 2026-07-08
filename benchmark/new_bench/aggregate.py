@@ -34,7 +34,7 @@ def _c_cols(df):
                   key=lambda s: int(s.split("_")[1]))
 
 
-def _row_maxc(df, cc, filt):
+def _row_max_viol(df, cc, filt):
     """Per-row max constraint violation (signed for 'upper', absolute otherwise)."""
     return df[cc].max(axis=1) if filt == "upper" else df[cc].abs().max(axis=1)
 
@@ -59,7 +59,7 @@ def _decompose(df, col):
 def _aggregate_split(runs, split, filt):
     """Seed-average one split's per-epoch curve over the (fold, init_seed) grid.
 
-    Metric-agnostic: every numeric column (loss, maxc, each c_i, and the opt-split
+    Metric-agnostic: every numeric column (loss, max_viol, each c_i, and the opt-split
     KKT metrics grad_norm/L/compl/max_viol/lambda_i) gets ``_mean``, ``_std``, and
     the ``_std_fold`` / ``_std_init`` variance components. Returns (DataFrame,
     constraint_cols) or (None, []).
@@ -72,7 +72,7 @@ def _aggregate_split(runs, split, filt):
         df = pd.read_csv(p)
         cc = _c_cols(df) or cc
         if cc:
-            df = df.assign(maxc=_row_maxc(df, cc, filt))
+            df = df.assign(max_viol=_row_max_viol(df, cc, filt))
         frames.append(df.assign(fold=r["fold"], init_seed=r["init_seed"]))
     if not frames:
         return None, []
@@ -89,10 +89,10 @@ def _aggregate_split(runs, split, filt):
 
 
 def _aggregate_cell(configs, filt):
-    """Per-config aggregates for one cell, ordered by hyperparameter signature.
+    """Per-config aggregates for one cell (i.e. task-data-method), ordered by hyperparameter signature.
 
     Each item: {index, signature, meta, splits{split: DataFrame}, m, sel_split}.
-    Selection split is 'val' (ml mode) or 'train' (opt/train-only); configs with
+    Selection split is 'val' (ml mode) or 'opt' (opt/train-only); configs with
     neither are dropped.
     """
     items = []
@@ -103,7 +103,7 @@ def _aggregate_cell(configs, filt):
             res, cc = _aggregate_split(info["runs"], split, filt)
             if res is not None:
                 splits[split], m = res, max(m, len(cc))
-        sel = "val" if "val" in splits else "train" if "train" in splits else None
+        sel = "val" if "val" in splits else "opt" if "opt" in splits else None
         if sel is None:
             continue
         items.append({"index": i, "signature": sig, "meta": info["meta"],
@@ -157,15 +157,19 @@ def main():
 
     # cell (task, data, algorithm) -> signature -> {meta, runs:[{dir, fold, init_seed}]}
     cells, approaches = {}, set()
+    # gets into each individual training run folder at "multirun/{task}/{algorithm}/{approach}/fold{K}_init{K}/{job_name}"
+    # and groups by (task, data, algorithm)
     for meta_path in glob.glob(os.path.join(args.runs, "**", "run_meta.json"), recursive=True):
         with open(meta_path) as f:
             meta = json.load(f)
         appr = meta.get("approach", "ml")
         if args.approach is not None and appr != args.approach:
             continue
-        approaches.add(appr)
+        approaches.add(appr) # check if we're mixing ML and OPT runs (if len > 1 by the end, then we are -> stop)
         cell = (meta["task"], meta.get("data"), meta["algorithm"])
         sig = json.dumps(meta["hyperparameters"], sort_keys=True, default=str)
+        # idk why this is so convoluted but entry is that second {"meta": meta, runs: []} dict
+        # clinically insane one-line way to update a (task, data, algorithm) "cell" with new runs OR initialize it if this is the first run
         entry = cells.setdefault(cell, {}).setdefault(sig, {"meta": meta, "runs": []})
         entry["runs"].append({"dir": os.path.dirname(meta_path),
                               "fold": int(meta.get("fold", 0)),
@@ -180,11 +184,12 @@ def main():
         return
 
     n_cfg = 0
+    # start aggregating: actual trajectory CSVs are read inside helper f-ns
     for cell, configs in sorted(cells.items(), key=lambda kv: tuple(map(str, kv[0]))):
         filt = next(iter(configs.values()))["meta"]["select_filter"]
         items = _aggregate_cell(configs, filt)
         if not items:
-            print(f"[skip] {_cell_name(cell)}: no train or val csv")
+            print(f"[skip] {_cell_name(cell)}: no csv")
             continue
         _write_aggregated(items, cell, agg_dir)
         n_cfg += len(items)

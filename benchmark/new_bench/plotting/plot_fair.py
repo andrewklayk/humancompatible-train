@@ -56,9 +56,9 @@ def read_best_configs(spec, methods, tol_mult=1.0):
         with open(path) as f:
             rec = json.load(f)
         best[method] = int(rec["config_index"])
-        print(f"  [{spec.name}] {method}: best config {best[method]} from "
-              f"{os.path.basename(path)} (val loss {rec['val_loss_mean']:.4g}, "
-              f"viol {rec['val_maxc_mean']:.4g})")
+        # print(f"  [{spec.name}] {method}: best config {best[method]} from "
+        #       f"{os.path.basename(path)} (val loss {rec['val_loss_mean']:.4g}, "
+        #       f"viol {rec['val_max_viol_mean']:.4g})")
     return best
 
 
