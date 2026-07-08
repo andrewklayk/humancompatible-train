@@ -1,4 +1,0 @@
-name: folktables
-kwargs:
-  sens_attrs: ['MAR']
-  states: ['CA']
