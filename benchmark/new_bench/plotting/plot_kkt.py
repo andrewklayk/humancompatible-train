@@ -17,8 +17,13 @@ Modes (``--mode``):
   scatter  one point per config, grouped by method (final residual, log y)
   conv     residual vs epoch: faint line per config + bold best-config per method
   all      cdf + pdf + scatter + conv in a 2x2 grid
+  duals    dual variables lambda_j vs epoch, one panel per constrained method, averaged
+           over all configs of the method; unconstrained methods (adam/ssg) skipped
 
-``--metric {residual,grad_norm,max_viol,compl}`` plots a single component instead.
+``--metric {residual,grad_norm,max_viol,compl,objective}`` plots a single quantity
+instead (ignored by ``duals``, which always plots the lambda_j curves). ``objective``
+is the optimization objective f (the loss), read from the TRAIN split -- opt.csv holds
+only the KKT metrics, not the loss.
 
 Run ``aggregate.py --approach opt --out selection/opt`` first, then point
 ``--agg`` at ``selection/opt/aggregated``.
@@ -34,13 +39,15 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from prepare_results_plotting import ExperimentSpec, list_configs, metric_trajectory
+from prepare_results_plotting import (ExperimentSpec, list_configs, metric_trajectory,
+                                      dual_trajectory)
 from plot_style import set_neurips_style, style_for, COL_WIDTH
 
 SPLIT = "opt"
-METHODS = ["adam", "pbm", "pbm_mirror", "alm_proj", "alm_max", "ssg"]
+METHODS = ["adam", "pbm", "pbm_logscaled", "alm_proj", "alm_max", "ssg"]
 _AXLABEL = {"residual": "KKT residual $r$", "grad_norm": r"$\|\nabla_x L\|$",
-            "max_viol": "feasibility $\\max_j(c_j-b)_+$", "compl": "complementarity $\\sum_j|\\lambda_j g_j|$"}
+            "max_viol": "feasibility $\\max_j(c_j-b)_+$", "compl": "complementarity $\\sum_j|\\lambda_j g_j|$",
+            "objective": "objective $f$ (loss)"}
 
 
 def _residual_traj(spec, method, cfg):
@@ -61,6 +68,11 @@ def _residual_traj(spec, method, cfg):
 def _metric_traj(spec, method, cfg, metric):
     if metric == "residual":
         return _residual_traj(spec, method, cfg)
+    if metric == "objective":
+        # the optimization objective f is the loss, recorded on the TRAIN split
+        # (opt.csv from evaluate_optimality holds only the KKT metrics, not the loss).
+        t = metric_trajectory(spec, method, cfg, "train", "loss")
+        return (np.asarray(t[0], dtype=float), t[3]) if t is not None else None
     t = metric_trajectory(spec, method, cfg, SPLIT, metric)
     if t is None:
         return None
@@ -70,21 +82,37 @@ def _metric_traj(spec, method, cfg, metric):
     return vals, t[3]
 
 
-def _collect_final(spec, method, metric, tail):
-    """[(cfg, final_scalar, traj, epochs)] over all configs of a method (skips missing)."""
+def _final_max_viol(spec, method, cfg, tail):
+    """Config's final (last-``tail``-epoch mean) signed max violation maxⱼ(cⱼ-b), or
+    None if the config has no max_viol column. <= 0 means feasible."""
+    t = metric_trajectory(spec, method, cfg, SPLIT, "max_viol")
+    if t is None or len(t[0]) == 0:
+        return None
+    return float(np.mean(np.asarray(t[0], dtype=float)[-tail:]))
+
+
+def _collect_final(spec, method, metric, tail, feas_tol=None):
+    """[(cfg, final_scalar, traj, epochs)] over all configs of a method (skips missing).
+    When ``feas_tol`` is set (objective plots), drops configs whose final max violation
+    exceeds it -- an infeasible config can reach a low objective by ignoring the
+    constraints, so it isn't comparable."""
     out = []
     for cfg in list_configs(spec, method):
         t = _metric_traj(spec, method, cfg, metric)
         if t is None or len(t[0]) == 0:
             continue
+        if feas_tol is not None:
+            mv = _final_max_viol(spec, method, cfg, tail)
+            if mv is None or mv > feas_tol:
+                continue
         out.append((cfg, float(np.mean(t[0][-tail:])), t[0], t[1]))
     return out
 
 
-def _finals_by_method(spec, methods, metric, tail):
+def _finals_by_method(spec, methods, metric, tail, feas_tol=None):
     d = {}
     for m in methods:
-        rows = _collect_final(spec, m, metric, tail)
+        rows = _collect_final(spec, m, metric, tail, feas_tol=feas_tol)
         if rows:
             d[m] = rows
     return d
@@ -147,16 +175,92 @@ def _plot_conv(ax, finals, log):
     ax.legend(loc="upper right")
 
 
+def _mean_dual_trajectory(spec, method):
+    """Config-averaged dual trajectory for a method: (lambda_mean[m,L], lambda_std[m,L],
+    epochs[L]), where each lambda_j is averaged over all configs of the method (each
+    config already seed-averaged) and lambda_std is the spread ACROSS configs. None if
+    the method stores no duals. Configs are truncated to their common epoch length."""
+    curves, epochs = [], None
+    for cfg in list_configs(spec, method):
+        dt = dual_trajectory(spec, method, cfg, SPLIT)
+        if dt is None:
+            continue
+        curves.append(dt[0])                # lambda_mean[m, L] for this config
+        epochs = dt[2] if epochs is None else epochs
+    if not curves:
+        return None
+    L = min(c.shape[1] for c in curves)
+    stacked = np.stack([c[:, :L] for c in curves], axis=0)  # (n_config, m, L)
+    return stacked.mean(axis=0), stacked.std(axis=0), epochs[:L]
+
+
+def _plot_duals(spec, methods, out="plots/kkt_duals.pdf"):
+    """One panel per constrained method: each dual variable lambda_j vs epoch, averaged
+    over all configs of the method. Methods with no lambda_j (adam/ssg) are skipped.
+    With few constraints (<=10) each lambda_j gets a distinct color + a legend and a
+    +-across-configs band; with many, lambda_j is shaded along a sequential colormap
+    keyed by index j (shared colorbar, no bands) so 30+ curves stay legible."""
+    panels = []
+    for m in methods:
+        mt = _mean_dual_trajectory(spec, m)
+        if mt is not None:
+            panels.append((m, mt))
+    if not panels:
+        print(f"no dual variables found under {spec.agg_root} "
+              f"(only constrained methods store lambda_j)")
+        return None
+
+    m_max = max(lam_mean.shape[0] for _, (lam_mean, _, _) in panels)
+    many = m_max > 10                       # too many for a per-line legend
+    norm = plt.Normalize(vmin=0, vmax=max(m_max - 1, 1))
+    fig, axes = plt.subplots(1, len(panels), squeeze=False,
+                             figsize=(COL_WIDTH * len(panels), COL_WIDTH * 0.85))
+    for ax, (m, (lam_mean, lam_std, epochs)) in zip(axes[0], panels):
+        for j in range(lam_mean.shape[0]):
+            color = plt.cm.viridis(norm(j)) if many else plt.cm.tab10(j % 10)
+            ax.plot(epochs, lam_mean[j], color=color, lw=1.0,
+                    label=None if many else rf"$\lambda_{{{j}}}$")
+            if not many:                    # bands only readable for a handful of duals
+                ax.fill_between(epochs, lam_mean[j] - lam_std[j], lam_mean[j] + lam_std[j],
+                                color=color, alpha=0.15, linewidth=0)
+        ax.set_title(style_for(m)["label"])
+        ax.set_xlabel("epoch")
+        if not many:
+            ax.legend(loc="best", ncol=2, fontsize="x-small")
+    axes[0, 0].set_ylabel(r"dual variable $\lambda_j$ (mean over configs)")
+
+    if many:
+        sm = plt.cm.ScalarMappable(cmap=plt.cm.viridis, norm=norm)
+        cbar = fig.colorbar(sm, ax=axes[0].tolist(), fraction=0.02, pad=0.01)
+        cbar.set_label(r"constraint index $j$")
+    else:
+        fig.tight_layout()
+
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out)
+    plt.close(fig)
+    print(f"\nwrote {out}")
+    return out
+
+
 def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
-             log=True, out="plots/kkt.pdf"):
+             log=True, out="plots/kkt.pdf", feas_tol=0.0):
     set_neurips_style()
-    methods = methods or [m for m in METHODS if list_configs(spec, m)]
-    finals = _finals_by_method(spec, methods, metric, tail)
+    methods = [m for m in METHODS if list_configs(spec, m)] if methods is None else methods
+    if mode == "duals":
+        return _plot_duals(spec, methods, out=out)
+    # Only the objective (loss) is filtered for feasibility: a low loss is meaningless
+    # if the config is infeasible. The KKT metrics already encode feasibility themselves.
+    feas = feas_tol if metric == "objective" else None
+    finals = _finals_by_method(spec, methods, metric, tail, feas_tol=feas)
     if not finals:
-        print(f"no '{SPLIT}' metrics found under {spec.agg_root} "
+        extra = f" feasible at max_viol<={feas_tol}" if feas is not None else ""
+        print(f"no '{SPLIT}' metrics found under {spec.agg_root}{extra} "
               f"(run aggregate.py --approach opt first)")
         return None
 
+    if feas is not None:
+        print(f"[objective] keeping only configs with final max_viol <= {feas_tol}")
     print(f"\n--- final {metric} (mean of last {tail} epochs), per method ---")
     for m, rows in finals.items():
         v = np.array([r[1] for r in rows])
@@ -197,15 +301,19 @@ if __name__ == "__main__":
     ap.add_argument("--task", default="folktables_positive_rate_pair")
     ap.add_argument("--data", default="income")
     ap.add_argument("--bound", type=float, default=0.1)
-    ap.add_argument("--mode", default="cdf", choices=["cdf", "pdf", "scatter", "conv", "all"])
+    ap.add_argument("--mode", default="cdf",
+                    choices=["cdf", "pdf", "scatter", "conv", "all", "duals"])
     ap.add_argument("--metric", default="residual",
-                    choices=["residual", "grad_norm", "max_viol", "compl"])
-    # ap.add_argument("--tail", type=int, default=1,
-    #                 help="window (last K epochs) collapsed to each config's final value")
+                    choices=["residual", "grad_norm", "max_viol", "compl", "objective"])
+    ap.add_argument("--tail", type=int, default=1,
+                    help="window (last K epochs) collapsed to each config's final value")
     ap.add_argument("--linear", action="store_true", help="linear metric axis (default: log)")
+    ap.add_argument("--feas-tol", type=float, default=0.0,
+                    help="objective plots only: keep configs with final max_viol <= this "
+                         "(default 0.0 = feasible); max_viol is c-b, so <=0 is feasible")
     ap.add_argument("--out", default="plots/kkt_cdf.pdf")
     args = ap.parse_args()
     spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
                           bound=args.bound, agg_root=args.agg)
-    plot_kkt(spec, mode=args.mode, metric=args.metric, tail=1,
-             log=not args.linear, out=args.out)
+    plot_kkt(spec, mode=args.mode, metric=args.metric, tail=args.tail,
+             log=not args.linear, out=args.out, feas_tol=args.feas_tol)

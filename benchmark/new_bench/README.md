@@ -1,147 +1,187 @@
 # new_bench — dual_optim benchmark (Hydra multirun)
 
-One job = ONE `(data, task, algorithm, hyperparameters, seed)`. Hydra multirun
-produces the sweep; selection and plotting are separate, re-runnable steps that
-read the saved results. Run everything from this directory.
+One job = ONE `(data, task, algorithm, hyperparameters, seed)`. Sweeping, selection,
+and plotting are separate, re-runnable steps that read the saved results. Run
+everything from this directory.
+
+**The focus is the `opt` (optimization / KKT) experiments** — the whole dataset is the
+training set and we measure how closely each method approaches a KKT point. The `ml`
+(cross-validated train/val/test) view still works and is documented near the end.
 
 ## Layout
 
 | Path | Responsibility |
 |------|----------------|
 | `run.py` | Hydra entrypoint: data → task → algorithm → train → write raw histories |
-| `train.py` | the single training loop + eval |
+| `train.py` | the single training loop + `evaluate_optimality` (full-batch KKT metrics) |
 | `algorithms.py` | update strategies (plain / primal_dual / switching) from `cfg.algorithm` |
 | `tasks.py`, `data.py`, `constraints.py`, `models.py`, `_loaders.py` | task / data / model plumbing |
-| `conf/sweep/` | per-algorithm search spaces |
-| `scripts/E1_*.sh` | per-algorithm sweep launchers + `E1_select.sh` + shared `_env.sh` |
-| `select_best.py` | scan a multirun tree → seed-averaged aggregates + best-config picks |
-| `plotting/` | figures over `selection/aggregated/` (pareto / cdf / fair) |
+| `tune.py`, `search_spaces.py` | **Optuna tuning** (sampled search, feasibility-first objective) |
+| `conf/sweep/` | per-algorithm manual grids (basic sweeper) |
+| `scripts/E1_opt_*.sh` | per-algorithm `opt` grid launchers + `E1_opt_select.sh` |
+| `scripts/run_all_opt.sh` | chain the `opt` sweeps as an sbatch dependency chain |
+| `scripts/tune.sh`, `scripts/_env.sh` | Optuna launcher + shared env/defaults |
+| `aggregate.py`, `select_best.py` | multirun tree → seed-averaged aggregates → best-config picks |
+| `plotting/` | figures over `selection/…/aggregated/` (`plot_kkt` for opt; pareto / cdf / fair) |
 
 ## Run one config
 
 ```bash
-python run.py data=income task=folktables_positive_rate_pair algorithm=pbm
+python run.py data=income task=folktables_positive_rate_pair algorithm=pbm approach=opt
 ```
 
-Writes `train.csv`, `val.csv`, `test.csv`, `run_meta.json` to the job's output dir.
+Writes `train.csv`, `opt.csv` (KKT metrics, `opt` mode), `run_meta.json` to the job's
+output dir. Algorithms: `adam`, `pbm`, `pbm_logscaled`, `alm_proj`, `alm_max`, `ssg`.
+The primal Adam (and ssg's dual Adam) default to `weight_decay=0.01`.
 
-## Sweep (E1)
+## The `opt` approach
 
-One script per algorithm, each independently (re-)runnable. Each runs a **manual
-grid** via Hydra's built-in **basic sweeper** — the grid lives in
-`conf/sweep/<algo>.yaml` (`hydra.sweeper.params`, full cartesian product); `adam`
-is the unconstrained reference on a small lr grid.
-
-```bash
-bash scripts/E1_pbm.sh          # also: alm_proj, alm_max, ssg, adam
-bash scripts/E1_select.sh       # selection, after any subset finishes
-```
-
-Defaults live in `scripts/_env.sh` and are overridable inline:
-
-```bash
-LAUNCHER=slurm INIT_SEEDS="0 1 2" N_FOLDS=5 bash scripts/E1_pbm.sh
-LAUNCHER=local INIT_SEEDS=0 N_FOLDS=2 bash scripts/E1_pbm.sh    # quick smoke test
-```
-
-Key knobs: `DATA`, `TASK`, `INIT_SEEDS` / `N_FOLDS` / `CV_SEED` (see
-Cross-validation below), `LAUNCHER` (`slurm` | `slurm_gpu` | `local`). To resize a
-grid, edit the `choice(...)` lists in `conf/sweep/<algo>.yaml`.
-
-Two things that are easy to get wrong, both handled by the scripts:
-
-- **(fold, init_seed) are looped, not multirun axes** (for the constrained methods).
-  Each `(fold, init_seed)` is a separate basic-sweeper run over the SAME grid, so
-  every run produces identical configs and `select_best.py` matches them across the
-  CV grid by hyperparameter signature. (`adam` instead folds fold/init into the
-  cartesian multirun directly.)
-- **Launch on the login node with `bash`, not `sbatch`.** The submitit launcher
-  submits the array itself; `sbatch`-ing the driver nests submissions.
-
-## Slurm
-
-`LAUNCHER=slurm` (CPU, fairness tasks) / `slurm_gpu` (cifar) routes each trial to a
-Slurm array task via submitit. Edit resources in `conf/hydra/launcher/slurm*.yaml`
-(partition, mem, `array_parallelism` = real concurrency cap, `setup:` for env).
-Hygiene:
-
-- Launch from a **shared filesystem** — `multirun/`, `selection/`, `./data` are
-  relative to the launch dir and every node must see them.
-- **Pre-download datasets once** on the login node (`download=True` racing across
-  array tasks can corrupt `./data`).
-
-## Cross-validation
-
-Randomness is split into two independent axes (config fields, swept by the scripts):
-
-- **`fold` ∈ `0..n_folds-1`** — the **data** axis. A fixed, stratified **test** set is
-  held out *before* K-folding (`cv_seed`, `test_size`); the remaining *dev* set is
-  partitioned by `StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=cv_seed)`,
-  and `fold` selects which fold is validation. Stratification is by sensitive group
-  (class for cifar), so every group appears in the test set and each fold — required
-  by `BalancedBatchSampler` and the per-group constraints. The `StandardScaler` is fit
-  on each fold's train only.
-- **`init_seed`** — the **optimization** axis: model-weight init and batch order.
-
-`cv_seed`/`fold`/`test_size` fix the partition; `init_seed` is the only thing that
-varies the model given the data. `select_best.py` aggregates each config over the full
-`fold × init_seed` grid and reports a **variance decomposition**: `*_std_init`
-(optimization variance, across init seeds within a fold) vs `*_std_fold` (data
-variance, across folds). The held-out **test** metrics (`test_loss_*`, `test_maxc_*`)
-are read at the val-selected epoch — the test set is never used for selection.
-
-Defaults: `n_folds=5`, `init_seed` swept over 3 values, `cv_seed=0`. Cost per method
-≈ `n_configs × n_folds × n_init_seeds`.
-
-## Two approaches: `ml` vs `opt`
-
-Set `approach=` on any run (default `ml`):
-
-- **`ml`** — the machine-learning view above: K-fold CV, train/val/test, val-based
-  selection.
-- **`opt`** — a pure stochastic-optimization view: the **entire dataset is the
-  training set**, no val/test split and no folds (`init_seed` is the only randomness
-  axis). Selection falls back to the **train** curve. Run the `scripts/E1_opt_*.sh`
-  launchers (one `init_seed` multirun each, no fold loop) then `scripts/E1_opt_select.sh`.
-
-In `opt` mode, each epoch also logs **full-batch KKT optimality metrics** to `opt.csv`
-(at the frozen end-of-epoch iterate, on the whole training set — *not* an epoch-mean
-of minibatch values, which would carry a gradient-noise floor):
+`approach=opt` is a pure stochastic-optimization view: the **entire dataset is the
+training set**, with no val/test split and no folds — `init_seed` (model init + batch
+order) is the only randomness axis. Each epoch also logs **full-batch KKT optimality
+metrics** to `opt.csv`, computed at the frozen end-of-epoch iterate over the whole
+training set (*not* an epoch-mean of minibatch values, which would carry a
+gradient-noise floor):
 
 | column | meaning |
 |--------|---------|
-| `grad_norm` | ‖∇ₓ L‖ with `L = f + λᵀ(c−b)` (stationarity residual; `‖∇f‖` for ssg/adam) |
+| `f` | full-batch objective (loss) at the iterate — logged for **every** method |
+| `grad_norm` | ‖∇ₓ L‖ with `L = f + λᵀ(c−b)` (stationarity residual; `‖∇ₓ f‖` for ssg/adam) |
 | `L` | Lagrangian value (primal-dual methods) |
 | `max_viol` | `maxⱼ(cⱼ−b)` — primal feasibility (≤0 feasible) |
 | `compl` | `Σⱼ abs(λⱼ(cⱼ−b))` — complementarity (primal-dual) |
 | `lambda_j` | dual variables (primal-dual) |
 
 For **tabular** tasks this is exact (the whole set fits one forward+backward). For
-**image** tasks it is computed on a fixed, class-balanced subsample of size
-`opt_eval_size` (default 10000; lower it if the backward OOMs) — exact for that
-subsampled problem, and CIFAR is class-balanced so the subsample is representative.
-`ml` and `opt` runs must be **aggregated separately** (`aggregate.py --approach`,
-separate `--out`); mixing them in one cell errors out.
+**image** tasks it uses a fixed, class-balanced subsample of size `opt_eval_size`
+(default 10000; lower it if the backward OOMs). `ml` and `opt` runs must be
+**aggregated separately** (`aggregate.py --approach`, separate `--out`).
+
+## Sweep the `opt` experiments
+
+Two ways to explore hyperparameters — both write per-config runs into `multirun/` in
+the same layout, so `aggregate.py` / `select_best.py` / `plot_kkt` consume either.
+
+### IMPORTANT
+
+Before running any experiment for the first time, make a dummy training run to load the data (run from interactive node after loading modules):
+
+```bash
+python run.py data=cifar10 task=cifar10_loss algorithm=adam approach=opt n_epochs=1
+```
+
+### Experiments
+
+```bash
+E1: DATA=income_norm TASK=weight_norm
+E2: DATA=income TASK=folktables_positive_rate_vec
+E3: DATA=income TASK=folktables_positive_rate_pair
+E4: DATA=dutch TASK=dutch_positive_rate_pair
+E5: DATA=cifar10 TASK=cifar10_loss LAUNCHER=slurm_h200fast
+E6: DATA=cifar100 TASK=cifar100_loss LAUNCHER=slurm_h200
+```
+
+### 1. Manual grid (basic sweeper)
+
+One driver per algorithm, each independently (re-)runnable. The grid lives in
+`conf/sweep/<algo>.yaml` (`hydra.sweeper.params`, full cartesian product). Only
+`init_seed` is swept (no fold loop):
+
+```bash
+DATA=income TASK=folktables_positive_rate_pair sbatch scripts/E1_opt_pbm.sh            # also: adam, alm_proj, ssg
+bash scripts/E1_opt_select.sh         # aggregate + select, after any subset finishes
+```
+---
+Chain all of them as an sbatch **dependency chain** (each sweep starts only after the
+previous finishes) + a final aggregate/select job:
+
+```bash
+DATA=... TASK=... sbatch scripts/run_all_opt.sh
+```
+
+`ALGOS` (order/set, default `adam alm_proj ssg pbm`), `SELECT=0`
+to skip selection.
+
+### 2. Optuna tuning (sampled search)
+
+`tune.py` replaces the exhaustive grid with a TPE search and is the recommended way to
+tune — it covers **all six** algorithms (including `alm_max`, `pbm_logscaled`, which
+have no grid driver). Search spaces are in `search_spaces.py` (continuous/log ranges
+for lrs/penalties, categorical for structural switches).
+
+```bash
+ALGO=pbm bash scripts/tune.sh                              # 8 workers x 25 trials on Slurm
+LAUNCHER=local ALGO=pbm N_TRIALS=50 bash scripts/tune.sh   # single local worker
+```
+
+- **Objective — feasibility-first** (constrained methods): minimize the full-batch
+  objective `f`, with an infinite penalty for infeasibility:
+  `score = f if max_viol ≤ --feas-tol (default 1e-3) else +inf`. Both `f` and
+  `max_viol` are read from `opt.csv` (same frozen iterate), tail-averaged over `--tail`
+  epochs and averaged over `--init-seeds`. `adam` (unconstrained reference) is tuned on
+  `f` alone. `+inf` is stored as a large finite penalty for sampler stability.
+- **Parallelism** — N workers share ONE Optuna study via a `JournalStorage` file, so
+  `tune.sh` submits a **fixed small** job array (not a giant grid array) → no
+  `MaxArraySize` / `QOSMaxSubmitJobPerUser` limits. Sampler uses `constant_liar` so
+  concurrent workers diversify.
+- **Outputs** — every trial's curves are written to
+  `multirun/<task>/<algo>/opt/trial<n>_init<seed>/` (full parity with the grid), and the
+  study records each trial's params + scalar in the journal file. A dependent finalize
+  job writes `best_params.json`. Then run `bash scripts/E1_opt_select.sh`.
+
+Knobs: `ALGO`, `N_WORKERS` (concurrency/adaptivity trade-off; keep ≪ total trials),
+`N_TRIALS` (per worker), `N_EPOCHS`, `TAIL`, `DATA`, `TASK`, `INIT_SEEDS`, and
+`tune.py --feas-tol`.
+
+## Slurm
+
+`conf/hydra/launcher/slurm_gpu.yaml` (GPU) / `slurm.yaml` (CPU) route each trial to a
+Slurm array task via submitit (partition, mem, `array_parallelism` = concurrency cap).
+Two layers, on possibly different partitions:
+
+- **Children** (the actual training array) get their partition/`gres`/mem from the
+  launcher yaml, submitted by submitit.
+- **Driver** = the `E1_opt_*.sh` / `tune.py` process. It **blocks** while its array
+  runs, so when you `sbatch` it (or `run_all_opt.sh`), give it a **long walltime on a
+  non-fast partition** (`amdgpufast` would kill it mid-sweep) and no GPU. `run_all_opt.sh`
+  sets this via `PARTITION`/`TIME`.
+
+Hygiene / gotchas (handled in `scripts/_env.sh`):
+
+- **Launch grid drivers with `bash` on the login node, or `sbatch` them on a long
+  partition** — submitit submits the array itself; don't nest submissions carelessly.
+- **`SLURM_MEM_*` leak** — a driver's `--mem` exports `SLURM_MEM_PER_NODE` into the
+  submitit children, colliding with the launcher's `--mem-per-cpu`
+  (`srun: … mutually exclusive`). `_env.sh` unsets `SLURM_MEM_PER_NODE/_PER_CPU/_PER_GPU`
+  before any `run.py -m`.
+- **MaxArraySize / QOS submit limit** — each `run.py -m` is ONE array; the drivers peel
+  `init_seed` (and `lr`) into an outer loop so each array stays under the cluster's
+  `MaxArraySize`, and submitit blocks per chunk so the queue never overfills. Optuna
+  tuning sidesteps both by using a fixed worker pool instead.
+- Launch from a **shared filesystem**; **pre-download datasets once** on the login node.
+- Chain jobs with dependencies (note: sbatch flags must come **before** the script):
+  `sbatch --dependency=afterok:$JID scripts/E1_opt_ssg.sh` — `run_all_opt.sh` does this
+  for you with `--parsable`.
 
 ## Aggregate + select (two stages)
 
-Selection is split into two re-runnable scripts sharing the `selection/aggregated/`
-files as the single source of truth (also read by the plots):
+Split into two re-runnable scripts sharing the `aggregated/` files as the single source
+of truth (also read by the plots):
 
 ```bash
-# stage 1 — raw multirun -> per-config seed-averaged curves
-python aggregate.py   --runs multirun/ --out selection/ --approach ml
+# stage 1 — raw multirun -> per-config seed-averaged curves (opt into its own dir)
+python aggregate.py   --runs multirun/ --out selection/opt --approach opt
 # stage 2 — aggregated curves -> best config per cell (cheap; re-run at any --tols)
-python select_best.py --agg selection/aggregated --out selection/ --tols 1.0,1.1,1.25 --tail 5
+python select_best.py --agg selection/opt/aggregated --out selection/opt --tols 1.0,1.1,1.25 --tail 5
 ```
 
-For `opt`, aggregate into a separate dir: `aggregate.py --approach opt --out selection/opt`
-then `select_best.py --agg selection/opt/aggregated --out selection/opt`. (The
-`E1_select.sh` / `E1_opt_select.sh` scripts run both stages for you.)
+`scripts/E1_opt_select.sh` runs both for you. (`ml` uses `--approach ml` into
+`selection/`.)
 
 **`aggregate.py`** — per `(task, data, algorithm)` cell, matches configs across the
-`fold × init_seed` grid and writes per-epoch curves for **every split**, including each
-constraint `c_i`, the max violation, and the `_std_fold`/`_std_init` variance
+`init_seed` (and `fold`, in `ml`) grid and writes per-epoch curves for **every split**,
+including each constraint `c_i`, the max violation, and the KKT metrics (`f`,
+`grad_norm`, `L`, `compl`, `max_viol`, `lambda_i`) with `_std_fold`/`_std_init` variance
 components:
 
 ```text
@@ -150,58 +190,56 @@ aggregated/<cell>.json   # per-config metadata + hyperparameters (curves live in
 ```
 
 **`select_best.py`** — reads those JSONs (never the raw runs), collapses each config's
-selection-split curve over a window (mean of the last `--tail` epochs, or `--rolling`
-for the rolling-`tail` argmin-loss epoch), and among configs feasible at `bound·mult`
-takes the min-loss one, once per `--tols` slack level (`adam`/`filter=none` → plain
-argmin loss):
-
-```text
-best_<cell>__tol<mult>.json      # selected config per (cell, slack)
-best_summary.csv                 # one row per (cell, slack)
-```
-
-Both stages are auditable and re-runnable without retraining. The windowed `collapse`
-lives in `select_best.py` and is imported by the plotting backend, so selection and
-plots always agree.
+selection-split curve over a window (mean of the last `--tail` epochs, or `--rolling`),
+and among configs feasible at `bound·mult` takes the min-loss one, once per `--tols`
+slack level. The windowed `collapse` is imported by the plotting backend so selection
+and plots always agree. In `opt` mode selection is on the **train** curve.
 
 ## Plotting
 
-Reads `selection/aggregated/` — **run `select_best.py` first**. From `plotting/`:
+Reads `selection/opt/aggregated/` — **run `select_best.py` (or `E1_opt_select.sh`)
+first**. From `plotting/` (backend: `prepare_results_plotting.py`):
+
+**KKT closeness (`opt`).** `plot_kkt.py` reads the `opt` split:
 
 ```bash
 cd plotting
-python plot_pareto.py --task folktables_positive_rate_pair --data income --bound 0.1 --pareto
-python plot_cdf.py    --task folktables_positive_rate_pair --data income --bound 0.1
-python plot_fair.py   --task folktables_positive_rate_pair --data income --bound 0.1 --tol 1.0 --companion val
-```
-
-`--agg` defaults to `../selection/aggregated`. `plot_cdf`/`plot_pareto` take
-`--split {train,val,test}` (single split) and `--tail` to re-collapse the stored
-curves at plot time. `plot_fair` plots train + a `--companion {val,test}` split
-(default `test`) and reads the winner from `best_*.json` (pick the slack with
-`--tol`); its renderer is reused from `../../plotting/`.
-
-**KKT closeness (`opt` approach only).** `plot_kkt.py` reads the `opt` split and plots
-the composite KKT residual `r = ‖∇L‖ + max(0,max_viol) + abs(compl)` (each config
-collapsed to the mean of its last `--tail` epochs):
-
-```bash
 python plot_kkt.py --agg ../selection/opt/aggregated \
     --task folktables_positive_rate_pair --data income --mode cdf --metric residual
 ```
 
-`--mode cdf` (default) / `pdf` give the closeness-over-configurations view (fraction
-of configs reaching each residual / its histogram); `scatter` is one point per config;
-`conv` is residual-vs-epoch (faint per config, bold best); `all` is the 2×2 grid.
-`--metric {residual,grad_norm,max_viol,compl}` isolates a single KKT component;
-`--linear` switches off the default log metric axis.
+- `--mode`: `cdf` (default) / `pdf` (closeness over configs), `scatter`, `conv`
+  (metric-vs-epoch), `all` (2×2), `duals` (λⱼ vs epoch per constrained method).
+- `--metric`: `residual` (`‖∇L‖ + relu(max_viol) + |compl|`), `grad_norm`, `max_viol`,
+  `compl`, or `objective` (the loss `f`, read from the train split).
+- `--metric objective` additionally drops **infeasible** configs (final
+  `max_viol > --feas-tol`, default 0.0) so a low loss can't come from ignoring the
+  constraints. `--linear` switches off the log axis; `--tail` re-collapses at plot time.
+
+The backend also exposes config filtering: `list_configs(spec, method, where=...)`
+keeps only configs matching hyperparameter constraints (exact value or a predicate),
+and `config_params(...)` returns a config's flattened hyperparameters.
+
+**Fairness / ML views.** `plot_pareto.py`, `plot_cdf.py`, `plot_fair.py` operate on the
+`ml` aggregates (`--split {train,val,test}`, `--tol` slack, `--companion`).
+
+## The `ml` approach (cross-validated)
+
+`approach=ml` (the default) is the machine-learning view: a fixed stratified **test**
+set is held out, the dev set is K-folded, and randomness is split into two axes —
+**`fold`** (data variance) and **`init_seed`** (optimization variance). `select_best.py`
+aggregates over the full `fold × init_seed` grid and reports a variance decomposition
+(`*_std_fold` vs `*_std_init`); test metrics are read at the val-selected epoch, never
+used for selection. Launchers: `scripts/E1_{pbm,alm_proj,alm_max,ssg,adam}.sh` +
+`E1_select.sh`. Defaults (`scripts/_env.sh`): `n_folds=5`, `init_seed` over 3 values,
+`cv_seed=0`. Stratification is by sensitive group (class for cifar).
 
 ## Reference
 
 - **data:** `income`, `income_sex`, `income_all`, `dutch`, `income_norm`, `cifar10`, `cifar100`
 - **task:** `folktables_positive_rate_pair`, `dutch_positive_rate_pair`, `folktables_positive_rate_vec`, `weight_norm`, `cifar10_loss`
-- **algorithm:** `adam`, `pbm`, `alm_proj`, `alm_max`, `ssg`
+- **algorithm:** `adam`, `pbm`, `pbm_logscaled`, `alm_proj`, `alm_max`, `ssg`
+  (grid `opt` drivers exist for adam/alm_proj/pbm/ssg; `tune.py` covers all six)
 
-The training loop is verified bit-exact against the old `run_train` for all five
-algorithms on folktables. (ssg's primal is Moreau-wrapped here — a fix vs the old
-`utils.py`, which left it a plain optimizer.)
+The training loop is verified bit-exact against the old `run_train` on folktables.
+(ssg's primal is Moreau-wrapped here — a fix vs the old `utils.py`.)

@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - override /algorithm: adam
+
+hydra:
+  sweeper:
+    params:
+      algorithm.primal.lr: choice(0.001)
