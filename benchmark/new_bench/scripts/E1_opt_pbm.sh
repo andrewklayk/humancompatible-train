@@ -1,5 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=E1_opt_pbm
+#SBATCH --partition=cpulong
+
 # E1-opt sweep for PBM: full dataset as train, no val/test split (approach=opt).
 # Only the optimization variance axis (init_seed) is swept; no fold loop needed.
 #   Run from benchmark/new_bench/:   bash scripts/E1_opt_pbm.sh

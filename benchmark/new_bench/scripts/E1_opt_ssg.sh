@@ -1,5 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=E1_opt_ssg
+#SBATCH --partition=cpulong
+
 # E1-opt sweep for SSG: full dataset as train, no val/test split.
 #   Run from benchmark/new_bench/:   bash scripts/E1_opt_ssg.sh
 #   Local smoke test:   LAUNCHER=local INIT_SEEDS=0 bash scripts/E1_opt_ssg.sh

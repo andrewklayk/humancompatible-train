@@ -20,9 +20,9 @@ python3 -m pip install -q optuna
 
 ALGO=${ALGO:-pbm}
 N_WORKERS=${N_WORKERS:-8}          # Slurm array tasks sharing the study (keep small)
-N_TRIALS=${N_TRIALS:-25}           # trials PER worker (total ~ N_WORKERS * N_TRIALS)
-N_EPOCHS=${N_EPOCHS:-60}
-TAIL=${TAIL:-5}
+N_TRIALS=${N_TRIALS:-10}           # trials PER worker (total ~ N_WORKERS * N_TRIALS)
+N_EPOCHS=${N_EPOCHS:-100}
+TAIL=${TAIL:-10}
 STUDY=${STUDY:-E1opt_${ALGO}_${DATA}}
 STORAGE=${STORAGE:-selection/opt/tuning/${STUDY}.log}
 TIME=${TIME:-04:00:00}
