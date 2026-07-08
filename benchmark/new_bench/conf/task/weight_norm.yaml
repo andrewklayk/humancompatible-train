@@ -1,5 +1,5 @@
 name: weight_norm
-batch_size: 32
+batch_size: 36
 model: mlp
 loss: bce
 constraint:
