@@ -146,17 +146,18 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
         log_constraints=True,         # PINN residuals span orders of magnitude
         std_multiplier=1,
         save_path=save_path,
-        constraint_titles=constraint_titles
+        constraint_titles=constraint_titles,
+        eval_points=10000
     )
 
 
 if __name__ == "__main__":
 
     # True is a running window mean; False is a tail
-    running_average = True
+    running_average = False
     best_validation_window = 20
 
-    name = "E8"
+    name = "E7"
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),

@@ -11,7 +11,7 @@ algorithms: [adam, pbm, pbm_logscaled, alm_proj, alm_max, ssg]
 model: deep_narrow
 beta: 1.0
 lr: 0.001
-n_epochs: 1000
+n_epochs: 5000
 
 hydra:
   job:
