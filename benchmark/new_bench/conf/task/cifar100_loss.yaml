@@ -1,0 +1,8 @@
+name: cifar100
+batch_size: 400
+model: resnet          # faithful resnet18 (ImageNet stem), matching the original; use `resnet_cifar` for the 32x32-adapted stem
+loss: ce
+constraint:
+  kind: LossPairwise
+  bound: 0.1
+  loss: CrossEntropyLoss

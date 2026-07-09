@@ -34,7 +34,12 @@ def _build_model_factory(model_kind: str, bundle) -> Callable[[], torch.nn.Modul
                        latent_size1=64, latent_size2=32)
     if model_kind == "conv":
         return partial(models.create_conv, num_classes=bundle.n_groups)
-    raise ValueError(f"Unknown model kind '{model_kind}' (expected 'mlp' or 'conv').")
+    if model_kind == "resnet":
+        return partial(models.create_resnet, num_classes=bundle.n_groups)
+    if model_kind == "resnet_cifar":
+        return partial(models.create_resnet_cifar, num_classes=bundle.n_groups)
+    raise ValueError(f"Unknown model kind '{model_kind}' "
+                     f"(expected 'mlp', 'conv', 'resnet', 'resnet_cifar').")
 
 
 def _build_loss(loss_kind: str) -> Callable:

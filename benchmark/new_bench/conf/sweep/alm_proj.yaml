@@ -1,6 +1,6 @@
 # @package _global_
 # ALM (projection form) hyperparameter grid for E1 (manual grid, BASIC sweeper).
-# Full cartesian product: 5 * 5 * 3 * 3 = 225 configs. Use with: bash scripts/E1_alm_proj.sh
+# Full cartesian product: 5 * 5 * 2 * 2 = 100 configs (lr x dual.lr x penalty x mu).
 defaults:
   - override /algorithm: alm_proj
 
