@@ -52,9 +52,10 @@ _AXLABEL = {"residual": "KKT residual $r$", "grad_norm": r"$\|\nabla_x L\|$",
 _COLMAP = {"grad_norm": "kkt_grad", "max_viol": "kkt_viol",
            "compl": "kkt_compl", "residual": "kkt_r", "objective": "loss"}
 
-_PANELS = [("grad_norm", "Stationarity Error"),
-           ("max_viol", "Feasibility Error"),
-           ("test", "Test Loss")]
+_PANELS = [("grad_norm", "Stationarity Error, " + r"$\|\nabla_x L\|$"),
+           ("max_viol", "Feasibility Error $\\max_j(c_j-b)_+$"),
+           ("compl", "complementarity $\\sum_j|\\lambda_j g_j|$"),
+           ("objective", "Train Loss")]
 
 
 def _residual_traj(spec, method, cfg):

@@ -44,11 +44,17 @@ from prepare_results_plotting import (ExperimentSpec, list_configs, metric_traje
 from plot_style import set_neurips_style, style_for, COL_WIDTH
 
 SPLIT = "opt"
-METHODS = ["adam", "pbm", "pbm_logscaled", "alm_proj", "alm_max", "ssg"]
+# METHODS = ["adam", "pbm", "pbm_logscaled", "alm_proj", "alm_max", "ssg"]
+METHODS = ["alm_proj", "pbm"]
 _AXLABEL = {"residual": "KKT residual $r$", "grad_norm": r"$\|\nabla_x L\|$",
             "max_viol": "feasibility $\\max_j(c_j-b)_+$", "compl": "complementarity $\\sum_j|\\lambda_j g_j|$",
             "objective": "objective $f$ (loss)"}
 
+
+_PANELS = [("grad_norm", "Stationarity Error, " + r"$\|\nabla_x L\|$"),
+           ("max_viol", "Feasibility Error $\\max_j(c_j-b)_+$"),
+           ("compl", "complementarity $\\sum_j|\\lambda_j g_j|$"),
+           ("objective", "Train Loss")]
 
 def _residual_traj(spec, method, cfg):
     """(r[L], epochs[L]) with r = ‖∇L‖ + relu(max_viol) + |compl|, or None."""
@@ -250,8 +256,6 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
     if mode == "duals":
         return _plot_duals(spec, methods, out=out)
 
-    print()
-
     # Only the objective (loss) is filtered for feasibility: a low loss is meaningless
     # if the config is infeasible. The KKT metrics already encode feasibility themselves.
     feas = feas_tol if metric == "objective" else None
@@ -298,9 +302,52 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
     return out
 
 
+
+def plot_kkt_boxes(spec, methods=None, tail=5, out="plots/kkt_boxes.pdf", log_scales = [True, False, False, False]):
+    """3 panels (stationarity | feasibility | KKT residual), one box per method;
+    each box = distribution of final (tail-mean) values over configs."""
+    set_neurips_style()
+    methods = METHODS if methods is None else methods
+    fig, axes = plt.subplots(1, 4, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
+
+    idx = 0
+    for ax, (metric, title) in zip(axes, _PANELS):
+        finals = _finals_by_method(spec, methods, metric, tail)
+
+        # return an error if no data found
+        if not finals:
+            extra = f" feasible at max_viol<={feas_tol}" if feas is not None else ""
+            print(f"no '{SPLIT}' metrics found under {spec.agg_root}{extra} "
+                f"(run aggregate.py --approach opt first)")
+            return None
+
+        # aggregate the data for this feature
+        ms = [m for m in methods if m in finals]
+        data = [[r[1] for r in finals[m]] for m in ms]
+        if not data:
+            continue
+        ax.boxplot(data, tick_labels=[style_for(m)["label"] for m in ms],
+                   flierprops=dict(markersize=2))
+
+        if log_scales[idx]:
+            ax.set_yscale("log"); 
+            axes[idx].set_ylabel("Error (log scale)")
+        else: 
+            axes[idx].set_ylabel("Error")
+
+        ax.set_title(title)
+        ax.tick_params(axis="x", rotation=30)
+        idx += 1
+
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out); plt.close(fig)
+    print(f"wrote {out}")
+    return out
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--agg", default="./selection/opt/aggregated",
+    ap.add_argument("--agg", default="../selection/opt/aggregated",
                     help="dir of aggregate.py --approach opt per-cell aggregates")
     ap.add_argument("--task", default="folktables_positive_rate_pair")
     ap.add_argument("--data", default="income")
@@ -312,12 +359,23 @@ if __name__ == "__main__":
     ap.add_argument("--tail", type=int, default=1,
                     help="window (last K epochs) collapsed to each config's final value")
     ap.add_argument("--linear", action="store_true", help="linear metric axis (default: log)")
-    ap.add_argument("--feas-tol", type=float, default=0.0,
+    ap.add_argument("--feas-tol", type=float, default=0.1,
                     help="objective plots only: keep configs with final max_viol <= this "
                          "(default 0.0 = feasible); max_viol is c-b, so <=0 is feasible")
-    ap.add_argument("--out", default="plots/kkt_cdf.pdf")
+    ap.add_argument("--out", default="../../results/plots/")
+
+    # all possible experiments
+    experiments = ['folktables_positive_rate_pair']
+
+    # map to the E 
+    mapping_name = {"folktables_positive_rate_pair": "E3"}
+
+
     args = ap.parse_args()
     spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
                           bound=args.bound, agg_root=args.agg)
-    plot_kkt(spec, mode=args.mode, metric=args.metric, tail=args.tail,
-             log=not args.linear, out=args.out, feas_tol=args.feas_tol)
+    plot_kkt_boxes(spec, out=args.out + f"kkt_boxes_{mapping_name[args.task]}.pdf")
+
+    # plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
+    #          log=True, out="plots/kkt.pdf", feas_tol=0.0)
+

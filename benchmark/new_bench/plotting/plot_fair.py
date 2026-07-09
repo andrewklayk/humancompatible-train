@@ -127,7 +127,8 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test"):
 def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=None,
          companion="test"):
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "ssg"]
+        # methods = ["adam", "pbm", "alm_proj", "ssg"]
+        methods = ["pbm", "alm_proj"]
     inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult, companion=companion)
     if not inputs["train_losses_list"]:
         print("no data to plot")
@@ -151,13 +152,13 @@ if __name__ == "__main__":
                     help="dir of aggregate.py's per-cell aggregates (curves); select_best.py's "
                          "best_*.json winners are read from its parent. Run aggregate.py then "
                          "select_best.py first.")
-    ap.add_argument("--task", default="weight_norm")
-    ap.add_argument("--data", default="income_norm")
+    ap.add_argument("--task", default="folktables_positive_rate_pair")
+    ap.add_argument("--data", default="income")
     ap.add_argument("--bound", type=float, default=0.1)
     ap.add_argument("--tol", type=float, default=1.0,
                     help="which select_best.py feasibility-slack winner to plot "
                          "(matches a --tols value, e.g. 1.0, 1.1, 1.25)")
-    ap.add_argument("--companion", default="test", choices=["train", "val", "test"],
+    ap.add_argument("--companion", default="train", choices=["train", "val", "test"],
                     help="which split to plot alongside train (second column)")
     ap.add_argument("--out", default="plots/fair.png")
     args = ap.parse_args()
