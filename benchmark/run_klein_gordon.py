@@ -324,7 +324,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
 
     def make_pbm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
-        return PBM(m=3, dual_range=(0.01, 100.), **dp, device=device)
+        return PBM(m=3, dual_range=(0.01, 200.), **dp, device=device)
 
     def make_alm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
