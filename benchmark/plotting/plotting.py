@@ -337,7 +337,9 @@ def plot_losses_and_constraints_stochastic(
     save_path=None,
     separate_constraints=False,
     abs_constraints=False,
-    constraint_titles = None
+    constraint_titles = None,
+    log_train_loss=False,
+    log_test_loss=False
 ):
     """
     Clean, modular rewrite.
@@ -489,9 +491,13 @@ def plot_losses_and_constraints_stochastic(
     # LOSS PLOTTING
     # ------------------------------------------------------------------
 
-    def plot_loss_panel(ax, losses_list, losses_std_list, title):
+    def plot_loss_panel(ax, losses_list, losses_std_list, title, log_scale=False):
         for j, (loss, loss_std) in enumerate(zip(losses_list, losses_std_list)):
             x = make_x(len(loss), j)
+
+            if log_scale:
+                ax.set_yscale("log")
+
             plot_curve(
                 ax,
                 x,
@@ -565,8 +571,8 @@ def plot_losses_and_constraints_stochastic(
     # ------------------------------------------------------------------
 
     if constraint_spans_full_width:
-        plot_loss_panel(axes_loss[0][0], train_losses_list, train_losses_std_list, "Train")
-        plot_loss_panel(axes_loss[0][1], test_losses_list, test_losses_std_list, "Test")
+        plot_loss_panel(axes_loss[0][0], train_losses_list, train_losses_std_list, "Train", log_scale=log_train_loss)
+        plot_loss_panel(axes_loss[0][1], test_losses_list, test_losses_std_list, "Test", log_scale=log_test_loss)
         
         # Plot train constraints spanning full width
         if separate_constraints:
@@ -591,10 +597,10 @@ def plot_losses_and_constraints_stochastic(
     else:
         # Normal grid-based layout
         axes = np.atleast_2d(axes)
-        plot_loss_panel(axes[0, 0], train_losses_list, train_losses_std_list, "Train")
+        plot_loss_panel(axes[0, 0], train_losses_list, train_losses_std_list, "Train", log_scale=log_train_loss)
         
         if mode == "train_test":
-            plot_loss_panel(axes[0, 1], test_losses_list, test_losses_std_list, "Test")
+            plot_loss_panel(axes[0, 1], test_losses_list, test_losses_std_list, "Test", log_scale=log_test_loss)
 
         # Plot constraints
         if mode == "train":

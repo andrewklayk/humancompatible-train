@@ -131,7 +131,7 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
                               bound=1e-4, pinns=True, seeds=(0, 1),
                               results_root="results")
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "alm_max"]#, "ssg"]
+        methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
     inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_lastK)
     if not inputs["train_losses_list"]:
@@ -147,7 +147,9 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
         std_multiplier=1,
         save_path=save_path,
         constraint_titles=constraint_titles,
-        eval_points=10000
+        eval_points=10000,
+        log_train_loss=True,
+        log_test_loss=True
     )
 
 
@@ -157,7 +159,7 @@ if __name__ == "__main__":
     running_average = False
     best_validation_window = 20
 
-    name = "E7"
+    name = "E9"
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),

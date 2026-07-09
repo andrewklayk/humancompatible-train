@@ -43,12 +43,28 @@ pbm_grid = [
         ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
         [1], [True], [True], [False], [None])
 ]
+
+
+pbm_grid = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
+    in product(
+        [0.005], [0.5], ["dimin_adapt"],
+        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
+        [1], [True], [True], [False], [None])
+]
+
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
     arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
 
-    if arr_dict["dual__gamma_annealing"] == True:
-        arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
+    # if arr_dict["dual__gamma_annealing"] == True:
+    #     arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
 pbm_logascaled_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
@@ -302,12 +318,13 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg) :     # +seed
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2 + loss3, val_err, test_err))
+                
         return history
 
     # dual constructors built FROM params (same classes/args as the old hardcoded blocks)
     def make_pbm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
-        return PBM(m=2, dual_range=(0.01, 100.), **dp, device=device)
+        return PBM(m=2, dual_range=(0.01, 200.), **dp, device=device)
     def make_alm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
         return ALM(m=2, **dp, device=device)
@@ -330,7 +347,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg) :     # +seed
     # ensure the pbm has the size of the epoch (for gamma annealing)
     if 'pbm' in cfg.algorithms:
         for arr_dict in pbm_grid:   
-            arr_dict["dual__epoch_length"] = len(train_loader)
+            arr_dict["dual__epoch_length"] = 60
 
         histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
         save_method(result_dir, "pbm", histories, pbm_grid)

@@ -35,19 +35,26 @@ Usage:
 """
 import argparse
 import os
-
+from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
-from prepare_results_plotting import (ExperimentSpec, list_configs, metric_trajectory,
-                                      dual_trajectory)
+from prepare_results_pinn import (ExperimentSpec, list_configs, metric_trajectory, dual_trajectory, _seed_frames)
 from plot_style import set_neurips_style, style_for, COL_WIDTH
 
 SPLIT = "opt"
-METHODS = ["adam", "pbm", "pbm_logscaled", "alm_proj", "alm_max", "ssg"]
+METHODS = ["adam", "pbm", "alm_proj", "ssg"]
 _AXLABEL = {"residual": "KKT residual $r$", "grad_norm": r"$\|\nabla_x L\|$",
             "max_viol": "feasibility $\\max_j(c_j-b)_+$", "compl": "complementarity $\\sum_j|\\lambda_j g_j|$",
             "objective": "objective $f$ (loss)"}
+
+_COLMAP = {"grad_norm": "kkt_grad", "max_viol": "kkt_viol",
+           "compl": "kkt_compl", "residual": "kkt_r", "objective": "loss"}
+
+_PANELS = [("grad_norm", "Stationarity Error"),
+           ("max_viol", "Feasibility Error"),
+           ("test", "Test Loss")]
 
 
 def _residual_traj(spec, method, cfg):
@@ -97,7 +104,8 @@ def _collect_final(spec, method, metric, tail, feas_tol=None):
     exceeds it -- an infeasible config can reach a low objective by ignoring the
     constraints, so it isn't comparable."""
     out = []
-    for cfg in list_configs(spec, method):
+
+    for cfg in tqdm(list_configs(spec, method)):
         t = _metric_traj(spec, method, cfg, metric)
         if t is None or len(t[0]) == 0:
             continue
@@ -110,13 +118,32 @@ def _collect_final(spec, method, metric, tail, feas_tol=None):
 
 
 def _finals_by_method(spec, methods, metric, tail, feas_tol=None):
+    col = _COLMAP.get(metric, metric)
     d = {}
     for m in methods:
-        rows = _collect_final(spec, m, metric, tail, feas_tol=feas_tol)
+        dfs = _seed_frames(spec, m)
+        if not dfs:
+            continue
+        rows = []
+        df = pd.concat(dfs).groupby(["config", "epoch"]).mean().reset_index()  # seed-mean
+        if col not in df.columns:
+            continue
+        if metric == "max_viol":
+            df[col] = df[col].clip(lower=0)
+        if feas_tol is not None and "kkt_viol" in df.columns:
+            tail_mv = (df.sort_values("epoch").groupby("config")["kkt_viol"]
+                         .apply(lambda s: s.tail(tail).mean()))
+            df = df[df["config"].isin(tail_mv[tail_mv <= feas_tol].index)]
+        
+        # sort by epochs + mean the tail
+        g = df.sort_values("epoch").groupby("config")
+        finals = g[col].apply(lambda s: s.tail(tail).mean())                    # tail-mean
+        rows = [(cfg, float(finals[cfg]),
+                sub[col].to_numpy(), sub["epoch"].to_numpy())
+                for cfg, sub in g if cfg in finals.index]
         if rows:
             d[m] = rows
     return d
-
 
 def _plot_cdf(ax, finals, log):
     for m, rows in finals.items():
@@ -244,22 +271,19 @@ def _plot_duals(spec, methods, out="plots/kkt_duals.pdf"):
 
 
 def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
-             log=True, out="plots/kkt.pdf", feas_tol=0.0):
+             log=True, out="results/plots/kkt.pdf", feas_tol=0.0):
     set_neurips_style()
     methods = [m for m in METHODS if list_configs(spec, m)] if methods is None else methods
     if mode == "duals":
         return _plot_duals(spec, methods, out=out)
-
-    print()
-
+    
     # Only the objective (loss) is filtered for feasibility: a low loss is meaningless
     # if the config is infeasible. The KKT metrics already encode feasibility themselves.
     feas = feas_tol if metric == "objective" else None
     finals = _finals_by_method(spec, methods, metric, tail, feas_tol=feas)
-
     if not finals:
         extra = f" feasible at max_viol<={feas_tol}" if feas is not None else ""
-        print(f"no '{SPLIT}' metrics found under {spec.agg_root}{extra} "
+        print(f"no metrics found under {spec.results_root}{extra} "
               f"(run aggregate.py --approach opt first)")
         return None
 
@@ -290,34 +314,59 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
             _plot_conv(ax, finals, log); ax.set_ylabel(rlabel)
         else:
             raise ValueError(f"unknown mode '{mode}'")
-
+    
+    out = f"results/plots/kkt_{spec.name}_{metric}.pdf"
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     fig.savefig(out)
     plt.close(fig)
     print(f"\nwrote {out}")
     return out
 
+def plot_kkt_boxes(spec, methods=None, tail=20, out="plots/kkt_boxes.pdf"):
+    """3 panels (stationarity | feasibility | KKT residual), one box per method;
+    each box = distribution of final (tail-mean) values over configs."""
+    set_neurips_style()
+    methods = METHODS if methods is None else methods
+    fig, axes = plt.subplots(1, 3, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
+    for ax, (metric, title) in zip(axes, _PANELS):
+        finals = _finals_by_method(spec, methods, metric, tail)
+        ms = [m for m in methods if m in finals]
+        data = [[r[1] for r in finals[m]] for m in ms]
+        if not data:
+            continue
+        ax.boxplot(data, tick_labels=[style_for(m)["label"] for m in ms],
+                   flierprops=dict(markersize=2))
+        ax.set_yscale("log"); ax.set_title(title)
+        ax.tick_params(axis="x", rotation=30)
+    axes[0].set_ylabel("Error (log scale)")
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out); plt.close(fig)
+    print(f"wrote {out}")
+    return out
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--agg", default="./selection/opt/aggregated",
-                    help="dir of aggregate.py --approach opt per-cell aggregates")
-    ap.add_argument("--task", default="folktables_positive_rate_pair")
-    ap.add_argument("--data", default="income")
-    ap.add_argument("--bound", type=float, default=0.1)
-    ap.add_argument("--mode", default="cdf",
-                    choices=["cdf", "pdf", "scatter", "conv", "all", "duals"])
-    ap.add_argument("--metric", default="residual",
-                    choices=["residual", "grad_norm", "max_viol", "compl", "objective"])
-    ap.add_argument("--tail", type=int, default=1,
-                    help="window (last K epochs) collapsed to each config's final value")
-    ap.add_argument("--linear", action="store_true", help="linear metric axis (default: log)")
-    ap.add_argument("--feas-tol", type=float, default=0.0,
-                    help="objective plots only: keep configs with final max_viol <= this "
-                         "(default 0.0 = feasible); max_viol is c-b, so <=0 is feasible")
-    ap.add_argument("--out", default="plots/kkt_cdf.pdf")
-    args = ap.parse_args()
-    spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
-                          bound=args.bound, agg_root=args.agg)
-    plot_kkt(spec, mode=args.mode, metric=args.metric, tail=args.tail,
-             log=not args.linear, out=args.out, feas_tol=args.feas_tol)
+
+
+    # True is a running window mean; False is a tail
+    running_average = False
+    best_validation_window = 20
+
+    names = ["E7", "E8", "E9"]
+    specs = {
+        "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                              results_root="results"),
+        "E8": ExperimentSpec(name="E8", data="burgers", task="pinn",
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                              results_root="results"),
+        "E9": ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                              results_root="results"),
+    }
+    
+    constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
+
+    for name in names: 
+        spec = specs[name]
+        out = plot_kkt_boxes(spec, tail=best_validation_window, out=f"results/plots/kkt_boxes_{name}.pdf")

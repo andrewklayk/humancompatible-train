@@ -45,8 +45,8 @@ pbm_grid = [
 for arr_dict in pbm_grid:
     arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
 
-    if arr_dict["dual__gamma_annealing"] == True:
-        arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
+    # if arr_dict["dual__gamma_annealing"] == True:
+    #     arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
 pbm_logascaled_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
@@ -349,7 +349,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
     # ===== SPBM (PBM) =====
     if 'pbm' in cfg.algorithms:
         for arr_dict in pbm_grid:   
-            arr_dict["dual__epoch_length"] = len(train_loader)
+            arr_dict["dual__epoch_length"] = 60
         histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
         save_method(result_dir, "pbm", histories, pbm_grid)
 

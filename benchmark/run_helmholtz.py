@@ -37,15 +37,15 @@ pbm_grid = [
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
+        ["quadratic_logarithmic"], [[1e-5, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
         [1], [True], [True], [False], [None])
 ]
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
     arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
 
-    if arr_dict["dual__gamma_annealing"] == True:
-        arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
+    # if arr_dict["dual__gamma_annealing"] == True:
+    #     arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
 pbm_logascaled_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
@@ -287,11 +287,12 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2, val_err, test_err))
+                print(dual.penalties.detach())
         return history
 
     def make_pbm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
-        return PBM(m=1, dual_range=(0.01, 100.), **dp, device=device)
+        return PBM(m=1, dual_range=(0.01, 200.), **dp, device=device)
 
     def make_alm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
@@ -315,7 +316,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
     # ===== SPBM (PBM) =====
     if 'pbm' in cfg.algorithms:
         for arr_dict in pbm_grid:   
-            arr_dict["dual__epoch_length"] = len(train_loader)
+            arr_dict["dual__epoch_length"] = 60
         histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
         save_method(result_dir, "pbm", histories, pbm_grid)
 
