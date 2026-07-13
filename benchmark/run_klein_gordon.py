@@ -37,16 +37,14 @@ pbm_grid = [
     "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.8, 0.9, 0.99, 0.999, 1.0], ["dimin_adapt"],
+        ["quadratic_logarithmic"], [[1e-2, 1.]], [0.9, 0.99], [0., 1., 2.], 
         [1], [True], [True], [False], [None])
 ]
+
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
     arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
-
-    # if arr_dict["dual__gamma_annealing"] == True:
-    #     arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
 pbm_logascaled_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
@@ -212,8 +210,10 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         val_list.append(val_err)
         test_list.append(test_err)
 
+
+    kkt = {k: float(np.mean([d[k] for d in kkt_list])) for k in kkt_list[0]}  # ADDED
     return (np.mean(loss_list), np.mean(loss_list1), np.mean(loss_list2),
-            np.mean(loss_list3), np.mean(loss_list4), np.mean(val_list), np.mean(test_list))
+            np.mean(loss_list3), np.mean(loss_list4), np.mean(val_list), np.mean(test_list), kkt)
 
 
 # ── saving helpers ────────────────────────────────────────────────────────────
@@ -306,13 +306,13 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
 
         t0 = _time.time()
         for t in range(0, EPOCH):
-            loss, loss1, loss2, loss3, loss4, val_err, test_err = train(
+            loss, loss1, loss2, loss3, loss4, val_err, test_err, kkt = train(
                 u_model, b, trainloader=train_loader, ini_bdry_data=ini_bdry,
                 val_test=val_test, optimizer=optimizer, loss_f=nn.MSELoss(),
                 dual_opt=dual, clamp=clamp, mode=mode, sw_dual=sw_dual)
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
                             "c_0": loss2, "c_1": loss3, "c_2": loss4,
-                            "val": val_err, "test": test_err})
+                            "val": val_err, "test": test_err, **kkt})
 
             # step the lr scheduler
             sched.step()
@@ -320,11 +320,12 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2 + loss3 + loss4, val_err, test_err))
+                
         return history
 
     def make_pbm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
-        return PBM(m=3, dual_range=(0.01, 200.), **dp, device=device)
+        return PBM(m=3, dual_range=(0.01, 100.), **dp, device=device)
 
     def make_alm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}

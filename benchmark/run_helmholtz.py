@@ -27,6 +27,20 @@ device = 'cuda'
 
 
 # ── HP GRIDS (ADDED) ─────────────────────────────────────────────────────────
+# pbm_grid = [
+#     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+#      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+#      "dual__delta": 1., "moreau__mu": mu,
+#     "dual__primal_update_process_length": primal_update_process_length,
+#     "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+#     "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
+#     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
+#     in product(
+#         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
+#         ["quadratic_logarithmic"], [[1e-3, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
+#         [1], [True], [True], [False], [None])
+# ]
+
 pbm_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
@@ -36,16 +50,16 @@ pbm_grid = [
     "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.8, 0.9, 0.99, 0.999, 1.0], ["dimin_adapt"],
+        ["quadratic_logarithmic"], [[1e-2, 1.]], [0.9, 0.99], [0., 1., 2.], 
         [1], [True], [True], [False], [None])
 ]
+
+
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
     arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
 
-    # if arr_dict["dual__gamma_annealing"] == True:
-    #     arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
 
 pbm_logascaled_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
@@ -280,19 +294,19 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
                 dual_opt=dual, clamp=clamp, mode=mode, sw_dual=sw_dual)
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
                             "c_0": loss2, "val": val_err, "test": test_err, **kkt})
-
+            
             # step the lr scheduler
             sched.step()
 
             if t % 100 == 0:
                 print("%s/%s | loss: %06.6f | c: %06.6f | val: %06.6f | test: %06.6f " %
                       (t, EPOCH, loss1, loss2, val_err, test_err))
-                print(dual.penalties.detach())
+
         return history
 
     def make_pbm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}
-        return PBM(m=1, dual_range=(0.01, 200.), **dp, device=device)
+        return PBM(m=1, dual_range=(0.01, 100.), **dp, device=device)
 
     def make_alm(params):
         dp = {k.removeprefix("dual__"): v for k, v in params.items() if k.startswith("dual__")}

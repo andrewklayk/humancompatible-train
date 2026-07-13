@@ -16,7 +16,7 @@ partition: h200             # <-- your GPU partition name
 # interleaved CSV rows. To pack many jobs on a node, use array_parallelism, not tasks.
 tasks_per_node: 1
 cpus_per_task: 4          # dataloading workers / host-side work
-mem_per_cpu: 8G
+mem_per_cpu: 20G
 
 # GPU request. submitit has no first-class `gres` field, so we pass it through
 # additional_parameters -> renders as `#SBATCH --gres=gpu:1`. This is the most

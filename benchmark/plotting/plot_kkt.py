@@ -55,7 +55,8 @@ _COLMAP = {"grad_norm": "kkt_grad", "max_viol": "kkt_viol",
 _PANELS = [("grad_norm", "Stationarity Error, " + r"$\|\nabla_x L\|$"),
            ("max_viol", "Feasibility Error $\\max_j(c_j-b)_+$"),
            ("compl", "complementarity $\\sum_j|\\lambda_j g_j|$"),
-           ("objective", "Train Loss")]
+           ("objective", "Train Loss"),
+           ("test", "Test Loss")]
 
 
 def _residual_traj(spec, method, cfg):
@@ -328,7 +329,7 @@ def plot_kkt_boxes(spec, methods=None, tail=20, out="plots/kkt_boxes.pdf"):
     each box = distribution of final (tail-mean) values over configs."""
     set_neurips_style()
     methods = METHODS if methods is None else methods
-    fig, axes = plt.subplots(1, 3, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
+    fig, axes = plt.subplots(1, 4, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
     for ax, (metric, title) in zip(axes, _PANELS):
         finals = _finals_by_method(spec, methods, metric, tail)
         ms = [m for m in methods if m in finals]
@@ -346,13 +347,51 @@ def plot_kkt_boxes(spec, methods=None, tail=20, out="plots/kkt_boxes.pdf"):
     print(f"wrote {out}")
     return out
 
+def plot_kkt_boxes_single(specs, names, methods=None, tail=20, out="plots/kkt_boxes.pdf"):
+
+    set_neurips_style()
+    methods = METHODS if methods is None else methods
+    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
+
+    # for metric
+    for ax, (metric, title) in zip(axes, _PANELS):
+        pooled = {m: [] for m in methods}
+
+        for name in names:
+            spec = specs[name]
+            finals = _finals_by_method(spec, methods, metric, tail)
+            ms = [m for m in methods if m in finals]
+
+            # per-spec baseline: best (lowest) final across ALL methods' runs
+            all_vals = [r[1] for m in ms for r in finals[m]]
+            best = min(all_vals)
+
+            eps = 1e-4
+            for m in ms:
+                pooled[m].extend((r[1] + eps) / (best + eps) for r in finals[m])
+
+        ms_plot = [m for m in methods if pooled[m]] 
+        data = [pooled[m] for m in ms_plot]
+        ax.boxplot(data, tick_labels=[style_for(m)["label"] for m in ms],
+                   flierprops=dict(markersize=2))
+        ax.tick_params(axis="x", rotation=30)
+        ax.set_yscale("log")          # ratios spanning orders of magnitude read better on log
+        ax.axhline(1.0, ls="--", lw=0.6, color="gray")   # the "best" reference line
+        ax.set_title(title)
+
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out); plt.close(fig)
+    print(f"wrote {out}")
+
+
 if __name__ == "__main__":
 
 
     # True is a running window mean; False is a tail
     running_average = False
     best_validation_window = 20
-
+    
     names = ["E7", "E8", "E9"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
@@ -368,6 +407,9 @@ if __name__ == "__main__":
     
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
 
-    for name in names: 
-        spec = specs[name]
-        out = plot_kkt_boxes(spec, tail=best_validation_window, out=f"results/plots/kkt_boxes_{name}.pdf")
+    # for name in names: 
+    #     spec = specs[name]
+    #     out = plot_kkt_boxes(spec, tail=best_validation_window, out=f"results/plots/kkt_boxes_{name}.pdf")
+
+    # plot all boxes together
+    plot_kkt_boxes_single(specs, names, methods=None, tail=20, out="./results/plots/kkt_boxes_PINNs.pdf")

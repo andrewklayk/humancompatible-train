@@ -303,13 +303,15 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
 
 
 
-def plot_kkt_boxes(spec, methods=None, tail=5, out="plots/kkt_boxes.pdf", log_scales = [True, False, False, False]):
+def plot_kkt_boxes(spec, methods=None, tail=5, out="plots/kkt_boxes.pdf", 
+                log_scales = [True, False, False, False], feas_tol=0.0):
     """3 panels (stationarity | feasibility | KKT residual), one box per method;
     each box = distribution of final (tail-mean) values over configs."""
     set_neurips_style()
     methods = METHODS if methods is None else methods
     fig, axes = plt.subplots(1, 4, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
-
+    feas = feas_tol if metric == "objective" else None
+    
     idx = 0
     for ax, (metric, title) in zip(axes, _PANELS):
         finals = _finals_by_method(spec, methods, metric, tail)
@@ -362,20 +364,56 @@ if __name__ == "__main__":
     ap.add_argument("--feas-tol", type=float, default=0.1,
                     help="objective plots only: keep configs with final max_viol <= this "
                          "(default 0.0 = feasible); max_viol is c-b, so <=0 is feasible")
-    ap.add_argument("--out", default="../../results/plots/")
+    
 
     # all possible experiments
-    experiments = ['folktables_positive_rate_pair']
+    experiments = [ 'folktables_positive_rate_vec'
+                    'folktables_positive_rate_pair', 
+                    'dutch_positive_rate_pair']
+
+
+    experiments = [ 'folktables_positive_rate_vec']
+
+    data_map = {    "folktables_positive_rate_vec": "income", 
+                    "folktables_positive_rate_pair": "income",
+                    "dutch_positive_rate_pair": "dutch"
+    }
+
+    bounds_map = {
+                    "folktables_positive_rate_vec": "income", 
+                    "folktables_positive_rate_pair": "income",
+                    "dutch_positive_rate_pair": "dutch"
+    }
 
     # map to the E 
-    mapping_name = {"folktables_positive_rate_pair": "E3"}
+    mapping_name = {"folktables_positive_rate_vec": "E2", 
+                    "folktables_positive_rate_pair": "E3",
+                    "dutch_positive_rate_pair": "E4"}
+
+    # define output folder
+    out = "../../results/plots/"
+    agg = "../selection/aggregated"
+
+    specs = []
+
+    # loop over all experiments and create the experiments
+    for experiment in experiments: 
+        
+        # load the details about the experiment
+        task = experiment
+        data = data_map[experiment]
+        bound = bounds_map[experiment]
+
+        spec = ExperimentSpec(name=task , task=task, data=data,
+                        bound=bound, agg_root=agg)
+
+        specs.append(spec)
+                          
+
+    # plot all
+    for spec in specs: 
+        # plot_kkt_boxes(spec, out=out + f"kkt_boxes_{mapping_name[spec.task]}.pdf")
+        plot_kkt(spec, out=out + f"kkt_boxes_{mapping_name[spec.task]}.pdf")
 
 
-    args = ap.parse_args()
-    spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
-                          bound=args.bound, agg_root=args.agg)
-    plot_kkt_boxes(spec, out=args.out + f"kkt_boxes_{mapping_name[args.task]}.pdf")
-
-    # plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
-    #          log=True, out="plots/kkt.pdf", feas_tol=0.0)
 

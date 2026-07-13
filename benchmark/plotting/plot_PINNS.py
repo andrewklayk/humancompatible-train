@@ -153,13 +153,67 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
     )
 
 
+    print(f"wrote {save_path}")
+
+
+def plot_PINNs_single(specs, names, methods=None,
+        save_path="./results/plots/pinns_convergence.pdf",
+         best_validation_lastK=1):
+   
+    if methods is None:
+        methods = ["adam", "pbm", "alm_proj", "ssg"]
+
+    # collect per-spec mean curves: {method: [curve_per_spec, ...]}
+    per = {m: {"loss": [], "test": [], "cons": []} for m in methods}
+    for name in names:
+
+        inputs = build_plot_inputs(specs[name], methods, best_validation_lastK=best_validation_lastK)
+
+        # per-spec baseline: best final value across methods (eps-floored)
+        eps = 1e-4 
+        base_loss = min(c[-1] for c in inputs["train_losses_list"]) + eps
+        base_test = min(c[-1] for c in inputs["test_losses_list"]) + eps
+
+        for i, title in enumerate(inputs["titles"]):
+            m = next(k for k, v in METHOD_LABELS.items() if v == title)
+            per[m]["loss"].append((inputs["train_losses_list"][i] + eps) / base_loss)
+            per[m]["test"].append((inputs["test_losses_list"][i] + eps) / base_test)
+            per[m]["cons"].append(inputs["train_constraints_list"][i].max(0))
+    
+    # mean/std across experiments
+    train_l, train_s, test_l, test_s, cons_l, cons_s, titles = [], [], [], [], [], [], []
+    for m in methods:
+        if not per[m]["loss"]:
+            continue
+        L = min(len(c) for c in per[m]["loss"])
+        stack = lambda key: np.stack([c[:L] for c in per[m][key]])
+        loss, test, cons = stack("loss"), stack("test"), stack("cons")
+        train_l.append(loss.mean(0)); train_s.append(loss.std(0))
+        test_l.append(test.mean(0));  test_s.append(test.std(0))
+        cons_l.append(cons.mean(0)[None, :]); cons_s.append(cons.std(0)[None, :])  # (1, epochs)
+        titles.append(METHOD_LABELS.get(m, m))
+
+    plot_losses_and_constraints_stochastic(
+        train_losses_list=train_l, train_losses_std_list=train_s,
+        test_losses_list=test_l, test_losses_std_list=test_s,
+        train_constraints_list=cons_l, train_constraints_std_list=cons_s,
+        titles=titles,
+        constraint_thresholds=specs[names[0]].bound,
+        mode="train", separate_constraints=True, log_constraints=True,
+        std_multiplier=1, save_path=save_path,
+        constraint_titles=["Max constraint violation"],
+        eval_points=10000, log_train_loss=True, log_test_loss=True,
+    )
+
+    print(f"wrote {save_path}")
+
 if __name__ == "__main__":
 
     # True is a running window mean; False is a tail
     running_average = False
     best_validation_window = 20
 
-    name = "E9"
+    names = ["E7", "E8", "E9"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
@@ -172,13 +226,15 @@ if __name__ == "__main__":
                               results_root="results"),
     }
 
-    spec = specs[name]
-    constraint_titles = ["Initial Condition", "Boundary Condition"]
-    if name == "E9":
-        constraint_titles += ["Boundary Condition 2"]
+    
+    constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
 
-    # takes the best validation loss config, then takes the solution from that config and plots the 
-    # train / test loss and train constraints
-    # the plot uses the weight (E1) plotting function
-    plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.png", 
-               constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+    # iterate and plot all single plot for each experiment
+    for name in names:
+        spec = specs[name]
+        plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
+                constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+
+    # plot a single plot - combined all PINN experiments
+    plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 
+                        best_validation_lastK=best_validation_window)

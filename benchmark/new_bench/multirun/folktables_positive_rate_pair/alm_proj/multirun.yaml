@@ -3,7 +3,7 @@ hydra:
     dir: outputs/${task.name}/${algorithm.name}/${approach}/fold${fold}_init${init_seed}
   sweep:
     dir: multirun/${task.name}/${algorithm.name}
-    subdir: ${approach}/fold${fold}_init${init_seed}/job${hydra.job.num}
+    subdir: ${approach}/fold${fold}_init${init_seed}/${hp_hash:${algorithm}}
   launcher:
     submitit_folder: ${hydra.sweep.dir}/.submitit/%j
     timeout_min: 60
@@ -36,9 +36,8 @@ hydra:
     _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
     max_batch_size: null
     params:
-      algorithm.primal.lr: choice(0.005, 0.01, 0.05)
-      algorithm.dual.lr: choice(0.01, 0.02, 0.05, 0.1)
-      +algorithm.dual.momentum: choice(0.0, 0.2, 0.5)
+      algorithm.primal.lr: choice(0.001, 0.005, 0.01, 0.02, 0.05)
+      algorithm.dual.lr: choice(0.01, 0.02, 0.05, 0.1, 0.5)
       algorithm.dual.penalty: choice(0., 1.0)
       algorithm.moreau.mu: choice(0.0, 1.0)
   help:
@@ -148,12 +147,11 @@ hydra:
     - data=income
     - task=folktables_positive_rate_pair
     - approach=opt
-    - init_seed=2
-    - algorithm.primal.lr=0.05
+    - init_seed=4
   job:
     name: run
     chdir: false
-    override_dirname: +sweep=alm_proj,algorithm.primal.lr=0.05,approach=opt,data=income,init_seed=2,task=folktables_positive_rate_pair
+    override_dirname: +sweep=alm_proj,approach=opt,data=income,init_seed=4,task=folktables_positive_rate_pair
     id: ???
     num: ???
     config_name: config
@@ -201,7 +199,7 @@ data:
     - MAR
     - SEX
     states:
-    - VA
+    - FL
     extend_groups: false
 task:
   name: folktables_positive_rate_pair
@@ -222,7 +220,8 @@ algorithm:
   primal:
     _target_: torch.optim.Adam
     _partial_: true
-    lr: 0.05
+    lr: 0.01
+    weight_decay: 0.01
   moreau:
     mu: 1.0
   dual:
@@ -231,11 +230,11 @@ algorithm:
     lr: 0.01
     penalty: 1.0
     is_ineq: true
-n_epochs: 60
-verbose: true
+n_epochs: 80
+verbose: false
 approach: opt
 opt_eval_size: 10000
-init_seed: 2
+init_seed: 4
 cv_seed: 0
 n_folds: 5
 fold: 0
