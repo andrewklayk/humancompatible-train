@@ -213,7 +213,8 @@ if __name__ == "__main__":
     running_average = False
     best_validation_window = 20
 
-    names = ["E7", "E8", "E9"]
+    # names = ["E7", "E8", "E9"]
+    names = ["E8"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),

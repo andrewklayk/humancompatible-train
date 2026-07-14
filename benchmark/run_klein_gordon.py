@@ -37,7 +37,7 @@ pbm_grid = [
     "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.8, 0.9, 0.99, 0.999, 1.0], ["dimin_adapt"],
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.1, 0.9, 0.99, 0.999, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-2, 1.]], [0.9, 0.99], [0., 1., 2.], 
         [1], [True], [True], [False], [None])
 ]

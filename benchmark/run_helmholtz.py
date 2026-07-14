@@ -27,20 +27,6 @@ device = 'cuda'
 
 
 # ── HP GRIDS (ADDED) ─────────────────────────────────────────────────────────
-# pbm_grid = [
-#     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
-#      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
-#      "dual__delta": 1., "moreau__mu": mu,
-#     "dual__primal_update_process_length": primal_update_process_length,
-#     "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
-#     "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
-#     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
-#     in product(
-#         [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-#         ["quadratic_logarithmic"], [[1e-3, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-#         [1], [True], [True], [False], [None])
-# ]
-
 pbm_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
@@ -50,7 +36,7 @@ pbm_grid = [
     "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.8, 0.9, 0.99, 0.999, 1.0], ["dimin_adapt"],
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.1, 0.9, 0.99, 0.999, 1.0], ["dimin_adapt"],
         ["quadratic_logarithmic"], [[1e-2, 1.]], [0.9, 0.99], [0., 1., 2.], 
         [1], [True], [True], [False], [None])
 ]

@@ -160,10 +160,59 @@ if __name__ == "__main__":
                          "(matches a --tols value, e.g. 1.0, 1.1, 1.25)")
     ap.add_argument("--companion", default="train", choices=["train", "val", "test"],
                     help="which split to plot alongside train (second column)")
-    ap.add_argument("--out", default="plots/fair.png")
+    ap.add_argument("--out", default="../results/plots/fair.png")
     args = ap.parse_args()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
-                          bound=args.bound, agg_root=args.agg)
-    plot(spec, save_path=args.out, tol_mult=args.tol, companion=args.companion,
-         constraint_titles=list(range(300)))
+ 
+
+    # TODO: remove this later 
+    experiments = [ 'folktables_positive_rate_vec']
+
+
+    # all possible experiments
+    experiments = [ 'folktables_positive_rate_vec',
+                    'folktables_positive_rate_pair', 
+                    'dutch_positive_rate_pair']
+
+    data_map = {    "folktables_positive_rate_vec": "income", 
+                    "folktables_positive_rate_pair": "income",
+                    "dutch_positive_rate_pair": "dutch"
+    }
+    bounds_map = {
+                    "folktables_positive_rate_vec": "income", 
+                    "folktables_positive_rate_pair": "income",
+                    "dutch_positive_rate_pair": "dutch"
+    }
+
+    # map to the E 
+    mapping_name = {"folktables_positive_rate_vec": "E2", 
+                    "folktables_positive_rate_pair": "E3",
+                    "dutch_positive_rate_pair": "E4"}
+
+    # define output folder
+    out = "../../results/plots/"
+    agg = "../selection/opt/aggregated"
+
+    specs = []
+
+    # loop over all experiments and create the experiments
+    for experiment in experiments: 
+        
+        # load the details about the experiment
+        task = experiment
+        data = data_map[experiment]
+        bound = bounds_map[experiment]
+
+        spec = ExperimentSpec(name=task , task=task, data=data,
+                        bound=bound, agg_root=agg)
+
+        specs.append(spec)
+
+    # spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
+    #                       bound=args.bound, agg_root=args.agg)
+
+    # plot each experiment separately
+    for experiment in experiments:
+
+        plot(spec, save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1.0, companion="train",
+            constraint_titles=list(range(300)))

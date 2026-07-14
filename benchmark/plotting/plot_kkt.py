@@ -329,7 +329,7 @@ def plot_kkt_boxes(spec, methods=None, tail=20, out="plots/kkt_boxes.pdf"):
     each box = distribution of final (tail-mean) values over configs."""
     set_neurips_style()
     methods = METHODS if methods is None else methods
-    fig, axes = plt.subplots(1, 4, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
+    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
     for ax, (metric, title) in zip(axes, _PANELS):
         finals = _finals_by_method(spec, methods, metric, tail)
         ms = [m for m in methods if m in finals]
@@ -392,7 +392,8 @@ if __name__ == "__main__":
     running_average = False
     best_validation_window = 20
     
-    names = ["E7", "E8", "E9"]
+    # names = ["E7", "E8", "E9"]
+    names = ["E7", "E8"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
@@ -407,9 +408,9 @@ if __name__ == "__main__":
     
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
 
-    # for name in names: 
-    #     spec = specs[name]
-    #     out = plot_kkt_boxes(spec, tail=best_validation_window, out=f"results/plots/kkt_boxes_{name}.pdf")
+    for name in names: 
+        spec = specs[name]
+        out = plot_kkt_boxes(spec, tail=best_validation_window, out=f"results/plots/kkt_{name}.pdf")
 
     # plot all boxes together
-    plot_kkt_boxes_single(specs, names, methods=None, tail=20, out="./results/plots/kkt_boxes_PINNs.pdf")
+    plot_kkt_boxes_single(specs, names, methods=None, tail=20, out="./results/plots/kkt_PINNs.pdf")

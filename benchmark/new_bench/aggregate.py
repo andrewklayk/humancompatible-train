@@ -147,8 +147,8 @@ def _write_aggregated(items, cell, agg_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", required=True, help="multirun root to scan recursively")
-    ap.add_argument("--out", default="selection", help="output dir (aggregated/ is created under it)")
-    ap.add_argument("--approach", default=None, choices=["ml", "opt"],
+    ap.add_argument("--out", default="selection/opt", help="output dir (aggregated/ is created under it)")
+    ap.add_argument("--approach", default="opt", choices=["ml", "opt"],
                     help="only aggregate runs of this approach; required if the tree mixes "
                          "approaches (ml and opt must not share a cell -- use a separate --out).")
     args = ap.parse_args()
