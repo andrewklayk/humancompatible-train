@@ -37,10 +37,9 @@ pbm_grid = [
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
     in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0.1, 0.9, 0.99, 0.999, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-2, 1.]], [0.9, 0.99], [0., 1., 2.], 
+        ["quadratic_logarithmic"], [[1e-2, 1.]], [0.1, 0.9, 0.999], [0., 2.], 
         [1], [True], [True], [False], [None])
 ]
-
 
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:

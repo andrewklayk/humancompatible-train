@@ -127,8 +127,8 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test"):
 def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=None,
          companion="test"):
     if methods is None:
-        # methods = ["adam", "pbm", "alm_proj", "ssg"]
-        methods = ["pbm", "alm_proj"]
+        methods = ["adam", "pbm", "alm_proj", "ssg"]
+        # methods = ["pbm", "alm_proj"]
     inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult, companion=companion)
     if not inputs["train_losses_list"]:
         print("no data to plot")
@@ -147,51 +147,52 @@ def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=Non
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--agg", default="../selection/opt/aggregated",
-                    help="dir of aggregate.py's per-cell aggregates (curves); select_best.py's "
-                         "best_*.json winners are read from its parent. Run aggregate.py then "
-                         "select_best.py first.")
-    ap.add_argument("--task", default="folktables_positive_rate_pair")
-    ap.add_argument("--data", default="income")
-    ap.add_argument("--bound", type=float, default=0.1)
-    ap.add_argument("--tol", type=float, default=1.0,
-                    help="which select_best.py feasibility-slack winner to plot "
-                         "(matches a --tols value, e.g. 1.0, 1.1, 1.25)")
-    ap.add_argument("--companion", default="train", choices=["train", "val", "test"],
-                    help="which split to plot alongside train (second column)")
-    ap.add_argument("--out", default="../results/plots/fair.png")
-    args = ap.parse_args()
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+
+    # ap = argparse.ArgumentParser()
+    # ap.add_argument("--agg", default="../selection/",
+    #                 help="dir of aggregate.py's per-cell aggregates (curves); select_best.py's "
+    #                      "best_*.json winners are read from its parent. Run aggregate.py then "
+    #                      "select_best.py first.")
+    # ap.add_argument("--task", default="folktables_positive_rate_pair")
+    # ap.add_argument("--data", default="income")
+    # ap.add_argument("--bound", type=float, default=0.1)
+    # ap.add_argument("--tol", type=float, default=1.0,
+    #                 help="which select_best.py feasibility-slack winner to plot "
+    #                      "(matches a --tols value, e.g. 1.0, 1.1, 1.25)")
+    # ap.add_argument("--companion", default="train", choices=["train", "val", "test"],
+    #                 help="which split to plot alongside train (second column)")
+    # ap.add_argument("--out", default="../results/plots/fair.png")
+    # args = ap.parse_args()
+    # os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
  
-
-    # TODO: remove this later 
-    experiments = [ 'folktables_positive_rate_vec']
-
-
     # all possible experiments
-    experiments = [ 'folktables_positive_rate_vec',
+    experiments = [ 'weight_norm',
+                    'folktables_positive_rate_vec',
                     'folktables_positive_rate_pair', 
                     'dutch_positive_rate_pair']
 
-    data_map = {    "folktables_positive_rate_vec": "income", 
-                    "folktables_positive_rate_pair": "income",
-                    "dutch_positive_rate_pair": "dutch"
-    }
-    bounds_map = {
+    data_map = {    "weight_norm": "income_norm",
                     "folktables_positive_rate_vec": "income", 
                     "folktables_positive_rate_pair": "income",
                     "dutch_positive_rate_pair": "dutch"
     }
+    bounds_map = {  "weight_norm": 2.0,
+                    "folktables_positive_rate_vec": 0.2, 
+                    "folktables_positive_rate_pair": 0.1,
+                    "dutch_positive_rate_pair": 0.1
+    }
 
     # map to the E 
-    mapping_name = {"folktables_positive_rate_vec": "E2", 
+    mapping_name = {"weight_norm": "E1",
+                    "folktables_positive_rate_vec": "E2", 
                     "folktables_positive_rate_pair": "E3",
                     "dutch_positive_rate_pair": "E4"}
 
     # define output folder
     out = "../../results/plots/"
-    agg = "../selection/opt/aggregated"
+    agg = "../selection/aggregated/"
+    
+    os.makedirs(out, exist_ok=True)
 
     specs = []
 
@@ -208,11 +209,8 @@ if __name__ == "__main__":
 
         specs.append(spec)
 
-    # spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
-    #                       bound=args.bound, agg_root=args.agg)
-
     # plot each experiment separately
-    for experiment in experiments:
+    for i, experiment in enumerate(experiments):
 
-        plot(spec, save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1.0, companion="train",
+        plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1, companion="train",
             constraint_titles=list(range(300)))

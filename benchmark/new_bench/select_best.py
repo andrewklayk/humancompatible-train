@@ -20,7 +20,7 @@ import argparse
 import glob
 import json
 import os
-
+import numpy as np
 import pandas as pd
 
 
@@ -80,7 +80,8 @@ def _select(items, filt, tol, tail, last_epoch, split=None):
              **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
     pool = pd.DataFrame(rows)
     filtered = filt != "none" and pool["viol_mean"].notna().any()
-    feasible = pool[pool["viol_mean"] <= tol] if filtered else pool
+    feasible = pool[pool["viol_mean"] <= tol + 0.01] if filtered else pool
+    
     if feasible.empty:
         return None
     return feasible.loc[feasible["loss_mean"].idxmin()].to_dict()
@@ -121,7 +122,8 @@ def main():
     ap.add_argument("--agg", default="selection/aggregated",
                     help="dir of aggregate.py's per-config JSONs (run aggregate.py first)")
     ap.add_argument("--out", default="selection", help="output directory for best_*.json")
-    ap.add_argument("--tols", default="1.0,1.1,1.25",
+    # ap.add_argument("--tols", default="1.0,1.1,1.25",
+    ap.add_argument("--tols", default="1.0",
                     help="comma-separated feasibility-slack multipliers (tol = bound * mult); "
                          "one pick each. Ignored for select_filter='none' (adam).")
     ap.add_argument("--tail", type=int, default=5,

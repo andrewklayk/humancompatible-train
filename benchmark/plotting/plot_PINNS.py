@@ -213,8 +213,8 @@ if __name__ == "__main__":
     running_average = False
     best_validation_window = 20
 
-    # names = ["E7", "E8", "E9"]
-    names = ["E8"]
+    names = ["E7", "E8", "E9"]
+    names = ["E9"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
@@ -223,7 +223,8 @@ if __name__ == "__main__":
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
                               results_root="results"),
         "E9": ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
-                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                            #   bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3),
                               results_root="results"),
     }
 

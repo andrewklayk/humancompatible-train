@@ -437,5 +437,5 @@ if __name__ == "__main__":
 
     # plot a single combined plot
     plot_kkt_boxes_single(specs, methods=None, tail=5, out="../../results/plots/kkt_fair.pdf", 
-                log_scales = [True, False, False, False], feas_tol=0.0, metric="objective")
+                feas_tol=0.0, metric="objective")
 
