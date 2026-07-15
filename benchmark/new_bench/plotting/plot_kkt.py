@@ -413,7 +413,7 @@ if __name__ == "__main__":
 
     # define output folder
     out = "../../results/plots/"
-    agg = "../selection/opt/aggregated/"
+    agg = "../selection/aggregated/"
 
     specs = []
 
