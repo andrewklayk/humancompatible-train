@@ -24,6 +24,7 @@ import pandas as pd
 from aggregate_results import ExperimentSpec, aggregate_experiment, _read_runs_csv
 from plotting import plot_losses_and_constraints_stochastic   # your existing module
 
+running_average = False
 
 # ── Step 1: best config per method (by mean val loss, feasible-preferred) ─────
 def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
@@ -34,13 +35,14 @@ def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation
                                tail=best_validation_lastK, last_epoch=not running_average)
     best = {}
     for method, df in agg.items():
-        pool = df
-        # PINN aggregation names the val column 'val_mean'
-        col = "val_mean" 
+        pool = df[df["violation_constr_mean"] < 0.00011] if method != 'adam' else df # select feasible configs only
+        if len(pool) == 0: # if empty, just select the lowest train loss
+            pool = df
+        col = "train_mean" 
         best_row = pool.loc[pool[col].idxmin()]
         best[method] = int(best_row["config"])
         print(f"  [{spec.name}] {method}: best config {best[method]} "
-              f"(mean val {best_row[col]:.4g}) ")
+              f"(train loss {best_row[col]:.4g}) ")
     return best
 
 
@@ -109,7 +111,7 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
         titles.append(METHOD_LABELS.get(method, method))
 
     return dict(
-        train_losses_list=train_losses,
+        train_losses_list=np.array(train_losses),
         train_losses_std_list=train_losses_std,
         test_losses_list=test_losses,
         test_losses_std_list=test_losses_std,
@@ -134,9 +136,11 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
         methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
 
     inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_lastK)
-    if not inputs["train_losses_list"]:
+    if not inputs["test_losses_list"]:
         print("no data to plot")
         return
+
+    inputs['train_losses_list'] += 1e-4  # avoid log(0) in plotting
 
     plot_losses_and_constraints_stochastic(
         **inputs,
@@ -210,11 +214,9 @@ def plot_PINNs_single(specs, names, methods=None,
 if __name__ == "__main__":
 
     # True is a running window mean; False is a tail
-    running_average = False
-    best_validation_window = 20
+    best_validation_window = 50
 
     names = ["E7", "E8", "E9"]
-    names = ["E9"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
@@ -223,12 +225,10 @@ if __name__ == "__main__":
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
                               results_root="results"),
         "E9": ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
-                            #   bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3),
+                              bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
                               results_root="results"),
     }
 
-    
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
 
     # iterate and plot all single plot for each experiment
@@ -238,5 +238,5 @@ if __name__ == "__main__":
                 constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
 
     # plot a single plot - combined all PINN experiments
-    plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 
-                        best_validation_lastK=best_validation_window)
+    # plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 
+    #                     best_validation_lastK=best_validation_window)

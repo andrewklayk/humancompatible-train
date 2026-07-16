@@ -22,6 +22,7 @@ fi
 # from conf/hydra/launcher/slurm_gpu.yaml (mem_per_cpu). This does NOT change the
 # driver's own already-granted allocation -- it only stops the leak into children.
 unset SLURM_MEM_PER_NODE SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU
+export SLURM_CPU_BIND=none
 
 # Launcher plugin (install only if missing). The sweep uses Hydra's built-in
 # BASIC sweeper (manual grids in conf/sweep/), so no Optuna plugin is needed.
@@ -40,7 +41,7 @@ python3 -m pip install -q hydra-submitit-launcher
 : "${INIT_SEEDS:=0 1 2 3 4}"
 : "${N_FOLDS:=5}"
 : "${CV_SEED:=0}"
-: "${LAUNCHER:=slurm_gpu}"    # set LAUNCHER=local to drop the launcher (local run)
+: "${LAUNCHER:=slurm}"    # set LAUNCHER=local to drop the launcher (local run)
 
 # Optional launcher override (omitted when LAUNCHER=local / empty).
 LAUNCHER_ARG=""
