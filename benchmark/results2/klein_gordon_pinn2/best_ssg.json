@@ -1,0 +1,8 @@
+{
+  "method": "ssg",
+  "best_idx": 49,
+  "val_loss": 0.992401912758984,
+  "val_max_c": 0.3111681640148163,
+  "n_configs": 75,
+  "n_feasible": 0
+}

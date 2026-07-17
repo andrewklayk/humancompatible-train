@@ -1,4 +1,8 @@
 """plot_style.py — single style source for all paper figures."""
+
+
+import matplotlib
+matplotlib.use("Agg")  # headless
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -34,6 +38,10 @@ def style_for(method):
 
 def set_neurips_style():
     plt.rcParams.update({
+        "font.family": "serif",          # serif body (matches paper)
+        "mathtext.fontset": "cm",        # Computer-Modern math (fixes "weird math")
+        "axes.spines.top": False,        # drop top spine
+        "axes.spines.right": False,      # drop right spine (removes the box)
         "font.size": 8, "axes.titlesize": 8, "axes.labelsize": 8,
         "legend.fontsize": 7, "xtick.labelsize": 7, "ytick.labelsize": 7,
         "lines.linewidth": 1.0, "axes.linewidth": 0.6,

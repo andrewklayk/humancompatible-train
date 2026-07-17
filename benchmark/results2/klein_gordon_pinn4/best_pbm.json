@@ -1,0 +1,8 @@
+{
+  "method": "pbm",
+  "best_idx": 10,
+  "val_loss": 0.10198070286044131,
+  "val_max_c": 0.0015228113625198603,
+  "n_configs": 150,
+  "n_feasible": 0
+}

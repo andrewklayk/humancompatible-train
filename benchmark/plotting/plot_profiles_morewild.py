@@ -27,9 +27,22 @@ _PANELS = [("loss", "Loss"),
            ("kkt_grad", r"Stationarity $\|\nabla_x L\|$"),
            ("kkt_compl", r"Complementarity $\sum_j|\lambda_j g_j|$")]   
 
+
+def _base(method):
+    """('pbm__2' -> 'pbm', 2);  ('pbm' -> 'pbm', 1)."""
+    if "__" in method:
+        b, k = method.split("__"); return b, int(k)
+    return method, 1
+
+def _tol(spec, cutoff):
+    """Relative feasibility slack off the bound (cutoff=1 loose, 2 tight)."""
+
+    return 0.00011 if cutoff == 1 else 0.0001001 # 1 decimal vs 3 decimals
+
 def _pairs_by_method(spec, m, metric, tail, feas_tol=None):
     col = metric
-    dfs = _seed_frames(spec, m)
+    base, cutoff = _base(m)
+    dfs = _seed_frames(spec, base)
 
     rows = []
     df = pd.concat(dfs).groupby(["config", "epoch"]).mean().reset_index()  # seed-mean
@@ -44,9 +57,9 @@ def _pairs_by_method(spec, m, metric, tail, feas_tol=None):
         # check if is feasible
         tail_mv = (df.sort_values("epoch").groupby("config")["kkt_viol"]
                         .apply(lambda s: s.tail(tail).mean()))
-        df_feasible = df[df["config"].isin(tail_mv[tail_mv < 0.00011].index)]
+        df_feasible = df[df["config"].isin(tail_mv[tail_mv < _tol(spec, cutoff)].index)]
 
-        print(f"  [{spec.name}] {m}: {len(df_feasible['config'].unique())} feasible configs "
+        print(f"  [{spec.name}] {base}: {len(df_feasible['config'].unique())} feasible configs "
                 f"out of {len(df['config'].unique())} total")
         
     # sort by epochs + mean the tail
@@ -63,15 +76,6 @@ def _pairs_by_method(spec, m, metric, tail, feas_tol=None):
     for cfg in infeasible_configs:
         f0 = float((df[(df['config'] == cfg) & (df['epoch'] == 0)][col]).iloc[0])
         rows.append((cfg, f0, np.inf))
-
-    if m == 'pbm':
-        # print minimal final value for pbm
-        print(f"  [{spec.name}] {m}: {len(rows)} configs, "
-              f"feasible {len(df_feasible['config'].unique())}, "
-              f"min f0 {min(r[1] for r in rows):.4g}, "
-              f"min f_final {min(r[2] for r in rows):.4g}, "
-              f"max f_final {max(r[2] for r in rows):.4g}")
-        # exit()
 
     return rows
 
@@ -90,17 +94,20 @@ def plot_tradeoff_scatter(specs, methods, tail=5, out="plots/pinn_tradeoff.pdf")
     fig, axes = plt.subplots(1, len(specs), figsize=(COL_WIDTH*len(specs), COL_WIDTH*0.9))
     for ax, spec in zip(np.atleast_1d(axes), specs):
         for m in methods:
+            m = _base(m)[0]  # only plot base methods once
             pts = _pairs_obj_feasibility(spec, m, tail)
             if not pts: continue
             st = style_for(m)
             v, f = zip(*pts)
             ax.scatter(v, f, s=8, alpha=0.6, color=st["color"], label=st["label"])
         ax.axvline(spec.bound, color="red", ls=":", lw=0.8)   # feasibility threshold
-        ax.set_xscale("symlog", linthresh=spec.bound/10); ax.set_yscale("log")
+        ax.set_xscale("symlog", linthresh=spec.bound); ax.set_yscale("log")
         ax.set_title(spec.name); ax.set_xlabel(r"final $\max_j(c_j-b)$")
     np.atleast_1d(axes)[0].set_ylabel("final loss")
     top_legend(fig, np.atleast_1d(axes)[0])
     fig.tight_layout(); fig.savefig(out); plt.close(fig)
+    
+    print(f"wrote {out}")
 
 def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
                        taus=None, out="plots/profiles_fair.pdf"):
@@ -114,14 +121,21 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
         
     axes = axes.ravel()
 
-    for ax, (metric, title) in zip(axes, _PANELS):
-        scores = {m: [] for m in methods}
+    for i, (ax, (metric, title)) in enumerate(zip(axes, _PANELS)):
+        ax.set_title(f"({chr(97 + i)}) {title}")
+        feas_only = metric == "loss"
+        panel_methods = methods if feas_only else list(dict.fromkeys(_base(m)[0] for m in methods))
+        scores = {m: [] for m in panel_methods}
 
         for spec in specs:
             print('', spec.name, metric)            
             
-            per_method = {m: _pairs_by_method(spec, m, metric, tail, feas_tol=None) for m in methods}
-            finals = [f for rows in per_method.values() for (_, _, f) in rows]
+            per_method = {m: _pairs_by_method(spec, m, metric, tail, feas_tol=None) for m in panel_methods}
+            base_finals = {}
+            for m, rows in per_method.items():
+                base_finals.setdefault(_base(m)[0], []).extend(f for _, _, f in rows)
+            
+            finals = [f for v in base_finals.values() for f in v]
 
             if not finals:
                 continue
@@ -129,9 +143,9 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
 
             # get the best config 
             if configs == "best":
-                best = select_best_configs(spec, methods, split="", best_validation_lastK=tail)
+                best = select_best_configs(spec, panel_methods, split="", best_validation_lastK=tail)
 
-            for m in methods:
+            for m in panel_methods:
                 keep = per_method[m]
                 if configs == "best":
                     b = best[m]
@@ -150,25 +164,26 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
                     else:
                         gap = f0 - f_L
                         scores[m].append(0.0 if gap <= 0 else max(f - f_L, 0.0) / gap)
-
-        for m in methods:
+        
+        for m in panel_methods:
             s = np.sort(scores[m])
-            if not len(s):
-                continue
-            st = style_for(m)
+            if not len(s): continue
+            base, cutoff = _base(m); st = style_for(base)
+            ls = "-" if cutoff == 1 else "--"
             y = (s[None, :] <= taus[:, None]).mean(axis=1)
-            ax.plot(taus, y, color=st["color"], ls=st["ls"], label=st["label"])
+            ax.plot(taus, y, color=st["color"], ls=ls,
+                    label=st["label"] if (cutoff == 1 or not feas_only) else None)
             print(f"  [{title}] {m}: {len(s)} pairs, "
                   f"frac(tau=1e-1)={np.mean(s <= 1e-1):.2f}")
 
         ax.set_xscale("log")
         ax.set_xlabel(r"accuracy $\tau$")
-        ax.set_title(title)
-        # ax.set_ylim(-0.02, 1.02)
+        # ax.set_title(title)
         ax.set_ylim(-0.02, 1.02)
     axes[0].set_ylabel("fraction of configs")
+    axes[1].set_ylabel("fraction of configs")
     top_legend(fig, axes[0])
-
+    
     fig.tight_layout()
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     fig.savefig(out)
@@ -193,7 +208,7 @@ if __name__ == "__main__":
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
                               results_root="results2")]
 
-    methods = ["adam", "alm_proj", "pbm", "ssg"]
+    methods = ["adam", "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"]
 
     plot_profiles_pinns(specs, methods, configs="all",
                        out="./results/plots/profiles_pinns_all.pdf")

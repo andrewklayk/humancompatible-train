@@ -25,16 +25,6 @@ _PANELS = [("objective", "Loss"),
            ("compl", r"Complementarity $\sum_j|\lambda_j g_j|$")]
 
 
-def _best_config(spec, method, tol_mult=1.0):
-    """Winning config index from select_best.py's best_*.json, or None."""
-    sel_dir = os.path.dirname(os.path.abspath(spec.agg_root).rstrip("/"))
-    base = os.path.join(sel_dir, f"best_{spec.task}_{spec.data}_{method}")
-    for p in (f"{base}__tol{tol_mult:g}.json", f"{base}__none.json", f"{base}.json"):
-        if os.path.exists(p):
-            return int(json.load(open(p))["config_index"])
-    return None
-
-
 def _base(method):
     """('pbm__2' -> 'pbm', 2);  ('pbm' -> 'pbm', 1)."""
     if "__" in method:
@@ -74,7 +64,8 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
                          sharex=True, sharey=True)
     axes = axes.ravel()
 
-    for ax, (metric, title) in zip(axes, _PANELS):
+    for i, (ax, (metric, title)) in enumerate(zip(axes, _PANELS)):
+        ax.set_title(f"({chr(97 + i)}) {title}")
         feas_only = metric == "objective"
         # only the loss panel splits by tolerance; others use base methods once
         panel_methods = methods if feas_only else list(dict.fromkeys(_base(m)[0] for m in methods))
@@ -111,11 +102,10 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
 
         ax.set_xscale("log")
         ax.set_xlabel(r"accuracy $\tau$")
-        ax.set_title(title)
         ax.set_ylim(-0.02, 1.02)
     axes[0].set_ylabel("fraction of configs")
+    axes[1].set_ylabel("fraction of configs")
     top_legend(fig, axes[0])
-
     fig.tight_layout()
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     fig.savefig(out)
@@ -149,5 +139,5 @@ if __name__ == "__main__":
 
     plot_profiles_fair(specs, methods, configs="all",
                        out="../../results/plots/profiles_fair_all.pdf")
-    # plot_profiles_fair(specs, methods, configs="best",
-    #                    out="../../results/plots/profiles_fair_best.pdf")
+    
+    # plot the trade off

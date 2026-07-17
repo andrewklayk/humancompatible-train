@@ -1,0 +1,8 @@
+{
+  "method": "alm_max",
+  "best_idx": 87,
+  "val_loss": 0.15250080798075782,
+  "val_max_c": 0.002847198862582445,
+  "n_configs": 150,
+  "n_feasible": 0
+}
