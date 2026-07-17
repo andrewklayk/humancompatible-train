@@ -471,9 +471,15 @@ def plot_losses_and_constraints_stochastic(
 
     if constraint_spans_full_width:
         fig = plt.figure(figsize=(TEXT_WIDTH, ROW_H * nrows))
-        ax_loss_train = fig.add_subplot(nrows, 2, 1)
-        ax_loss_test = fig.add_subplot(nrows, 2, 2)
-        axes_loss = [[ax_loss_train, ax_loss_test]]
+        
+        if mode == "train_test":
+            ax_loss_train = fig.add_subplot(nrows, 2, 1)
+            ax_loss_test = fig.add_subplot(nrows, 2, 2)
+            axes_loss = [[ax_loss_train, ax_loss_test]]
+        else: 
+            ax_loss_train = fig.add_subplot(nrows, 1, 1)
+            axes_loss = [[ax_loss_train]]
+
         axes_constraint = []
         for k in range(n_constraints if separate_constraints else 1):
             ax_c = fig.add_subplot(nrows, 1, 2 + k)
@@ -572,7 +578,9 @@ def plot_losses_and_constraints_stochastic(
 
     if constraint_spans_full_width:
         plot_loss_panel(axes_loss[0][0], train_losses_list, train_losses_std_list, "Train", log_scale=log_train_loss)
-        plot_loss_panel(axes_loss[0][1], test_losses_list, test_losses_std_list, "Test", log_scale=log_test_loss)
+
+        if mode == 'train_test':
+            plot_loss_panel(axes_loss[0][1], test_losses_list, test_losses_std_list, "Test", log_scale=log_test_loss)
         
         # Plot train constraints spanning full width
         if separate_constraints:

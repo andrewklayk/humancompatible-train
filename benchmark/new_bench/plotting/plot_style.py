@@ -14,11 +14,13 @@ METHOD_COLORS = {
     "SSw": "#E0A458",
 }
 METHOD_LABELS = {
-    "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
+    "adam": "Adam", "pbm": "SPBM",
+    "alm_proj": "SSL-ALM (proj.)", # make it work in maths
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
 }
-_MARKERS = {"adam": "o", "pbm": "s", "alm_proj": "D", "alm_max": "^", "ssg": "v"}
-_LS = {"adam": "--", "pbm": "-", "alm_proj": "-", "alm_max": "-", "ssg": ":"}
+_MARKERS = {"adam": "o", "pbm": "s",
+            "alm_proj": "D", "alm_max": "^", "ssg": "v"}
+_LS = {"adam": "--", "pbm": "-", "alm_proj": "-",  "alm_max": "-", "ssg": ":"}
 
 
 def style_for(method):

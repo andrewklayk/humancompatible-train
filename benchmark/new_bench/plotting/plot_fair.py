@@ -31,6 +31,7 @@ METHOD_LABELS = {
     "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
 }
+plot_train_only = True
 
 
 def read_best_configs(spec, methods, tol_mult=1.0):
@@ -133,16 +134,35 @@ def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=Non
     if not inputs["train_losses_list"]:
         print("no data to plot")
         return
-    plot_losses_and_constraints_stochastic(
-        **inputs,
-        constraint_thresholds=spec.bound,
-        mode="train_test" if any_comp else "train",
-        separate_constraints=False,
-        log_constraints=False,
-        std_multiplier=1,
-        save_path=save_path,
-        constraint_titles=constraint_titles,
-    )
+    
+    if plot_train_only:
+
+        inputs["test_losses_list"] = None
+        inputs["test_losses_std_list"] = None
+        inputs["test_constraints_list"] = None
+        inputs["test_constraints_std_list"] = None
+        plot_losses_and_constraints_stochastic(
+            **inputs,
+            constraint_thresholds=spec.bound,
+            mode="train",
+            separate_constraints=False,
+            log_constraints=False,
+            std_multiplier=1,
+            save_path=save_path,
+            constraint_titles=constraint_titles,
+        )
+    else: 
+        plot_losses_and_constraints_stochastic(
+            **inputs,
+            constraint_thresholds=spec.bound,
+            mode="train_test" if any_comp else "train",
+            separate_constraints=False,
+            log_constraints=False,
+            std_multiplier=1,
+            save_path=save_path,
+            constraint_titles=constraint_titles,
+        )
+
     print(f"\nwrote {save_path} (train + {companion})")
 
 

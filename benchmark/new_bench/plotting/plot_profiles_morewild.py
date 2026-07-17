@@ -19,7 +19,7 @@ from plot_style import set_neurips_style, style_for, COL_WIDTH, top_legend
 from plot_style import TEXT_WIDTH
 
 
-_PANELS = [("objective", "Train loss"),
+_PANELS = [("objective", "Loss"),
            ("max_viol", r"Feasibility $\max_j(c_j-b)_+$"),
            ("grad_norm", r"Stationarity $\|\nabla_x L\|$"),
            ("compl", r"Complementarity $\sum_j|\lambda_j g_j|$")]
@@ -35,19 +35,29 @@ def _best_config(spec, method, tol_mult=1.0):
     return None
 
 
+def _base(method):
+    """('pbm__2' -> 'pbm', 2);  ('pbm' -> 'pbm', 1)."""
+    if "__" in method:
+        b, k = method.split("__"); return b, int(k)
+    return method, 1
+
+def _tol(spec, cutoff):
+    """Relative feasibility slack off the bound (cutoff=1 loose, 2 tight)."""
+
+    if 'weight' in spec.task:
+        return 0.1 if cutoff == 1 else 0.001 # 1 decimal vs 3 decimals
+    else: 
+        return 0.01 if cutoff == 1 else 0.0001 # 1 decimal vs 3 decimals
+
 def _pairs(spec, method, metric, tail, feas_only):
-    """[(f0, f_final)] over configs of one (task, method, metric)."""
+    base, cutoff = _base(method)
     out = []
-    for cfg in list_configs(spec, method):
+    for cfg in list_configs(spec, base):
         if feas_only:
-            mv = _final_max_viol(spec, method, cfg, tail)
-            if 'weight' in spec.task:
-                if mv is None or mv >= 0.1:
-                    continue
-            else: 
-                if mv is None or mv >= 0.01:
-                    continue
-        t = _metric_traj(spec, method, cfg, metric)
+            mv = _final_max_viol(spec, base, cfg, tail)
+            if mv is None or mv >= _tol(spec, cutoff):
+                continue
+        t = _metric_traj(spec, base, cfg, metric)
         if t is None or len(t[0]) == 0:
             continue
         out.append((cfg, float(t[0][0]), float(np.mean(t[0][-tail:]))))
@@ -65,40 +75,37 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
     axes = axes.ravel()
 
     for ax, (metric, title) in zip(axes, _PANELS):
-        feas_only = metric == "objective" 
-        scores = {m: [] for m in methods}
+        feas_only = metric == "objective"
+        # only the loss panel splits by tolerance; others use base methods once
+        panel_methods = methods if feas_only else list(dict.fromkeys(_base(m)[0] for m in methods))
+        scores = {m: [] for m in panel_methods}
 
         for spec in specs:
-            per_method = {m: _pairs(spec, m, metric, tail, feas_only) for m in methods}
-            finals = [f for rows in per_method.values() for (_, _, f) in rows]
-
+            per_method = {m: _pairs(spec, m, metric, tail, feas_only) for m in panel_methods}
+            # f_L over BASE methods only (no __k duplicates)
+            base_finals = {}
+            for m, rows in per_method.items():
+                base_finals.setdefault(_base(m)[0], []).extend(f for _, _, f in rows)
+            finals = [f for v in base_finals.values() for f in v]
             if not finals:
                 continue
-            f_L = min(finals)                       # reference: full pool, always
-
-            for m in methods:
-                keep = per_method[m]
-                if configs == "best":
-                    b = _best_config(spec, m, tol_mult)
-                    keep = [r for r in keep if r[0] == b] if b is not None else []
-
-                for cfg, f0, f in keep:
-                    # compute relative constraint violation error 
+            f_L = np.min(finals)
+            for m in panel_methods:
+                for cfg, f0, f in per_method[m]:
                     if metric == "max_viol":
-                        # _metric_traj already returns clip(c - b, 0); f is its tail-mean
-                        scores[m].append(f / spec.bound)  
-                    # compute Moré–Wild accuracy score
+                        scores[m].append(f / spec.bound)
                     else:
                         gap = f0 - f_L
                         scores[m].append(0.0 if gap <= 0 else max(f - f_L, 0.0) / gap)
 
-        for m in methods:
-            s = np.sort(scores[m])
-            if not len(s):
-                continue
-            st = style_for(m)
+        for m in panel_methods:
+            s = np.sort(scores[m]); 
+            if not len(s): continue
+            base, cutoff = _base(m); st = style_for(base)
+            ls = "-" if cutoff == 1 else "--"
             y = (s[None, :] <= taus[:, None]).mean(axis=1)
-            ax.plot(taus, y, color=st["color"], ls=st["ls"], label=st["label"])
+            ax.plot(taus, y, color=st["color"], ls=ls,
+                    label=st["label"] if (cutoff == 1 or not feas_only) else None)
             print(f"  [{title}] {m}: {len(s)} pairs, "
                   f"frac(tau=1e-1)={np.mean(s <= 1e-1):.2f}")
 
@@ -138,9 +145,9 @@ if __name__ == "__main__":
     specs = [ExperimentSpec(name=e, task=e, data=data_map[e],
                             bound=bounds_map[e], agg_root=agg)
              for e in experiments]
-    methods = ["adam", "alm_proj", "pbm", "ssg"]
+    methods = ["adam", "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"]
 
     plot_profiles_fair(specs, methods, configs="all",
                        out="../../results/plots/profiles_fair_all.pdf")
-    plot_profiles_fair(specs, methods, configs="best",
-                       out="../../results/plots/profiles_fair_best.pdf")
+    # plot_profiles_fair(specs, methods, configs="best",
+    #                    out="../../results/plots/profiles_fair_best.pdf")

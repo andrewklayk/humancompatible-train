@@ -401,7 +401,7 @@ if __name__ == "__main__":
     }
 
     bounds_map = {
-                    "folktables_positive_rate_vec": 0.1, 
+                    "folktables_positive_rate_vec": 0.2, 
                     "folktables_positive_rate_pair": 0.1,
                     "dutch_positive_rate_pair": 0.1
     }
@@ -436,6 +436,6 @@ if __name__ == "__main__":
         plot_kkt_boxes(spec, out=out + f"kkt_{mapping_name[spec.task]}.pdf")
 
     # plot a single combined plot
-    plot_kkt_boxes_single(specs, methods=None, tail=5, out="../../results/plots/kkt_fair.pdf", 
-                feas_tol=0.0, metric="objective")
+    # plot_kkt_boxes_single(specs, methods=None, tail=5, out="../../results/plots/kkt_fair.pdf", 
+    #             feas_tol=0.0, metric="objective")
 

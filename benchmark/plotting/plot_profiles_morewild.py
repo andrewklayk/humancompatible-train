@@ -22,7 +22,7 @@ from plot_style import TEXT_WIDTH
 from plot_PINNS import select_best_configs
 
 
-_PANELS = [("loss", "Train loss"),
+_PANELS = [("loss", "Loss"),
            ("kkt_viol", r"Feasibility $\max_j(c_j-b)_+$"),
            ("kkt_grad", r"Stationarity $\|\nabla_x L\|$"),
            ("kkt_compl", r"Complementarity $\sum_j|\lambda_j g_j|$")]   
@@ -38,7 +38,7 @@ def _pairs_by_method(spec, m, metric, tail, feas_tol=None):
     if metric == "kkt_viol":
         df[col] = df[col].clip(lower=0)
 
-    if metric == "kkt_viol":
+    if metric == "kkt_viol" or metric == "kkt_compl" or metric == "kkt_grad":
         df_feasible = df # for max constraint violation, include all
     else:
         # check if is feasible
@@ -62,9 +62,45 @@ def _pairs_by_method(spec, m, metric, tail, feas_tol=None):
     infeasible_configs = set(df["config"].unique()) - set(df_feasible['config'].unique())
     for cfg in infeasible_configs:
         f0 = float((df[(df['config'] == cfg) & (df['epoch'] == 0)][col]).iloc[0])
-        rows.append((cfg, f0, np.nan))
+        rows.append((cfg, f0, np.inf))
+
+    if m == 'pbm':
+        # print minimal final value for pbm
+        print(f"  [{spec.name}] {m}: {len(rows)} configs, "
+              f"feasible {len(df_feasible['config'].unique())}, "
+              f"min f0 {min(r[1] for r in rows):.4g}, "
+              f"min f_final {min(r[2] for r in rows):.4g}, "
+              f"max f_final {max(r[2] for r in rows):.4g}")
+        # exit()
 
     return rows
+
+
+def _pairs_obj_feasibility(spec, m, tail):
+    dfs = _seed_frames(spec, m)
+    if not dfs:
+        return []
+    df = pd.concat(dfs).groupby(["config", "epoch"]).mean().reset_index()
+    g = df.sort_values("epoch").groupby("config")[["loss", "kkt_viol"]]
+    finals = g.apply(lambda s: s.tail(tail).mean())          # DataFrame: index=config
+    return [(float(r["kkt_viol"]), float(r["loss"])) for _, r in finals.iterrows()]
+
+def plot_tradeoff_scatter(specs, methods, tail=5, out="plots/pinn_tradeoff.pdf"):
+    set_neurips_style()
+    fig, axes = plt.subplots(1, len(specs), figsize=(COL_WIDTH*len(specs), COL_WIDTH*0.9))
+    for ax, spec in zip(np.atleast_1d(axes), specs):
+        for m in methods:
+            pts = _pairs_obj_feasibility(spec, m, tail)
+            if not pts: continue
+            st = style_for(m)
+            v, f = zip(*pts)
+            ax.scatter(v, f, s=8, alpha=0.6, color=st["color"], label=st["label"])
+        ax.axvline(spec.bound, color="red", ls=":", lw=0.8)   # feasibility threshold
+        ax.set_xscale("symlog", linthresh=spec.bound/10); ax.set_yscale("log")
+        ax.set_title(spec.name); ax.set_xlabel(r"final $\max_j(c_j-b)$")
+    np.atleast_1d(axes)[0].set_ylabel("final loss")
+    top_legend(fig, np.atleast_1d(axes)[0])
+    fig.tight_layout(); fig.savefig(out); plt.close(fig)
 
 def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
                        taus=None, out="plots/profiles_fair.pdf"):
@@ -74,7 +110,8 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
     taus = np.logspace(-5, 0, 60) if taus is None else np.asarray(taus)
     
     fig, axes = plt.subplots(2, 2, figsize=(TEXT_WIDTH * 0.7, TEXT_WIDTH * 0.6),
-                         sharex=True, sharey=True)
+                        sharex=True, sharey=True)
+        
     axes = axes.ravel()
 
     for ax, (metric, title) in zip(axes, _PANELS):
@@ -88,7 +125,7 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
 
             if not finals:
                 continue
-            f_L = min(finals)                       # reference: full pool, always
+            f_L = np.min(np.array(finals))                       # reference: full pool, always
 
             # get the best config 
             if configs == "best":
@@ -102,7 +139,7 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
 
                 for cfg, f0, f in keep:
 
-                    if f is np.nan:  # infeasible
+                    if not np.isfinite(f):  # infeasible marker
                         continue
 
                     # compute relative constraint violation error 
@@ -113,8 +150,6 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
                     else:
                         gap = f0 - f_L
                         scores[m].append(0.0 if gap <= 0 else max(f - f_L, 0.0) / gap)
-        
-        # TODO: objective is wrong; it gives wierd results for PBM; do the same for fairness metrics
 
         for m in methods:
             s = np.sort(scores[m])
@@ -129,6 +164,7 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
         ax.set_xscale("log")
         ax.set_xlabel(r"accuracy $\tau$")
         ax.set_title(title)
+        # ax.set_ylim(-0.02, 1.02)
         ax.set_ylim(-0.02, 1.02)
     axes[0].set_ylabel("fraction of configs")
     top_legend(fig, axes[0])
@@ -149,13 +185,13 @@ if __name__ == "__main__":
     names = ["E7", "E8", "E9"]
     specs = [ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results"),
+                              results_root="results2"),
         ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results"),
+                              results_root="results2"),
         ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results")]
+                              results_root="results2")]
 
     methods = ["adam", "alm_proj", "pbm", "ssg"]
 
@@ -163,3 +199,5 @@ if __name__ == "__main__":
                        out="./results/plots/profiles_pinns_all.pdf")
     # plot_profiles_pinns(specs, methods, configs="best",
     #                    out="./results/plots/profiles_pinns_best.pdf")
+
+    plot_tradeoff_scatter(specs, methods, tail=best_validation_window, out="./results/plots/pinn_tradeoff.pdf")

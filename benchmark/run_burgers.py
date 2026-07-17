@@ -62,21 +62,35 @@ pbm_logascaled_grid = [
         [1], [None], [True], [True], [0.1, 0.01, 0.5])
 ]
 
+# alm_proj_grid = [
+#     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
+#             "dual__is_ineq": True}
+#     for (lr, dlr, pen, mu) in product(
+#         [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1.], [0., 1., 2.])
+# ]
+
 alm_proj_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
             "dual__is_ineq": True}
     for (lr, dlr, pen, mu) in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1.], [0., 1., 2.])
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.0005, 0.001, 0.005, 0.01, 0.05], [0., 1.], [0., 1., 2.])
 ]
+
+
 alm_max_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
             "dual__is_ineq": False}
     for (lr, dlr, pen, mu) in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1.], [0., 1., 2.])
 ]
+# ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
+#             for (lr, dlr, mu) in product(
+#                 [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1., 2.])]
+
 ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
             for (lr, dlr, mu) in product(
-                [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1., 2.])]
+                [0.001, 0.005, 0.01, 0.02, 0.05], [0.0005, 0.001, 0.005, 0.01, 0.05], [0.])]
+
 adam_grid = [{"primal__lr": lr, "beta": beta}
              for (lr, beta) in product([0.001, 0.005, 0.01, 0.02, 0.05], [0.5, 1., 2., 5., 10.])]
 

@@ -220,13 +220,13 @@ if __name__ == "__main__":
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results"),
+                              results_root="results2"),
         "E8": ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results"),
+                              results_root="results2"),
         "E9": ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results"),
+                              results_root="results2"),
     }
 
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
