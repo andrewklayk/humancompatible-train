@@ -191,6 +191,7 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
     print(f"wrote {out}")
 
 
+
 if __name__ == "__main__":
 
     # True is a running window mean; False is a tail

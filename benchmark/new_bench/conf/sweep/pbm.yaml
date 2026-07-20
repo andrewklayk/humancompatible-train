@@ -14,6 +14,6 @@ hydra:
       algorithm.dual.penalty_range: choice([0.1, 1.], [0.01, 1])
       algorithm.dual.primal_update_process_length: choice(1)
       algorithm.dual.gamma_annealing: choice(true)
-      algorithm.dual.gamma: choice(0.1, 0.9, 0.99)
+      algorithm.dual.gamma: choice(0.9)
       algorithm.dual.penalty_annealing: choice(true)
-      algorithm.moreau.mu: choice(0.0, 2.0)
+      algorithm.moreau.mu: choice(0.0, 1.0)

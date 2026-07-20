@@ -364,7 +364,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
     # ===== SPBM (PBM) =====
     if 'pbm' in cfg.algorithms:
         for arr_dict in pbm_grid:   
-            arr_dict["dual__epoch_length"] = 100
+            arr_dict["dual__epoch_length"] = 60
         histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
         save_method(result_dir, "pbm", histories, pbm_grid)
 

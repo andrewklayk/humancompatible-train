@@ -26,6 +26,11 @@ from plotting import plot_losses_and_constraints_stochastic   # your existing mo
 
 running_average = False
 
+METHOD_LABELS = {
+    "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
+    "alm_max": "SSL-ALM (max)", "ssg": "SSw",
+}
+
 # ── Step 1: best config per method (by mean val loss, feasible-preferred) ─────
 def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
     """Returns {method: best_config_index}. Selection on the across-seed MEAN
@@ -127,13 +132,14 @@ METHOD_LABELS = {
 }
 
 
-def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, best_validation_lastK=1):
+def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
+               best_validation_lastK=1):
     if spec is None:
         spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
                               results_root="results")
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
+        methods = ["adam", "pbm", "alm_proj", "ssg"]
 
     inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_lastK)
     if not inputs["test_losses_list"]:
@@ -159,13 +165,12 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
 
     print(f"wrote {save_path}")
 
-
 def plot_PINNs_single(specs, names, methods=None,
         save_path="./results/plots/pinns_convergence.pdf",
          best_validation_lastK=1):
    
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "ssg"]
+        methods = ["adam","alm_proj", "ssg", "pbm"]
 
     # collect per-spec mean curves: {method: [curve_per_spec, ...]}
     per = {m: {"loss": [], "test": [], "cons": []} for m in methods}
@@ -211,6 +216,106 @@ def plot_PINNs_single(specs, names, methods=None,
 
     print(f"wrote {save_path}")
 
+def print_table(names, methods):
+
+    for name in names: 
+
+        # for methods - store the tail of the losses and the tail of the max violation
+        inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_window)
+
+        for idx, method in enumerate(methods): 
+
+            # get the losses and the constraints
+            loss = np.array(inputs['train_losses_list'][idx])
+            constraints = np.array(inputs["train_constraints_list"][idx])
+            loss_std = np.array(inputs["train_losses_std_list"][idx])
+            constraints_std = np.array(inputs["train_constraints_std_list"][idx])
+
+            # tail the loss and the constraints
+            loss_tail = loss[-best_validation_window:].mean()
+            loss_std_tail = loss_std[-best_validation_window:].mean()
+            constraints_tail = constraints[:, -best_validation_window:].mean(axis=-1)
+            constraints_std_tail = constraints_std[:, -best_validation_window:].mean(axis=-1)
+
+            # compute the max violation
+            worst_idx = constraints_tail.argmax()
+            max_viol = max(0.0, constraints_tail[worst_idx])
+            max_viol_std = constraints_std_tail[worst_idx]
+            best_max_viol[name][method] = max_viol
+
+            # store the values
+            best_train_losses[name][method] = loss_tail
+            best_train_losses_std[name][method] = loss_std_tail
+            best_constraint_violations[name][method] = constraints_tail.mean()
+            best_constraint_violations_std[name][method] = constraints_std_tail.mean()
+            best_max_viol[name][method] = max_viol
+            best_max_viol_std[name][method] = max_viol_std
+
+
+    def fmt(x):
+        return f"{x:.3f}"
+    
+    def rank_format(values_by_method, stds_by_method, methods, fmt=lambda x: f"{x:.3f}"):
+        """Return {method: formatted_string} with best bold, second-best brown.
+        Lower is better. Appends ± std in \\footnotesize."""
+        ordered = sorted(methods, key=lambda m: values_by_method[m])
+        best = ordered[0]
+        second = ordered[1] if len(ordered) > 1 else None
+        out = {}
+        for m in methods:
+            s = fmt(values_by_method[m])
+            if m == best:
+                cell = r"\textbf{" + s + "}"
+            elif m == second and values_by_method[m] == values_by_method[best]:
+                cell = r"\textbf{" + s + "}"
+            elif m == second and values_by_method[m] != values_by_method[best]:
+                cell = r"\textcolor{brown}{" + s + "}"
+            else:
+                cell = s
+            cell += r" \footnotesize{$\pm$ " + fmt(stds_by_method[m]) + "}"
+            out[m] = cell
+        return out
+
+    lines = [ r"\begin{table}[h]",
+            r"\centering",
+            r"\caption{Comparison of Adam, SSL-ALM, and SPBM on experiments \Exp{7} and \Exp{8}. We report the best test loss, together with the corresponding constraint violations (averaged over runs).}",
+            r"\label{tab:best_results}",
+        r"\begin{tabular}{l l c c c}",
+        r"\toprule",
+        r"Exp. & Method & Best loss & Mean constraint & Max constraint \\",
+    ]
+
+    for name in names:
+        lines.append(r"\midrule")
+        exp_id = name.split('E')[1]
+
+        loss_cells = rank_format(best_train_losses[name],
+                                best_train_losses_std[name], methods)
+        mean_cells = rank_format(best_constraint_violations[name],
+                                best_constraint_violations_std[name], methods)
+        maxv_cells = rank_format(best_max_viol[name],
+                                best_max_viol_std[name], methods)
+
+        for i, method in enumerate(methods):
+            multirow = (r"\multirow{" + str(len(methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
+                        if i == 0 else "")
+            lines.append(
+                f"{multirow} & {METHOD_LABELS[method]} & "
+                f"{loss_cells[method]} & "
+                f"{mean_cells[method]} & "
+                f"{maxv_cells[method]} " + r"\\"
+            )
+        
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    table_str = "\n".join(lines)
+    print(table_str)
+
+    # dump into a text file
+    out = './results/tables/PINNS_latex_table.txt'
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w") as f:
+        f.write(table_str)
+
 if __name__ == "__main__":
 
     # True is a running window mean; False is a tail
@@ -231,11 +336,24 @@ if __name__ == "__main__":
 
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
 
+    # create an array for storing the best train loss and constraint violation for each method and experiment
+    best_train_losses = {name: {} for name in names}
+    best_constraint_violations = {name: {} for name in names}
+    best_max_viol = {name: {} for name in names}
+    best_train_losses_std = {name: {} for name in names}
+    best_constraint_violations_std = {name: {} for name in names}
+    best_max_viol_std = {name: {} for name in names}
+    methods = ["adam", "alm_proj", "ssg", "pbm"]
+
     # iterate and plot all single plot for each experiment
     for name in names:
         spec = specs[name]
-        plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
-                constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+        # plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
+        #         constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+
+    
+    # print the latex table
+    print_table(names, methods)
 
     # plot a single plot - combined all PINN experiments
     # plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 
