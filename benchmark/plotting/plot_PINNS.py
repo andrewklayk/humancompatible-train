@@ -41,6 +41,7 @@ def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation
     best = {}
     for method, df in agg.items():
         pool = df[df["violation_constr_mean"] < 0.00011] if method != 'adam' else df # select feasible configs only
+        # we take 1 decimal accuracy best plots
         if len(pool) == 0: # if empty, just select the lowest train loss
             pool = df
         col = "train_mean" 
@@ -218,6 +219,14 @@ def plot_PINNs_single(specs, names, methods=None,
 
 def print_table(names, methods):
 
+    # create an array for storing the best train loss and constraint violation for each method and experiment
+    best_train_losses = {name: {} for name in names}
+    best_constraint_violations = {name: {} for name in names}
+    best_max_viol = {name: {} for name in names}
+    best_train_losses_std = {name: {} for name in names}
+    best_constraint_violations_std = {name: {} for name in names}
+    best_max_viol_std = {name: {} for name in names}
+
     for name in names: 
 
         # for methods - store the tail of the losses and the tail of the max violation
@@ -335,14 +344,6 @@ if __name__ == "__main__":
     }
 
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
-
-    # create an array for storing the best train loss and constraint violation for each method and experiment
-    best_train_losses = {name: {} for name in names}
-    best_constraint_violations = {name: {} for name in names}
-    best_max_viol = {name: {} for name in names}
-    best_train_losses_std = {name: {} for name in names}
-    best_constraint_violations_std = {name: {} for name in names}
-    best_max_viol_std = {name: {} for name in names}
     methods = ["adam", "alm_proj", "ssg", "pbm"]
 
     # iterate and plot all single plot for each experiment

@@ -71,7 +71,7 @@ def _stats_at(df, epoch, prefix):
     return {f"{prefix}_{k}": float(r[k]) for k in keys if k in sub.columns}
 
 
-def _select(items, filt, tol, tail, last_epoch, split=None):
+def _select(items, filt, tol, tail, last_epoch, split=None, tolerance_decimal=None):
     """Collapse each config's selection-split curve; return the feasible min-loss
     winner's collapse dict (+ config_index, n_seeds), or None if none is feasible."""
     sel = items[0]["sel_split"] if split is None else split
@@ -80,7 +80,7 @@ def _select(items, filt, tol, tail, last_epoch, split=None):
              **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
     pool = pd.DataFrame(rows)
     filtered = filt != "none" and pool["viol_mean"].notna().any()
-    feasible = pool[pool["viol_mean"] <= tol + 0.01] if filtered else pool
+    feasible = pool[pool["viol_mean"] < tol + tolerance_decimal] if filtered else pool
     
     if feasible.empty:
         return None
@@ -152,7 +152,16 @@ def main():
         for mult in ([None] if filt == "none" else tol_mults):
             tol = None if mult is None else bound * mult
             tag = "none" if mult is None else f"{mult:g}"
-            best = _select(items, filt, tol, args.tail, last_epoch, args.selection_split)
+
+            # define the decimal tolerance based on the experiment
+            task = cell[0]
+            if 'weight' in task: # 1 decimal point tolerance
+                tolerance_decimal = 0.1
+            else: 
+                tolerance_decimal = 0.01
+
+            best = _select(items, filt, tol, args.tail, last_epoch,
+                            args.selection_split, tolerance_decimal=tolerance_decimal)
             if best is None:
                 print(f"[infeasible] {_cell_name(cell)} tol_mult={tag}: none met tol={tol}")
                 continue

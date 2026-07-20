@@ -18,9 +18,7 @@ import argparse
 import json
 import os
 import sys
-
 import numpy as np
-
 from prepare_results_plotting import ExperimentSpec, config_trajectory
 
 # Shared renderer lives in the sibling ../../plotting package (pure matplotlib/numpy).
@@ -32,7 +30,7 @@ METHOD_LABELS = {
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
 }
 plot_train_only = True
-
+tail = 5
 
 def read_best_configs(spec, methods, tol_mult=1.0):
     """{method: best_config_index}, read from select_best.py's best_*.json winners.
@@ -47,8 +45,7 @@ def read_best_configs(spec, methods, tol_mult=1.0):
     for method in methods:
         base = os.path.join(sel_dir, f"best_{cell}_{method}")
         print(base)
-        path = next((p for p in (f"{base}__tol{tol_mult:g}.json",
-                                  f"{base}__none.json", f"{base}.json")
+        path = next((p for p in (f"{base}__tol{tol_mult:g}.json", f"{base}.json")
                      if os.path.exists(p)), None)
         if path is None:
             print(f"  [{spec.name}] {method}: no best_*.json at tol={tol_mult:g} "
@@ -57,9 +54,7 @@ def read_best_configs(spec, methods, tol_mult=1.0):
         with open(path) as f:
             rec = json.load(f)
         best[method] = int(rec["config_index"])
-        # print(f"  [{spec.name}] {method}: best config {best[method]} from "
-        #       f"{os.path.basename(path)} (val loss {rec['val_loss_mean']:.4g}, "
-        #       f"viol {rec['val_max_viol_mean']:.4g})")
+        
     return best
 
 
@@ -128,8 +123,7 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test"):
 def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=None,
          companion="test"):
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "ssg"]
-        # methods = ["pbm", "alm_proj"]
+        methods = ["adam","alm_proj", "ssg", "pbm"]
     inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult, companion=companion)
     if not inputs["train_losses_list"]:
         print("no data to plot")
@@ -165,6 +159,115 @@ def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=Non
 
     print(f"\nwrote {save_path} (train + {companion})")
 
+
+
+def print_table(specs, methods):
+
+    # create an array for storing the best train loss and constraint violation for each method and experiment
+    best_train_losses = {spec.task: {} for spec in specs}
+    best_constraint_violations = {spec.task: {} for spec in specs}
+    best_max_viol = {spec.task: {} for spec in specs}
+    best_train_losses_std = {spec.task: {} for spec in specs}
+    best_constraint_violations_std = {spec.task: {} for spec in specs}
+    best_max_viol_std = {spec.task: {} for spec in specs}
+
+    for spec in specs: 
+
+        # for methods - store the tail of the losses and the tail of the max violation
+        inputs, _ = build_plot_inputs(spec, methods, tol_mult=1.0, companion="train")
+        
+        for idx, method in enumerate(methods): 
+
+            # get the losses and the constraints
+            loss = np.array(inputs['train_losses_list'][idx])
+            constraints = np.array(inputs["train_constraints_list"][idx])
+            loss_std = np.array(inputs["train_losses_std_list"][idx])
+            constraints_std = np.array(inputs["train_constraints_std_list"][idx])
+
+            # tail the loss and the constraints
+            loss_tail = loss[-tail:].mean()
+            loss_std_tail = loss_std[-tail:].mean()
+            constraints_tail = constraints[:, -tail:].mean(axis=-1)
+            constraints_std_tail = constraints_std[:, -tail:].mean(axis=-1)
+
+            # compute the max violation
+            worst_idx = constraints_tail.argmax()
+            max_viol = max(0.0, constraints_tail[worst_idx])
+            max_viol_std = constraints_std_tail[worst_idx]
+            best_max_viol[spec.task][method] = max_viol
+
+            # store the values
+            best_train_losses[spec.task][method] = loss_tail
+            best_train_losses_std[spec.task][method] = loss_std_tail
+            best_constraint_violations[spec.task][method] = constraints_tail.mean()
+            best_constraint_violations_std[spec.task][method] = constraints_std_tail.mean()
+            best_max_viol[spec.task][method] = max_viol
+            best_max_viol_std[spec.task][method] = max_viol_std
+
+
+    def fmt(x):
+        return f"{x:.3f}"
+    
+    def rank_format(values_by_method, stds_by_method, methods, fmt=lambda x: f"{x:.3f}"):
+        """Return {method: formatted_string} with best bold, second-best brown.
+        Lower is better. Appends ± std in \\footnotesize."""
+        ordered = sorted(methods, key=lambda m: values_by_method[m])
+        best = ordered[0]
+        second = ordered[1] if len(ordered) > 1 else None
+        out = {}
+        for m in methods:
+            s = fmt(values_by_method[m])
+            if m == best:
+                cell = r"\textbf{" + s + "}"
+            elif m == second and values_by_method[m] == values_by_method[best]:
+                cell = r"\textbf{" + s + "}"
+            elif m == second and values_by_method[m] != values_by_method[best]:
+                cell = r"\textcolor{brown}{" + s + "}"
+            else:
+                cell = s
+            cell += r" \footnotesize{$\pm$ " + fmt(stds_by_method[m]) + "}"
+            out[m] = cell
+        return out
+
+    lines = [ r"\begin{table}[h]",
+            r"\centering",
+            r"\caption{Comparison of Adam, SSL-ALM, and SPBM on experiments \Exp{7} and \Exp{8}. We report the best test loss, together with the corresponding constraint violations (averaged over runs).}",
+            r"\label{tab:best_results}",
+        r"\begin{tabular}{l l c c c}",
+        r"\toprule",
+        r"Exp. & Method & Best loss & Mean constraint & Max constraint \\",
+    ]
+
+    for spec in specs:
+        lines.append(r"\midrule")
+        exp_id = mapping_name[spec.task].split('E')[1]
+
+        loss_cells = rank_format(best_train_losses[spec.task],
+                                best_train_losses_std[spec.task], methods)
+        mean_cells = rank_format(best_constraint_violations[spec.task],
+                                best_constraint_violations_std[spec.task], methods)
+        maxv_cells = rank_format(best_max_viol[spec.task],
+                                best_max_viol_std[spec.task], methods)
+
+        for i, method in enumerate(methods):
+            multirow = (r"\multirow{" + str(len(methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
+                        if i == 0 else "")
+            lines.append(
+                f"{multirow} & {METHOD_LABELS[method]} & "
+                f"{loss_cells[method]} & "
+                f"{mean_cells[method]} & "
+                f"{maxv_cells[method]} " + r"\\"
+            )
+        
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    table_str = "\n".join(lines)
+    print(table_str)
+
+    # dump into a text file
+    out = '../../results/tables/FAIR_latex_table.txt'
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w") as f:
+        f.write(table_str)
 
 if __name__ == "__main__":
 
@@ -231,6 +334,11 @@ if __name__ == "__main__":
 
     # plot each experiment separately
     for i, experiment in enumerate(experiments):
+        pass
+        # plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1.0, companion="train",
+        #     constraint_titles=list(range(300)))
 
-        plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1, companion="train",
-            constraint_titles=list(range(300)))
+    methods = ["adam","alm_proj", "ssg", "pbm"]
+    print_table(specs, methods)
+
+    
