@@ -19,7 +19,7 @@ import json
 import os
 import sys
 import numpy as np
-from prepare_results_plotting import ExperimentSpec, config_trajectory
+from prepare_results_plotting import ExperimentSpec, config_trajectory, acc_trajectory
 
 # Shared renderer lives in the sibling ../../plotting package (pure matplotlib/numpy).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plotting"))
@@ -86,11 +86,13 @@ def _load_config_trajectory(spec, method, config_idx, companion="test"):
     return loss_m, loss_s, cons_tr_m, cons_tr_s, comp_m, comp_s, cons_co_m, cons_co_s
 
 
-def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test"):
+def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test", with_acc=False):
     best = read_best_configs(spec, methods, tol_mult=tol_mult)
     keys = ["train_losses_list", "train_losses_std_list", "test_losses_list",
             "test_losses_std_list", "train_constraints_list", "train_constraints_std_list",
             "test_constraints_list", "test_constraints_std_list", "titles"]
+    if with_acc:  # per-class accuracy row (image tasks only), aligned with `titles`
+        keys += ["train_acc_list", "train_acc_std_list"]
     acc = {k: [] for k in keys}
     any_test = False
     for method in methods:
@@ -112,6 +114,10 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test"):
             acc["test_losses_std_list"].append(comp_s)
             acc["test_constraints_list"].append(cons_co_m)
             acc["test_constraints_std_list"].append(cons_co_s)
+        if with_acc:  # train per-class accuracy [K, L] (None if not aggregated)
+            at = acc_trajectory(spec, method, best[method], "train")
+            acc["train_acc_list"].append(at[0] if at is not None else None)
+            acc["train_acc_std_list"].append(at[1] if at is not None else None)
         acc["titles"].append(METHOD_LABELS.get(method, method))
     if not any_test:  # no companion panel -> let the renderer draw train only
         for k in ["test_losses_list", "test_losses_std_list",
@@ -124,7 +130,10 @@ def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=Non
          companion="test"):
     if methods is None:
         methods = ["adam","alm_proj", "ssg", "pbm"]
-    inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult, companion=companion)
+    # Per-class accuracy row only for the image tasks (they store per-class acc).
+    with_acc = spec.data in ("cifar10", "cifar100")
+    inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult,
+                                         companion=companion, with_acc=with_acc)
     if not inputs["train_losses_list"]:
         print("no data to plot")
         return
@@ -284,24 +293,7 @@ def print_table(specs, methods):
         f.write(table_str)
 
 if __name__ == "__main__":
-
-    # ap = argparse.ArgumentParser()
-    # ap.add_argument("--agg", default="../selection/",
-    #                 help="dir of aggregate.py's per-cell aggregates (curves); select_best.py's "
-    #                      "best_*.json winners are read from its parent. Run aggregate.py then "
-    #                      "select_best.py first.")
-    # ap.add_argument("--task", default="folktables_positive_rate_pair")
-    # ap.add_argument("--data", default="income")
-    # ap.add_argument("--bound", type=float, default=0.1)
-    # ap.add_argument("--tol", type=float, default=1.0,
-    #                 help="which select_best.py feasibility-slack winner to plot "
-    #                      "(matches a --tols value, e.g. 1.0, 1.1, 1.25)")
-    # ap.add_argument("--companion", default="train", choices=["train", "val", "test"],
-    #                 help="which split to plot alongside train (second column)")
-    # ap.add_argument("--out", default="../results/plots/fair.png")
-    # args = ap.parse_args()
-    # os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
- 
+    
     # all possible experiments
     experiments = [ 'weight_norm',
                     'folktables_positive_rate_vec',

@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 
 
@@ -327,6 +328,8 @@ def plot_losses_and_constraints_stochastic(
     test_losses_std_list=None,
     test_constraints_list=None,
     test_constraints_std_list=None,
+    train_acc_list=None,       # per-method per-class accuracy [K, L]; adds an accuracy row
+    train_acc_std_list=None,   # (currently unused; accepted for signature symmetry)
     titles=None,
     eval_points=4,
     std_multiplier=2,
@@ -465,7 +468,17 @@ def plot_losses_and_constraints_stochastic(
     constraint_spans_full_width = (
         mode == "train" and test_constraints_list is None
     )
-    
+
+    # Optional per-class accuracy row (image tasks): one panel per method, each with
+    # K faint per-class curves. Only supported in the full-width (train-only) layout.
+    has_acc = (
+        train_acc_list is not None
+        and any(a is not None for a in train_acc_list)
+        and constraint_spans_full_width
+    )
+    if has_acc:
+        nrows += 1
+
     TEXT_WIDTH = 6.9   # inches, full 2-column text width
     ROW_H = 2.0        # inches per row
 
@@ -484,6 +497,13 @@ def plot_losses_and_constraints_stochastic(
         for k in range(n_constraints if separate_constraints else 1):
             ax_c = fig.add_subplot(nrows, 1, 2 + k)
             axes_constraint.append([ax_c])
+
+        # Accuracy row: last row, split into one panel per method.
+        axes_acc = []
+        if has_acc:
+            for a in range(num_algos):
+                ax_a = fig.add_subplot(nrows, num_algos, (nrows - 1) * num_algos + 1 + a)
+                axes_acc.append(ax_a)
     else:
         fig, axes = plt.subplots(
             nrows,
@@ -566,11 +586,41 @@ def plot_losses_and_constraints_stochastic(
 
         if constraint_title == None:
             ax.set_title(f"Constraint ({title})")
-        else: 
+        else:
             ax.set_title(f"Constraint ({constraint_title})")
         ax.set_ylabel("Log Constraint" if log_constraints else "Constraint")
         ax.grid(True, linestyle="--", alpha=0.4)
         # ax.legend(fontsize=9)
+
+    # ------------------------------------------------------------------
+    # ACCURACY PLOTTING (per-class, one panel per method)
+    # ------------------------------------------------------------------
+
+    def _method_shades(hex_color, n):
+        # A light->dark monochrome ramp of the method's OWN legend color, so the
+        # per-class curves never introduce foreign hues that clash with the method
+        # legend; the panel instead reads as "this method". Endpoints are kept off
+        # pure white/black so every shade stays visible on a white background.
+        base = np.array(mcolors.to_rgb(hex_color))
+        light = base + 0.60 * (1.0 - base)   # 60% toward white
+        dark = 0.55 * base                    # darkened
+        ramp = mcolors.LinearSegmentedColormap.from_list("m", [light, dark])
+        return ramp(np.linspace(0, 1, max(n, 2)))
+
+    def plot_acc_panel(ax, acc, algo_idx, title, show_ylabel):
+        # acc: [K, L] per-class accuracy mean. All K classes drawn as faint curves
+        # (shades of the method color) so the per-class spread is visible at a glance.
+        K = acc.shape[0]
+        x = make_x(acc.shape[1], algo_idx)
+        shades = _method_shades(color_for(algo_idx, titles[algo_idx]), K)
+        for k in range(K):
+            ax.plot(x, acc[k], color=shades[k], lw=0.7, alpha=0.75)
+        ax.set_title(title, fontsize=9)
+        ax.set_ylim(0, 1)
+        ax.set_xlabel("Time" if plot_time_instead_epochs else "Epoch")
+        if show_ylabel:
+            ax.set_ylabel("Per-class Acc.")
+        ax.grid(True, linestyle="--", alpha=0.4)
 
     # ------------------------------------------------------------------
     # TRAIN
@@ -602,6 +652,16 @@ def plot_losses_and_constraints_stochastic(
                 "Train",
             )
             axes_constraint[0][0].set_xlabel("Time" if plot_time_instead_epochs else "Epoch")
+
+        # Accuracy row: one panel per method (aligned with `titles`).
+        if has_acc:
+            for a, ax_a in enumerate(axes_acc):
+                acc = train_acc_list[a]
+                if acc is None:
+                    ax_a.set_visible(False)
+                    continue
+                plot_acc_panel(ax_a, np.asarray(acc), a,
+                               f"Acc ({titles[a]})", show_ylabel=(a == 0))
     else:
         # Normal grid-based layout
         axes = np.atleast_2d(axes)

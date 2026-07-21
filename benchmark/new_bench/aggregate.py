@@ -34,6 +34,29 @@ def _c_cols(df):
                   key=lambda s: int(s.split("_")[1]))
 
 
+_NUM_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
+
+
+def _expand_acc(df):
+    """Expand the per-class ``acc`` array-string column into numeric acc_0..acc_{K-1}.
+
+    train.py logs per-class accuracy as a stringified numpy array (e.g.
+    ``"[0.45 0.31 ...]"``, possibly wrapped over several lines). That column is
+    non-numeric, so the generic aggregation below skips it. Expanding it into one
+    numeric column per class lets ``acc_j`` be seed-averaged like any other metric
+    (-> ``acc_j_mean`` / ``acc_j_std`` in the aggregated CSV). No-op if absent or
+    already numeric (e.g. a scalar-accuracy task)."""
+    if "acc" not in df.columns or pd.api.types.is_numeric_dtype(df["acc"]):
+        return df
+    parsed = df["acc"].apply(lambda s: [float(x) for x in _NUM_RE.findall(str(s))])
+    K = max((len(v) for v in parsed), default=0)
+    if K == 0:
+        return df.drop(columns=["acc"])
+    acc_cols = {f"acc_{j}": [v[j] if j < len(v) else float("nan") for v in parsed]
+                for j in range(K)}
+    return df.drop(columns=["acc"]).assign(**acc_cols)
+
+
 def _row_max_viol(df, cc, filt):
     """Per-row max constraint violation (signed for 'upper', absolute otherwise)."""
     return df[cc].max(axis=1) if filt == "upper" else df[cc].abs().max(axis=1)
@@ -56,13 +79,14 @@ def _decompose(df, col):
     return by_epoch["m"].std(ddof=0), by_epoch["s"].mean()
 
 
-def _aggregate_split(runs, split, filt):
+def _aggregate_split(runs, split, filt, expand_acc=False):
     """Seed-average one split's per-epoch curve over the (fold, init_seed) grid.
 
     Metric-agnostic: every numeric column (loss, max_viol, each c_i, and the opt-split
     KKT metrics grad_norm/L/compl/max_viol/lambda_i) gets ``_mean``, ``_std``, and
     the ``_std_fold`` / ``_std_init`` variance components. Returns (DataFrame,
-    constraint_cols) or (None, []).
+    constraint_cols) or (None, []). ``expand_acc`` (CIFAR only) turns the per-class
+    ``acc`` array-string column into numeric acc_j columns so accuracy aggregates too.
     """
     frames, cc = [], []
     for r in runs:
@@ -70,6 +94,8 @@ def _aggregate_split(runs, split, filt):
         if not os.path.exists(p):
             continue
         df = pd.read_csv(p)
+        if expand_acc:
+            df = _expand_acc(df)
         cc = _c_cols(df) or cc
         if cc:
             df = df.assign(max_viol=_row_max_viol(df, cc, filt))
@@ -88,19 +114,19 @@ def _aggregate_split(runs, split, filt):
     return pd.DataFrame(out).reset_index(), cc
 
 
-def _aggregate_cell(configs, filt):
+def _aggregate_cell(configs, filt, expand_acc=False):
     """Per-config aggregates for one cell (i.e. task-data-method), ordered by hyperparameter signature.
 
     Each item: {index, signature, meta, splits{split: DataFrame}, m, sel_split}.
     Selection split is 'val' (ml mode) or 'opt' (opt/train-only); configs with
-    neither are dropped.
+    neither are dropped. ``expand_acc`` (CIFAR only) is forwarded to _aggregate_split.
     """
     items = []
     for i, sig in enumerate(sorted(configs)):
         info = configs[sig]
         splits, m = {}, 0
         for split in ("train", "val", "test", "opt"):
-            res, cc = _aggregate_split(info["runs"], split, filt)
+            res, cc = _aggregate_split(info["runs"], split, filt, expand_acc=expand_acc)
             if res is not None:
                 splits[split], m = res, max(m, len(cc))
         sel = "val" if "val" in splits else "opt" if "opt" in splits else None
@@ -146,7 +172,7 @@ def _write_aggregated(items, cell, agg_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--runs", default="multirun/cifar10/", help="multirun root to scan recursively")
+    ap.add_argument("--runs", default="multirun2/cifar10/", help="multirun root to scan recursively")
     ap.add_argument("--out", default="selection/", help="output dir (aggregated/ is created under it)")
     ap.add_argument("--approach", default="opt", choices=["ml", "opt"],
                     help="only aggregate runs of this approach; required if the tree mixes "
@@ -187,7 +213,9 @@ def main():
     # start aggregating: actual trajectory CSVs are read inside helper f-ns
     for cell, configs in sorted(cells.items(), key=lambda kv: tuple(map(str, kv[0]))):
         filt = next(iter(configs.values()))["meta"]["select_filter"]
-        items = _aggregate_cell(configs, filt)
+        # Per-class accuracy curves are only wanted for the image tasks.
+        expand_acc = cell[1] in ("cifar10", "cifar100")
+        items = _aggregate_cell(configs, filt, expand_acc=expand_acc)
         if not items:
             print(f"[skip] {_cell_name(cell)}: no csv")
             continue

@@ -1,0 +1,1 @@
+/mnt/personal/kliacand/humancompatible-train/benchmark/new_bench/multirun/cifar10/adam/.submitit/11150702/11150702_submission.sh

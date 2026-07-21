@@ -187,6 +187,26 @@ def config_trajectory(spec, method, config_index, split):
     return curve["loss_mean"].to_numpy(), curve["loss_std"].to_numpy(), stack("mean"), stack("std")
 
 
+def acc_trajectory(spec, method, config_index, split):
+    """Seed-averaged per-epoch per-class accuracy for one config/split:
+    (acc_mean[K, L], acc_std[K, L], epochs[L]) or None if the split has no acc_j
+    columns (only the image tasks, aggregated with expand_acc, have them). K = number
+    of classes, rows ordered acc_0..acc_{K-1}."""
+    curve = _curve(spec, method, config_index, split)
+    if curve is None:
+        return None
+    acc_cols = sorted((c.removesuffix("_mean") for c in curve.columns
+                       if re.fullmatch(r"acc_\d+_mean", c)),
+                      key=lambda s: int(s.split("_")[1]))
+    if not acc_cols:
+        return None
+
+    def stack(suffix):
+        return np.vstack([curve[f"{c}_{suffix}"].to_numpy() for c in acc_cols])
+
+    return stack("mean"), stack("std"), curve["epoch"].to_numpy()
+
+
 def metric_trajectory(spec, method, config_index, split, metric):
     """Seed-averaged per-epoch curve of an arbitrary metric: (mean, std|None,
     std_init|None, epochs), or None if the config/split/metric is absent. Used by the

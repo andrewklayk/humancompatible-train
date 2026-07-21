@@ -1,0 +1,24 @@
+{
+  "task": "cifar10_loss",
+  "data": "cifar10",
+  "algorithm": "adam",
+  "approach": "opt",
+  "init_seed": 1,
+  "fold": 0,
+  "n_folds": 5,
+  "cv_seed": 0,
+  "m": 90,
+  "bound": 0.1,
+  "select_filter": "none",
+  "hyperparameters": {
+    "name": "adam",
+    "updater": "plain",
+    "select_filter": "none",
+    "primal": {
+      "_target_": "torch.optim.Adam",
+      "_partial_": true,
+      "lr": 0.02,
+      "weight_decay": 0.01
+    }
+  }
+}

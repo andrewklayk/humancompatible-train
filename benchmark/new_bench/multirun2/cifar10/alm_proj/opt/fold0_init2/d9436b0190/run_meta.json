@@ -1,0 +1,35 @@
+{
+  "task": "cifar10_loss",
+  "data": "cifar10",
+  "algorithm": "alm_proj",
+  "approach": "opt",
+  "init_seed": 2,
+  "fold": 0,
+  "n_folds": 5,
+  "cv_seed": 0,
+  "m": 90,
+  "bound": 0.1,
+  "select_filter": "upper",
+  "hyperparameters": {
+    "name": "alm_proj",
+    "updater": "primal_dual",
+    "constraints_to_eq": false,
+    "select_filter": "upper",
+    "primal": {
+      "_target_": "torch.optim.Adam",
+      "_partial_": true,
+      "lr": 0.001,
+      "weight_decay": 0.01
+    },
+    "moreau": {
+      "mu": 0.0
+    },
+    "dual": {
+      "_target_": "humancompatible.train.dual_optim.ALM",
+      "_partial_": true,
+      "lr": 0.5,
+      "penalty": 0.0,
+      "is_ineq": true
+    }
+  }
+}
