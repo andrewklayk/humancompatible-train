@@ -41,7 +41,7 @@ python3 -m pip install -q hydra-submitit-launcher
 : "${INIT_SEEDS:=0 1 2 3 4}"
 : "${N_FOLDS:=5}"
 : "${CV_SEED:=0}"
-: "${LAUNCHER:=slurm}"    # set LAUNCHER=local to drop the launcher (local run)
+: "${LAUNCHER:=slurm_h200}"    # set LAUNCHER=local to drop the launcher (local run)
 
 # Optional launcher override (omitted when LAUNCHER=local / empty).
 LAUNCHER_ARG=""

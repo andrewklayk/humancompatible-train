@@ -217,7 +217,7 @@ def plot_PINNs_single(specs, names, methods=None,
 
     print(f"wrote {save_path}")
 
-def print_table(names, methods):
+def print_table(specs, methods, names):
 
     # create an array for storing the best train loss and constraint violation for each method and experiment
     best_train_losses = {name: {} for name in names}
@@ -228,7 +228,8 @@ def print_table(names, methods):
     best_max_viol_std = {name: {} for name in names}
 
     for name in names: 
-
+        
+        spec = specs[name]
         # for methods - store the tail of the losses and the tail of the max violation
         inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_window)
 
@@ -248,9 +249,8 @@ def print_table(names, methods):
 
             # compute the max violation
             worst_idx = constraints_tail.argmax()
-            max_viol = max(0.0, constraints_tail[worst_idx])
+            max_viol = max(0.0, constraints_tail[worst_idx] - 0.0001)
             max_viol_std = constraints_std_tail[worst_idx]
-            best_max_viol[name][method] = max_viol
 
             # store the values
             best_train_losses[name][method] = loss_tail
@@ -259,30 +259,41 @@ def print_table(names, methods):
             best_constraint_violations_std[name][method] = constraints_std_tail.mean()
             best_max_viol[name][method] = max_viol
             best_max_viol_std[name][method] = max_viol_std
-
-
-    def fmt(x):
-        return f"{x:.3f}"
     
-    def rank_format(values_by_method, stds_by_method, methods, fmt=lambda x: f"{x:.3f}"):
-        """Return {method: formatted_string} with best bold, second-best brown.
-        Lower is better. Appends ± std in \\footnotesize."""
-        ordered = sorted(methods, key=lambda m: values_by_method[m])
-        best = ordered[0]
-        second = ordered[1] if len(ordered) > 1 else None
+    def rank_format(values_by_method, stds_by_method, methods,
+                    precision=3, mark=True, tol=1e-5):
+        """{method: formatted cell}, best bold, second-best brown (lower is better).
+        Appends ± std. mark=False disables highlighting."""
+
+        fmt = lambda x: f"{x:.{precision}f}"
+
+        # round once, up front — everything downstream uses rounded values
+        vals = {m: round(values_by_method[m], precision) for m in methods}
+
+        def cell(m, wrap):
+            body = wrap(fmt(vals[m])) if wrap else fmt(vals[m])
+            return body + r" \footnotesize{$\pm$ " + fmt(stds_by_method[m]) + "}"
+
+        if not mark:
+            return {m: cell(m, None) for m in methods}
+
+
+        ordered = sorted(methods, key=lambda m: vals[m])
+        best_val = vals[ordered[0]]
+        second_val = vals[ordered[1]] if len(ordered) > 1 else None
+
+        bold  = lambda s: r"\textbf{" + s + "}"
+        brown = lambda s: r"\textcolor{brown}{" + s + "}"
+
         out = {}
         for m in methods:
-            s = fmt(values_by_method[m])
-            if m == best:
-                cell = r"\textbf{" + s + "}"
-            elif m == second and values_by_method[m] == values_by_method[best]:
-                cell = r"\textbf{" + s + "}"
-            elif m == second and values_by_method[m] != values_by_method[best]:
-                cell = r"\textcolor{brown}{" + s + "}"
+            v = vals[m]
+            if abs(v - best_val) < tol:
+                out[m] = cell(m, bold)
+            elif second_val is not None and abs(v - second_val) < tol:
+                out[m] = cell(m, brown)
             else:
-                cell = s
-            cell += r" \footnotesize{$\pm$ " + fmt(stds_by_method[m]) + "}"
-            out[m] = cell
+                out[m] = cell(m, None)
         return out
 
     lines = [ r"\begin{table}[h]",
@@ -291,7 +302,7 @@ def print_table(names, methods):
             r"\label{tab:best_results}",
         r"\begin{tabular}{l l c c c}",
         r"\toprule",
-        r"Exp. & Method & Best loss & Mean constraint & Max constraint \\",
+        r"Exp. & Method & Best loss & Max constraint viol. & Mean constraint \\",
     ]
 
     for name in names:
@@ -299,11 +310,13 @@ def print_table(names, methods):
         exp_id = name.split('E')[1]
 
         loss_cells = rank_format(best_train_losses[name],
-                                best_train_losses_std[name], methods)
+                                best_train_losses_std[name], methods,
+                                precision=3)
         mean_cells = rank_format(best_constraint_violations[name],
-                                best_constraint_violations_std[name], methods)
+                                best_constraint_violations_std[name], methods,
+                                precision=4, mark=False)
         maxv_cells = rank_format(best_max_viol[name],
-                                best_max_viol_std[name], methods)
+                                best_max_viol_std[name], methods, precision=4)
 
         for i, method in enumerate(methods):
             multirow = (r"\multirow{" + str(len(methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
@@ -311,8 +324,8 @@ def print_table(names, methods):
             lines.append(
                 f"{multirow} & {METHOD_LABELS[method]} & "
                 f"{loss_cells[method]} & "
-                f"{mean_cells[method]} & "
-                f"{maxv_cells[method]} " + r"\\"
+                f"{maxv_cells[method]} & "
+                f"{mean_cells[method]} " + r"\\"
             )
         
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
@@ -334,13 +347,13 @@ if __name__ == "__main__":
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results2"),
+                              results_root="results"),
         "E8": ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results2"),
+                              results_root="results"),
         "E9": ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results2"),
+                              results_root="results"),
     }
 
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
@@ -349,12 +362,12 @@ if __name__ == "__main__":
     # iterate and plot all single plot for each experiment
     for name in names:
         spec = specs[name]
-        # plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
-        #         constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+        plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
+                constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
 
     
     # print the latex table
-    print_table(names, methods)
+    print_table(specs, methods, names)
 
     # plot a single plot - combined all PINN experiments
     # plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 

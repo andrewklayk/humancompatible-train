@@ -101,7 +101,9 @@ def plot_tradeoff_scatter(specs, methods, tail=5, out="plots/pinn_tradeoff.pdf")
             v, f = zip(*pts)
             ax.scatter(v, f, s=8, alpha=0.6, color=st["color"], label=st["label"])
         ax.axvline(spec.bound, color="red", ls=":", lw=0.8)   # feasibility threshold
-        ax.set_xscale("symlog", linthresh=spec.bound); ax.set_yscale("log")
+        # ax.set_xscale("symlog", linthresh=spec.bound); 
+        ax.set_yscale("log")
+        ax.set_xscale("log")
         ax.set_title(spec.name); ax.set_xlabel(r"final $\max_j(c_j-b)$")
     np.atleast_1d(axes)[0].set_ylabel("final loss")
     top_legend(fig, np.atleast_1d(axes)[0])
@@ -201,19 +203,21 @@ if __name__ == "__main__":
     names = ["E7", "E8", "E9"]
     specs = [ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results2"),
+                              results_root="results"),
         ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results2"),
+                              results_root="results"),
         ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
-                              results_root="results2")]
+                              results_root="results")]
 
     methods = ["adam", "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"]
 
-    plot_profiles_pinns(specs, methods, configs="all",
-                       out="./results/plots/profiles_pinns_all.pdf")
+    # plot_profiles_pinns(specs, methods, configs="all",
+    #                    out="./results/plots/profiles_pinns_all.pdf")
     # plot_profiles_pinns(specs, methods, configs="best",
     #                    out="./results/plots/profiles_pinns_best.pdf")
 
+
+    methods = ["adam", "alm_proj", "pbm", "ssg"]
     plot_tradeoff_scatter(specs, methods, tail=best_validation_window, out="./results/plots/pinn_tradeoff.pdf")

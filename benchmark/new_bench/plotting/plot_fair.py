@@ -175,7 +175,7 @@ def print_table(specs, methods):
 
         # for methods - store the tail of the losses and the tail of the max violation
         inputs, _ = build_plot_inputs(spec, methods, tol_mult=1.0, companion="train")
-        
+
         for idx, method in enumerate(methods): 
 
             # get the losses and the constraints
@@ -192,7 +192,7 @@ def print_table(specs, methods):
 
             # compute the max violation
             worst_idx = constraints_tail.argmax()
-            max_viol = max(0.0, constraints_tail[worst_idx])
+            max_viol = max(0.0, constraints_tail[worst_idx] - spec.bound)
             max_viol_std = constraints_std_tail[worst_idx]
             best_max_viol[spec.task][method] = max_viol
 
@@ -204,29 +204,40 @@ def print_table(specs, methods):
             best_max_viol[spec.task][method] = max_viol
             best_max_viol_std[spec.task][method] = max_viol_std
 
+    def rank_format(values_by_method, stds_by_method, methods,
+                    precision=3, mark=True, tol=1e-5):
+        """{method: formatted cell}, best bold, second-best brown (lower is better).
+        Appends ± std. mark=False disables highlighting."""
 
-    def fmt(x):
-        return f"{x:.3f}"
-    
-    def rank_format(values_by_method, stds_by_method, methods, fmt=lambda x: f"{x:.3f}"):
-        """Return {method: formatted_string} with best bold, second-best brown.
-        Lower is better. Appends ± std in \\footnotesize."""
-        ordered = sorted(methods, key=lambda m: values_by_method[m])
-        best = ordered[0]
-        second = ordered[1] if len(ordered) > 1 else None
+        fmt = lambda x: f"{x:.{precision}f}"
+
+        # round once, up front — everything downstream uses rounded values
+        vals = {m: round(values_by_method[m], precision) for m in methods}
+
+        def cell(m, wrap):
+            body = wrap(fmt(vals[m])) if wrap else fmt(vals[m])
+            return body + r" \footnotesize{$\pm$ " + fmt(stds_by_method[m]) + "}"
+
+        if not mark:
+            return {m: cell(m, None) for m in methods}
+
+
+        ordered = sorted(methods, key=lambda m: vals[m])
+        best_val = vals[ordered[0]]
+        second_val = vals[ordered[1]] if len(ordered) > 1 else None
+
+        bold  = lambda s: r"\textbf{" + s + "}"
+        brown = lambda s: r"\textcolor{brown}{" + s + "}"
+
         out = {}
         for m in methods:
-            s = fmt(values_by_method[m])
-            if m == best:
-                cell = r"\textbf{" + s + "}"
-            elif m == second and values_by_method[m] == values_by_method[best]:
-                cell = r"\textbf{" + s + "}"
-            elif m == second and values_by_method[m] != values_by_method[best]:
-                cell = r"\textcolor{brown}{" + s + "}"
+            v = vals[m]
+            if abs(v - best_val) < tol:
+                out[m] = cell(m, bold)
+            elif second_val is not None and abs(v - second_val) < tol:
+                out[m] = cell(m, brown)
             else:
-                cell = s
-            cell += r" \footnotesize{$\pm$ " + fmt(stds_by_method[m]) + "}"
-            out[m] = cell
+                out[m] = cell(m, None)
         return out
 
     lines = [ r"\begin{table}[h]",
@@ -235,7 +246,7 @@ def print_table(specs, methods):
             r"\label{tab:best_results}",
         r"\begin{tabular}{l l c c c}",
         r"\toprule",
-        r"Exp. & Method & Best loss & Mean constraint & Max constraint \\",
+        r"Exp. & Method & Best loss & Max constraint viol. & Mean constraint \\",
     ]
 
     for spec in specs:
@@ -243,11 +254,14 @@ def print_table(specs, methods):
         exp_id = mapping_name[spec.task].split('E')[1]
 
         loss_cells = rank_format(best_train_losses[spec.task],
-                                best_train_losses_std[spec.task], methods)
+                                best_train_losses_std[spec.task], methods,
+                                precision=3)
         mean_cells = rank_format(best_constraint_violations[spec.task],
-                                best_constraint_violations_std[spec.task], methods)
+                                best_constraint_violations_std[spec.task], methods,
+                                precision=3, mark=False)
         maxv_cells = rank_format(best_max_viol[spec.task],
-                                best_max_viol_std[spec.task], methods)
+                                best_max_viol_std[spec.task], methods,
+                                precision=3)
 
         for i, method in enumerate(methods):
             multirow = (r"\multirow{" + str(len(methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
@@ -255,8 +269,8 @@ def print_table(specs, methods):
             lines.append(
                 f"{multirow} & {METHOD_LABELS[method]} & "
                 f"{loss_cells[method]} & "
-                f"{mean_cells[method]} & "
-                f"{maxv_cells[method]} " + r"\\"
+                f"{maxv_cells[method]} & "
+                f"{mean_cells[method]} " + r"\\"
             )
         
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
@@ -294,22 +308,28 @@ if __name__ == "__main__":
                     'folktables_positive_rate_pair', 
                     'dutch_positive_rate_pair']
 
+
+    experiments = [ 'cifar10_loss']
+
     data_map = {    "weight_norm": "income_norm",
                     "folktables_positive_rate_vec": "income", 
                     "folktables_positive_rate_pair": "income",
-                    "dutch_positive_rate_pair": "dutch"
+                    "dutch_positive_rate_pair": "dutch",
+                     'cifar10_loss': "cifar10"
     }
     bounds_map = {  "weight_norm": 2.0,
                     "folktables_positive_rate_vec": 0.2, 
                     "folktables_positive_rate_pair": 0.1,
-                    "dutch_positive_rate_pair": 0.1
+                    "dutch_positive_rate_pair": 0.1,
+                     'cifar10_loss': 0.1
     }
 
     # map to the E 
     mapping_name = {"weight_norm": "E1",
                     "folktables_positive_rate_vec": "E2", 
                     "folktables_positive_rate_pair": "E3",
-                    "dutch_positive_rate_pair": "E4"}
+                    "dutch_positive_rate_pair": "E4",
+                     'cifar10_loss': "E5"}
 
     # define output folder
     out = "../../results/plots/"
@@ -332,13 +352,14 @@ if __name__ == "__main__":
 
         specs.append(spec)
 
-    # plot each experiment separately
-    for i, experiment in enumerate(experiments):
-        pass
-        # plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1.0, companion="train",
-        #     constraint_titles=list(range(300)))
 
     methods = ["adam","alm_proj", "ssg", "pbm"]
+    # plot each experiment separately
+    for i, experiment in enumerate(experiments):
+
+        plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1.0, companion="train",
+            constraint_titles=list(range(300)), methods=methods)
+
     print_table(specs, methods)
 
     

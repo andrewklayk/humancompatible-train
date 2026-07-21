@@ -2,17 +2,18 @@ name: pbm
 updater: primal_dual
 constraints_to_eq: false
 select_filter: upper
+grad_clip: null 
 primal:
   _target_: torch.optim.Adam
   _partial_: true
   lr: 0.01
-  weight_decay: 0.0
+  weight_decay: 0.01
 moreau:
   mu: 1.0
 dual:
   _target_: humancompatible.train.dual_optim.PBM
   _partial_: true
-  penalty_mult: 0.5
+  penalty_mult: 0.9
   penalty_update: dimin_adapt
   pbf: quadratic_logarithmic
   gamma: 0.9

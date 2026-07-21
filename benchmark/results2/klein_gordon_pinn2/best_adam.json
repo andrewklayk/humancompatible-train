@@ -1,8 +1,0 @@
-{
-  "method": "adam",
-  "best_idx": 4,
-  "val_loss": 0.10442458603810172,
-  "val_max_c": 0.019899386912584305,
-  "n_configs": 25,
-  "n_feasible": 0
-}

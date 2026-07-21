@@ -1,8 +1,0 @@
-{
-  "method": "alm_proj",
-  "best_idx": 60,
-  "val_loss": 0.999806667275709,
-  "val_max_c": 8.244400669354945e-05,
-  "n_configs": 150,
-  "n_feasible": 69
-}
