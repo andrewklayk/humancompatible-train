@@ -171,6 +171,34 @@ def aggregate_experiment(spec, methods=DEFAULT_METHODS, split="val", tail=10, la
     return per_method
 
 
+def _load_config_trajectory(spec, method, config_idx, companion="test"):
+    """Seed-averaged trajectories for one config, from the aggregated curves.
+
+    Plots train + a ``companion`` split ('val' or 'test'). Returns
+    (loss_m, loss_s, cons_tr_m, cons_tr_s, comp_m, comp_s, cons_co_m, cons_co_s);
+    the comp_* / cons_co_* are None when the companion split is not stored (e.g.
+    image tasks have no per-epoch val curve in some setups). Train and companion
+    arrays are truncated to a common length."""
+    tr = config_trajectory(spec, method, config_idx, "train")
+    if tr is None:
+        return None
+    loss_m, loss_s, cons_tr_m, cons_tr_s = tr
+
+    co = config_trajectory(spec, method, config_idx, companion)
+    if co is not None:
+        comp_m, comp_s, cons_co_m, cons_co_s = co
+        L = min(len(loss_m), len(comp_m))
+        loss_m, loss_s = loss_m[:L], loss_s[:L]
+        comp_m, comp_s = comp_m[:L], comp_s[:L]
+        if cons_tr_m is not None:
+            cons_tr_m, cons_tr_s = cons_tr_m[:, :L], cons_tr_s[:, :L]
+        if cons_co_m is not None:
+            cons_co_m, cons_co_s = cons_co_m[:, :L], cons_co_s[:, :L]
+    else:
+        comp_m = comp_s = cons_co_m = cons_co_s = None
+    return loss_m, loss_s, cons_tr_m, cons_tr_s, comp_m, comp_s, cons_co_m, cons_co_s
+
+
 def config_trajectory(spec, method, config_index, split):
     """Seed-averaged per-epoch (loss_mean, loss_std, cons_mean[m,L], cons_std[m,L]) for
     one config/split, or None. cons_* are None when the split has no constraint columns."""

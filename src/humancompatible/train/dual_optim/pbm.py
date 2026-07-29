@@ -25,6 +25,7 @@ class PBM(Optimizer):
         gamma_annealing=True,
         penalty_annealing=True,
         epoch_length = None, # set this if gamma_annealing=True,
+        rho = None, # only should be set if penalty_update == 'alm'; is equal to the penalty multiplier of the ALM; by default rho = 2.0
         logscaled_dual_update = False,
         logscaled_dual_step_size = None # used only is logscaled_dual_update = True
     ) -> None:
@@ -96,7 +97,8 @@ class PBM(Optimizer):
             dual_range,
             penalty_range,
             primal_update_process_length,
-            device,
+            rho = rho,
+            device=device,
         )
         super().__init__(params, defaults)
 
@@ -112,6 +114,7 @@ class PBM(Optimizer):
         dual_range: Tuple[float, float] = None,
         penalty_range: Tuple[float, float] = None,
         primal_update_process_length: int = 1,
+        rho = None,
         device=None,
     ):
         if init_duals is None and m is None:
@@ -147,6 +150,18 @@ class PBM(Optimizer):
             penalty_update_f = _update_penalties_const
         elif penalty_update == "aimd":
             penalty_update_f = _update_penalties_aimd
+        elif penalty_update == "alm":
+            if rho is None:
+                print('WARNING: rho parameter is not set for the ALM penalty update. \
+                      By default, rho = 2.0. Set a custom value in the init to hide this message. ')
+                rho = 2.0
+                if penalty_range[1] <= 2.0:
+                    print('WARNING: penalty range for ALM penalty update should be large. \
+                          Note that the penalty is in each iteration equal to lambda * rho, \
+                          which can give large numbers in norm. We suggest setting the upper \
+                          range of the penalties to some bigger number. ')
+
+            penalty_update_f = _update_penalties_alm(rho=rho)
         elif penalty_update is None:
             penalty_update_f = None
         else:
@@ -484,7 +499,10 @@ class PBM(Optimizer):
             )
             group_constraints = constraints[_last_c_group_index : _last_c_group_index + len(duals)]
             _last_c_group_index += len(duals)
+
             cdivp = group_constraints.div(penalties)
+            raise ValueError("Andri: why is this division here? Its extra computation for something noone is using...")
+
             _update_penalties(
                 penalties,
                 p_mult,
@@ -554,10 +572,28 @@ def _update_penalties_const(
     duals: Tensor = None,
     phi_der: Tensor = None,
     delta: float = None,
-    _cdivp: Tensor = None,
-):
+    cdivp: Tensor = None
+    ):
+
     pass
 
+
+def _update_penalties_alm(
+    rho: float = 2.0 # penalty parameter of the ALM
+    ):
+    
+    def _update_penalties_curry(
+        penalties: Tensor,
+        p_mult: Tensor = None,
+        duals: Tensor = None,
+        phi_der: Tensor = None,
+        delta: float = None,
+        cdivp: Tensor = None
+        ):
+
+        penalties.copy_(duals * rho) # return the penalty updating that transform SPBM into ALM
+
+    return _update_penalties_curry
 
 def _update_penalties_dimin(
     penalties: Tensor,
@@ -565,7 +601,7 @@ def _update_penalties_dimin(
     duals: Tensor = None,
     phi_der: Tensor = None,
     delta: float = None,
-    _cdivp: Tensor = None,
+    cdivp: Tensor = None,
 ):
     penalties.mul_(p_mult)
 
@@ -576,7 +612,7 @@ def _update_penalties_adapt(
     duals: Tensor,
     phi_der: Tensor,
     delta: float,
-    _cdivp: Tensor = None,
+    cdivp: Tensor = None,
 ):
     d_phd = torch.where(phi_der < 1.0, phi_der, delta * phi_der)
     b = (1 - p_mult) * penalties / (d_phd + 1e-8)

@@ -20,6 +20,7 @@ import os
 import re
 import numpy as np
 import pandas as pd
+import json
 
 from aggregate_results import ExperimentSpec, aggregate_experiment, _read_runs_csv
 from plotting import plot_losses_and_constraints_stochastic   # your existing module
@@ -31,26 +32,93 @@ METHOD_LABELS = {
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
 }
 
-# ── Step 1: best config per method (by mean val loss, feasible-preferred) ─────
-def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
-    """Returns {method: best_config_index}. Selection on the across-seed MEAN
-    validation loss, restricted to configs feasible on the mean violation; if no
-    config is feasible, falls back to global min mean-val."""
-    agg = aggregate_experiment(spec, methods=methods, split=split, 
-                               tail=best_validation_lastK, last_epoch=not running_average)
-    best = {}
-    for method, df in agg.items():
-        pool = df[df["violation_constr_mean"] < 0.00011] if method != 'adam' else df # select feasible configs only
-        # we take 1 decimal accuracy best plots
-        if len(pool) == 0: # if empty, just select the lowest train loss
-            pool = df
-        col = "train_mean" 
-        best_row = pool.loc[pool[col].idxmin()]
-        best[method] = int(best_row["config"])
-        print(f"  [{spec.name}] {method}: best config {best[method]} "
-              f"(train loss {best_row[col]:.4g}) ")
-    return best
+def expand_methods(methods, cond_pbm):
+    """Expand 'pbm' into one pseudo-method per condition.
+    Returns (expanded_names, resolver) where resolver[name] = (real_method, cond_dict_or_None).
+    """
+    expanded, resolver = [], {}
+    for m in methods:
+        if m == 'pbm' and cond_pbm:
+            for cond in cond_pbm:
+                name = _pbm_name(cond)           # e.g. 'pbm', 'pbm_mu0', 'pbm_mu0_gamma0'
+                expanded.append(name)
+                resolver[name] = ('pbm', cond)
+        else:
+            expanded.append(m)
+            resolver[m] = (m, None)
+    return expanded, resolver
 
+def _pbm_name(cond):
+    if cond is None:
+        return 'pbm'                             # baseline
+    return 'pbm_' + '_'.join(f"{k}{v}" for k, v in cond.items())
+
+def _config_params(spec, method):
+    """Return {config_index: {param_name: value}} for a method.
+    Adjust to wherever your configs live."""
+    # build the path the same way spec.seed_dir does, but for the grid file
+    grid_path = os.path.join(spec.results_root + '/' + spec.data + '_' + spec.task + '0', f"grid_{method}.csv")   # <-- see note
+    g = pd.read_csv(grid_path)
+    idx_col = "config" if "config" in g.columns else g.columns[0]
+    return {int(r[idx_col]): r.drop(labels=[idx_col]).to_dict()
+            for _, r in g.iterrows()}
+
+def _find_hparam(h, key, default=np.nan):
+    """Look up `key` in one config's hyperparameters.
+
+    grid_{method}.csv is FLAT with `__`-joined paths ('moreau__mu',
+    'dual__penalty_mult'), so accept the bare leaf ('mu'), the full path
+    ('moreau__mu'), or a dotted path ('moreau.mu'). Nested dicts (the
+    new_bench JSON schema) are still searched recursively.
+    """
+
+    if "dual__" + key in h:
+        return h["dual__" + key]
+
+    elif "primal__" + key in h:
+        return h["primal__" + key]
+
+    elif "moreau__" + key in h:
+        return h["moreau__" + key]
+
+def _matches(params, cond):
+    """Does this config's (nested) hyperparameters satisfy every key in cond?"""
+    for k, v in cond.items():
+        pv = _find_hparam(params, k)      # reuse the recursive finder from select_best.py
+        if pv is None or not np.isclose(pv, v):
+            return False
+    return True
+
+def select_best_configs(spec, expanded_methods, resolver, split="", best_validation_lastK=1):
+    real_methods = sorted({resolver[n][0] for n in expanded_methods})
+    agg = aggregate_experiment(spec, methods=real_methods, split=split,
+                               tail=best_validation_lastK, last_epoch=not running_average)
+    params_cache = {rm: _config_params(spec, rm) for rm in real_methods}
+
+    best = {}
+    for name in expanded_methods:
+        real, cond = resolver[name]
+        df = agg[real]
+
+        # select feasible - TODO: add this after rebuttal
+        # pool = df[df["violation_constr_mean"] < 0.00011] if real != 'adam' else df # select feasible configs only
+
+        if cond is not None:
+            params = params_cache[real]
+            ok = [idx for idx in df["config"] if _matches(params.get(int(idx), {}), cond)]
+            pool = df[df["config"].isin(ok)]
+        else:
+            pool = df
+
+        if len(pool) == 0:
+            print(f"  [{spec.name}] {name}: no config matches {cond}, skipping")
+            continue
+ 
+        # col = "train_mean"   # TODO:  add this after rebuttal
+        best_row = pool.loc[pool["val_mean"].idxmin()]
+        best[name] = int(best_row["config"])
+        print(f"  [{spec.name}] {name}: config {best[name]} (val_mean={best_row['val_mean']:.4g})")
+    return best
 
 # ── Step 2: reload full trajectory of one config, stacked across seeds ────────
 def _load_config_trajectory(spec: ExperimentSpec, method: str, config_idx: int,
@@ -88,25 +156,32 @@ def _load_config_trajectory(spec: ExperimentSpec, method: str, config_idx: int,
 
 
 # ── assemble the lists the plotting function expects ─────────────────────────
-def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
+def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1,
+                      cond_pbm=None):
     """Returns the argument lists for plot_losses_and_constraints_stochastic:
         train_losses (PDE residual), test_losses (solution error),
         train_constraints (m x epochs), and their stds; plus titles.
     Each list is per-method; arrays are mean / std across seeds."""
-    best = select_best_configs(spec, methods, split=split, best_validation_lastK=best_validation_lastK)
+
+    expanded_methods, resolver = expand_methods(methods, cond_pbm) 
+
+    best = select_best_configs(spec, expanded_methods, resolver, split=split, 
+                               best_validation_lastK=best_validation_lastK)
 
     train_losses, train_losses_std = [], []
     test_losses, test_losses_std = [], []
     train_cons, train_cons_std = [], []
     titles = []
 
-    for method in methods:
-        if method not in best:
+    for name in expanded_methods:
+        if name not in best:
             continue
-        traj = _load_config_trajectory(spec, method, best[method], split=split)
+        real, cond = resolver[name]
+        traj = _load_config_trajectory(spec, real, best[name], split=split)
         if traj is None:
-            print(f"  {method}: no trajectory for config {best[method]}, skipping")
+            print(f"  {name}: no trajectory for config {best[name]}, skipping")
             continue
+    
         loss, test, cons, m = traj
         train_losses.append(loss.mean(0))
         train_losses_std.append(loss.std(0))
@@ -114,7 +189,18 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
         test_losses_std.append(test.std(0))
         train_cons.append(cons.mean(0))          # (m, epochs)
         train_cons_std.append(cons.std(0))       # (m, epochs)
-        titles.append(METHOD_LABELS.get(method, method))
+        titles.append(METHOD_LABELS.get(name, name))
+
+        # TODO: remove after rebuttal:
+        dump_path = "./results/logs/traj_dump.txt"
+        os.makedirs(os.path.dirname(dump_path), exist_ok=True)
+        with open(dump_path, "a") as f:
+            with np.printoptions(threshold=np.inf, precision=3, suppress=False):
+                f.write(f"=== [{spec.name}] {name} (config {best[name]}) ===\n")
+                f.write(f"test loss (last 1000 epochs, every 100th):\n{test.mean(0)[-1000::100]}\n\n"
+                        f"cons (m x last 1000 epochs, every 100th):\n{cons.mean(0)[:, -1000::100]}\nm: {m}\n\n")
+
+
 
     return dict(
         train_losses_list=np.array(train_losses),
@@ -134,7 +220,7 @@ METHOD_LABELS = {
 
 
 def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
-               best_validation_lastK=1):
+               best_validation_lastK=1, cond_pbm=None):
     if spec is None:
         spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
@@ -142,7 +228,9 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None,
     if methods is None:
         methods = ["adam", "pbm", "alm_proj", "ssg"]
 
-    inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_lastK)
+    inputs = build_plot_inputs(spec, methods, split="", 
+                               best_validation_lastK=best_validation_lastK,
+                               cond_pbm=cond_pbm)
     if not inputs["test_losses_list"]:
         print("no data to plot")
         return
@@ -217,7 +305,7 @@ def plot_PINNs_single(specs, names, methods=None,
 
     print(f"wrote {save_path}")
 
-def print_table(specs, methods, names):
+def print_table(specs, methods, names, cond_pbm=None):
 
     # create an array for storing the best train loss and constraint violation for each method and experiment
     best_train_losses = {name: {} for name in names}
@@ -231,9 +319,13 @@ def print_table(specs, methods, names):
         
         spec = specs[name]
         # for methods - store the tail of the losses and the tail of the max violation
-        inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_window)
+        inputs = build_plot_inputs(spec, methods, split="",
+                                    best_validation_lastK=best_validation_window,
+                                    cond_pbm=cond_pbm)
 
-        for idx, method in enumerate(methods): 
+        expanded_methods, resolver = expand_methods(methods, cond_pbm) 
+
+        for idx, method in enumerate(expanded_methods): 
 
             # get the losses and the constraints
             loss = np.array(inputs['train_losses_list'][idx])
@@ -310,16 +402,16 @@ def print_table(specs, methods, names):
         exp_id = name.split('E')[1]
 
         loss_cells = rank_format(best_train_losses[name],
-                                best_train_losses_std[name], methods,
+                                best_train_losses_std[name], expanded_methods,
                                 precision=3)
         mean_cells = rank_format(best_constraint_violations[name],
-                                best_constraint_violations_std[name], methods,
+                                best_constraint_violations_std[name], expanded_methods,
                                 precision=4, mark=False)
         maxv_cells = rank_format(best_max_viol[name],
-                                best_max_viol_std[name], methods, precision=4)
+                                best_max_viol_std[name], expanded_methods, precision=4)
 
-        for i, method in enumerate(methods):
-            multirow = (r"\multirow{" + str(len(methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
+        for i, method in enumerate(expanded_methods):
+            multirow = (r"\multirow{" + str(len(expanded_methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
                         if i == 0 else "")
             lines.append(
                 f"{multirow} & {METHOD_LABELS[method]} & "
@@ -356,6 +448,14 @@ if __name__ == "__main__":
                               results_root="results"),
     }
 
+
+    cond_pbm = [{'mu': 0.0},
+                {'penalty_mult': 0.1},
+                {'gamma': 0.1},
+                None] # 4 options in total
+
+    # TODO: put best config and just change the variable one at a time  
+
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
     methods = ["adam", "alm_proj", "ssg", "pbm"]
 
@@ -363,11 +463,13 @@ if __name__ == "__main__":
     for name in names:
         spec = specs[name]
         plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
-                constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+                constraint_titles=constraint_titles, 
+                best_validation_lastK=best_validation_window,
+                cond_pbm=cond_pbm)
 
     
     # print the latex table
-    print_table(specs, methods, names)
+    print_table(specs, methods, names, cond_pbm)
 
     # plot a single plot - combined all PINN experiments
     # plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 
