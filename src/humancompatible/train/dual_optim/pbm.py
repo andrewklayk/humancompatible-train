@@ -11,7 +11,7 @@ class PBM(Optimizer):
         self,
         m: int = None,
         penalty_mult: float = 0.1,
-        gamma: float = 0.1, # used only if logscaled_dual_update = False
+        gamma: float = 0.1, 
         delta: float = 1.0,
         penalty_update: str = "dimin_adapt",
         *,
@@ -25,9 +25,7 @@ class PBM(Optimizer):
         gamma_annealing=True,
         penalty_annealing=True,
         epoch_length = None, # set this if gamma_annealing=True,
-        rho = None, # only should be set if penalty_update == 'alm'; is equal to the penalty multiplier of the ALM; by default rho = 2.0
-        logscaled_dual_update = False,
-        logscaled_dual_step_size = None # used only is logscaled_dual_update = True
+        rho = None # only should be set if penalty_update == 'alm'; is equal to the penalty multiplier of the ALM; by default rho = 2.0
     ) -> None:
 
         self.dual_range = dual_range
@@ -40,8 +38,6 @@ class PBM(Optimizer):
         self.epoch_iter = 0 # epoch iters (for gamma update only)
         self.epoch_length = epoch_length
         self.epoch_counter = 0
-        self.logscaled_dual_update = logscaled_dual_update
-        self.logscaled_dual_step_size = logscaled_dual_step_size
 
         if (gamma_annealing or penalty_annealing) and epoch_length is None:
             raise ValueError("For gamma / penalty annealing, 'epoch_length' must be set to len(train_loader)!")
@@ -71,20 +67,6 @@ class PBM(Optimizer):
             self.K_schedule = K_schedule
         else: # constant schedule - no change in gamma
             self.K_schedule = lambda step_num, K: K # constant 
-
-        # set duals if are not set and logscaled_dual_update is True
-        if self.logscaled_dual_update: 
-            if gamma is not None or gamma_annealing is not None:
-                raise ValueError("For 'log-scaled dual update', 'gamma' and 'gamma_annealing' must be set to 'None'!")
-                
-            if init_duals == None:
-                init_duals = dual_range[0]
-            init_duals = np.log(init_duals)
-
-        # check if the dual step sizes are not used
-        else: 
-            if logscaled_dual_step_size is not None: 
-                 raise ValueError("For 'log-scaled dual update == False', 'logscaled_dual_step_size' must be set to 'None'!")
 
         params, defaults = self._init_constraint_group(
             m,
@@ -152,14 +134,18 @@ class PBM(Optimizer):
             penalty_update_f = _update_penalties_aimd
         elif penalty_update == "alm":
             if rho is None:
-                print('WARNING: rho parameter is not set for the ALM penalty update. \
-                      By default, rho = 2.0. Set a custom value in the init to hide this message. ')
+                print('----------\n'\
+                      'WARNING: rho parameter is not set for the ALM penalty update.' \
+                        ' By default, rho = 2.0. Set a custom value in the init to hide this message. '\
+                        '\n----------')
                 rho = 2.0
-                if penalty_range[1] <= 2.0:
-                    print('WARNING: penalty range for ALM penalty update should be large. \
-                          Note that the penalty is in each iteration equal to lambda * rho, \
-                          which can give large numbers in norm. We suggest setting the upper \
-                          range of the penalties to some bigger number. ')
+            if penalty_range[1] <= 10.0:
+                print('----------\n'\
+                        'WARNING: penalty range for ALM penalty update should be large. ' \
+                        'Note that the penalty is in each iteration equal to lambda * rho, ' \
+                        'which can give large numbers in norm. We suggest setting the upper ' \
+                        'range of the penalties to some bigger number. '\
+                        '\n----------')
 
             penalty_update_f = _update_penalties_alm(rho=rho)
         elif penalty_update is None:
@@ -294,33 +280,17 @@ class PBM(Optimizer):
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
                 p_mult = self.K_schedule(self.epoch_counter, p_mult)
 
-                if self.logscaled_dual_update:
-                    gamma = self.logscaled_dual_step_size
-
                 with torch.no_grad():
-                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma, 
-                        logscaled_dual_update=self.logscaled_dual_update)
-                    if self.logscaled_dual_update: 
-                        clamp_(duals, min=np.log(self.dual_range[0]), max=np.log(self.dual_range[1]))
-                        _update_penalties(
-                                penalties,
-                                p_mult,
-                                torch.exp(duals),
-                                penalty_barrier_funcs[pbf]["d"](group_constraints),
-                                delta,
-                                cdivp,
-                            )
-                    else:     
-                        clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                        _update_penalties(
-                            penalties,
-                            p_mult,
-                            duals,
-                            penalty_barrier_funcs[pbf]["d"](group_constraints),
-                            delta,
-                            cdivp,
-                        )
-
+                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma)
+                    clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+                    _update_penalties(
+                        penalties,
+                        p_mult,
+                        duals,
+                        penalty_barrier_funcs[pbf]["d"](group_constraints),
+                        delta,
+                        cdivp,
+                    )
                     clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
         # update the iter
@@ -360,12 +330,7 @@ class PBM(Optimizer):
             # calculate lagrangian
             cdivp = group_constraints.div(penalties)
             pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
-
-            if self.logscaled_dual_update: # log space 
-                duals = torch.exp(duals)
-                lagrangian.add_(duals.mul(penalties) @ pbf_val)
-            else: 
-                lagrangian.add_(duals.mul(penalties) @ pbf_val)
+            lagrangian.add_(duals.mul(penalties) @ pbf_val)
 
         return lagrangian
 
@@ -422,48 +387,26 @@ class PBM(Optimizer):
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
                 p_mult = self.K_schedule(self.epoch_counter, p_mult)
 
-                # if mirror ascenting in log space, dont use gamma but step size
-                if self.logscaled_dual_update:
-                    gamma = self.logscaled_dual_step_size
-
                 with torch.no_grad():
                     _update_duals(
-                        duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma, 
-                        logscaled_dual_update=self.logscaled_dual_update
+                        duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma
                     )
-                    if self.logscaled_dual_update: 
-                        clamp_(duals, min=np.log(self.dual_range[0]), max=np.log(self.dual_range[1]))
-                        _update_penalties(
-                                penalties,
-                                p_mult,
-                                torch.exp(duals),
-                                penalty_barrier_funcs[pbf]["d"](group_constraints),
-                                delta,
-                                cdivp,
-                            )
-                    else:     
-                        clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                        _update_penalties(
-                            penalties,
-                            p_mult,
-                            duals,
-                            penalty_barrier_funcs[pbf]["d"](group_constraints),
-                            delta,
-                            cdivp,
-                        )
+                    clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
+                    _update_penalties(
+                        penalties,
+                        p_mult,
+                        duals,
+                        penalty_barrier_funcs[pbf]["d"](group_constraints),
+                        delta,
+                        cdivp,
+                    )
                     clamp_(
                         penalties, min=self.penalty_range[0], max=self.penalty_range[1]
                     )
 
             cdivp = group_constraints.div(penalties)
-            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
-
-            if self.logscaled_dual_update: # log space 
-                duals = torch.exp(duals)
-                lagrangian.add_(duals.mul(penalties) @ pbf_val)
-            
-            else: # original PBM
-                lagrangian.add_(duals.mul(penalties) @ pbf_val)
+            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)            
+            lagrangian.add_(duals.mul(penalties) @ pbf_val)
 
         # update the iter
         self.inner_iter = (self.inner_iter + 1) % self.primal_update_process_length
@@ -518,17 +461,12 @@ penalty_barrier_funcs = {
 
 
 def _update_duals(
-    duals: Tensor, cdivp: Tensor, pbf_der: Callable, gamma: float, logscaled_dual_update=False
+    duals: Tensor, cdivp: Tensor, pbf_der: Callable, gamma: float
 ) -> None:
 
-    if logscaled_dual_update: # log space 
-        pbf_der_val = pbf_der(cdivp)
-        duals.add_(torch.log(pbf_der_val), alpha=gamma)
-
-    else: # original PBM paper 
-        pbf_der_val = pbf_der(cdivp)
-        upd = pbf_der_val.mul(duals)
-        duals.mul_(gamma).add_(upd, alpha=1 - gamma)
+    pbf_der_val = pbf_der(cdivp)
+    upd = pbf_der_val.mul(duals)
+    duals.mul_(gamma).add_(upd, alpha=1 - gamma)
 
 
 def _update_penalties_const(
@@ -555,7 +493,7 @@ def _update_penalties_alm(
         delta: float = None,
         cdivp: Tensor = None
         ):
-
+        
         penalties.copy_(duals * rho) # return the penalty updating that transform SPBM into ALM
 
     return _update_penalties_curry
