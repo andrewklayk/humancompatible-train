@@ -478,41 +478,6 @@ class PBM(Optimizer):
 
         return lagrangian
 
-    def update_penalties(self, constraints: Tensor) -> None:
-        """
-        Updates penalties according to the specified penalty update strategy for each constraint group.
-
-        :param constraints: Tensor of constraint violations.
-        :type constraints: torch.Tensor
-        :return: None
-        :rtype: None
-        """
-        _last_c_group_index = 0
-        for group in self.param_groups:
-            duals, penalties, p_mult, _update_penalties, delta, pbf = (
-                group["params"][0],
-                group["params"][1],
-                group["p_mult"],
-                group["penalty_update"],
-                group["delta"],
-                group["pbf"],
-            )
-            group_constraints = constraints[_last_c_group_index : _last_c_group_index + len(duals)]
-            _last_c_group_index += len(duals)
-
-            cdivp = group_constraints.div(penalties)
-            raise ValueError("Andri: why is this division here? Its extra computation for something noone is using...")
-
-            _update_penalties(
-                penalties,
-                p_mult,
-                duals,
-                penalty_barrier_funcs[pbf]["d"](group_constraints),
-                delta,
-                cdivp,
-            )
-            clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
-
     def state_dict(self) -> dict[str, Any]:
         """
         Returns the state of the optimizer as a dictionary, including dual and penalty ranges and all constraint groups.
