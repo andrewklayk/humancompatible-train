@@ -36,10 +36,28 @@ pbm_grid = [
     "dual__rho": rho}
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
     in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.1, 0.9, 0.99, 0.999, 1.0], ["alm", "dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-2, 100.], [1e-2, 1.]], [0.1, 0.9, 0.999], [0., 2.], 
-        [1], [True], [True], [3.0])
+        [0.001, 0.005, 0.01, 0.02], [0.1, 0.9, 0.99, 1.0], ["dimin_adapt"],
+        ["quadratic_logarithmic"], [[1e-2, 1.]], [0.0, 0.1, 0.9, 0.999], [0., 2.], 
+        [1], [True], [True], [0.0])
 ]
+
+pbm_grid_2 = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
+    in product(
+        [0.001, 0.005, 0.01, 0.02], [0.0], ["alm"],
+        ["quadratic_logarithmic"], [[1e-2, 100.]], [0.0, 0.1, 0.9, 0.999], [0., 2.], 
+        [1], [True], [True], [0.1, 1.0, 2.0, 3.0])
+]
+
+# IMPORTANT: we add the second pbm grid to the first one
+# IMPORTANT: WE DO NOT COUNT 0.0 GAMMA AS PART OF THE GRID - only for ablation study
+pbm_grid += pbm_grid_2
 
 # ensure the primal update process length is the same for both moreau and dual
 for arr_dict in pbm_grid:
@@ -50,7 +68,7 @@ alm_proj_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
             "dual__is_ineq": True}
     for (lr, dlr, pen, mu) in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.0005, 0.001, 0.005, 0.01, 0.05], [0., 1.], [0., 1., 2.])
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.008, 0.0005, 0.001, 0.005, 0.01, 0.05], [0., 1.], [0., 1., 2.])
 ]
 
 alm_max_grid = [
@@ -68,6 +86,10 @@ ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw 
 adam_grid = [{"primal__lr": lr, "beta": beta}
              for (lr, beta) in product([0.001, 0.005, 0.01, 0.02, 0.05], [0.5, 1., 2., 5., 10.])]
 
+
+print(f"pbm_grid: {len(pbm_grid)}, alm_proj_grid: {len(alm_proj_grid)}, "
+      f"alm_max_grid: {len(alm_max_grid)}, ssg_grid: {len(ssg_grid)}, adam_grid: {len(adam_grid)}")
+exit()
 
 # ── PDE helpers ───────────────────────────────────────────────────────────────
 def q(data):
