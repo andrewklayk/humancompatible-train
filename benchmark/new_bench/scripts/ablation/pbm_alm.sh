@@ -7,7 +7,7 @@
 set -euo pipefail
 source scripts/_env.sh
 
-ALGO=pbm_alm
+ALGO=pbm
 # init_seed loops OUTSIDE the multirun (one -m per seed): each seed re-runs the SAME
 # grid, so select_best matches configs across seeds by hyperparameter signature. The
 # FULL grid (lr included) is swept INSIDE each -m, so hydra.job.num is unique per config
