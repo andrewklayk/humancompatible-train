@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ablation_pbm_alm
+#SBATCH --job-name=ablation_pbm_mu0
 #SBATCH --partition=cpulong
 
 # E1-opt sweep for PBM: full dataset as train, no val/test split (approach=opt).
@@ -7,7 +7,7 @@
 set -euo pipefail
 source scripts/_env.sh
 
-ALGO=pbm_alm
+ALGO=pbm_mu0_alm
 # init_seed loops OUTSIDE the multirun (one -m per seed): each seed re-runs the SAME
 # grid, so select_best matches configs across seeds by hyperparameter signature. The
 # FULL grid (lr included) is swept INSIDE each -m, so hydra.job.num is unique per config
