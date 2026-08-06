@@ -44,11 +44,17 @@ from prepare_results_plotting import (ExperimentSpec, list_configs, metric_traje
 from plot_style import set_neurips_style, style_for, COL_WIDTH
 
 SPLIT = "opt"
-METHODS = ["adam", "pbm", "pbm_logscaled", "alm_proj", "alm_max", "ssg"]
+METHODS = ["adam", "alm_proj", "pbm", "ssg"]
+# METHODS = ["alm_proj", "pbm"]
 _AXLABEL = {"residual": "KKT residual $r$", "grad_norm": r"$\|\nabla_x L\|$",
             "max_viol": "feasibility $\\max_j(c_j-b)_+$", "compl": "complementarity $\\sum_j|\\lambda_j g_j|$",
             "objective": "objective $f$ (loss)"}
 
+
+_PANELS = [("grad_norm", "Stationarity Error, " + r"$\|\nabla_x L\|$"),
+           ("max_viol", "Feasibility Error $\\max_j(c_j-b)_+$"),
+           ("compl", "complementarity $\\sum_j|\\lambda_j g_j|$"),
+           ("objective", "Train Loss")]
 
 def _residual_traj(spec, method, cfg):
     """(r[L], epochs[L]) with r = ‖∇L‖ + relu(max_viol) + |compl|, or None."""
@@ -58,7 +64,7 @@ def _residual_traj(spec, method, cfg):
     r = np.asarray(gn[0], dtype=float)
     mv = metric_trajectory(spec, method, cfg, SPLIT, "max_viol")
     if mv is not None:
-        r = r + np.clip(np.asarray(mv[0], dtype=float), 0, None)
+        r = r + np.clip(np.asarray(mv[0], dtype=float) - spec.bound, 0, None)
     cp = metric_trajectory(spec, method, cfg, SPLIT, "compl")
     if cp is not None:
         r = r + np.abs(np.asarray(cp[0], dtype=float))
@@ -78,7 +84,7 @@ def _metric_traj(spec, method, cfg, metric):
         return None
     vals = np.asarray(t[0], dtype=float)
     if metric == "max_viol":
-        vals = np.clip(vals, 0, None)  # plot the violation (feasibility) side only
+        vals = np.clip(vals - spec.bound, 0, None)
     return vals, t[3]
 
 
@@ -88,7 +94,7 @@ def _final_max_viol(spec, method, cfg, tail):
     t = metric_trajectory(spec, method, cfg, SPLIT, "max_viol")
     if t is None or len(t[0]) == 0:
         return None
-    return float(np.mean(np.asarray(t[0], dtype=float)[-tail:]))
+    return float(np.mean(np.asarray(t[0], dtype=float)[-tail:])) - spec.bound
 
 
 def _collect_final(spec, method, metric, tail, feas_tol=None):
@@ -249,10 +255,12 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
     methods = [m for m in METHODS if list_configs(spec, m)] if methods is None else methods
     if mode == "duals":
         return _plot_duals(spec, methods, out=out)
+
     # Only the objective (loss) is filtered for feasibility: a low loss is meaningless
     # if the config is infeasible. The KKT metrics already encode feasibility themselves.
     feas = feas_tol if metric == "objective" else None
     finals = _finals_by_method(spec, methods, metric, tail, feas_tol=feas)
+
     if not finals:
         extra = f" feasible at max_viol<={feas_tol}" if feas is not None else ""
         print(f"no '{SPLIT}' metrics found under {spec.agg_root}{extra} "
@@ -294,26 +302,140 @@ def plot_kkt(spec, methods=None, mode="cdf", metric="residual", tail=5,
     return out
 
 
+
+def plot_kkt_boxes(spec, methods=None, tail=5, out="plots/kkt_boxes.pdf", 
+                log_scales = [True, False, False, False], feas_tol=0.0, metric="objective"):
+    """3 panels (stationarity | feasibility | KKT residual), one box per method;
+    each box = distribution of final (tail-mean) values over configs."""
+    set_neurips_style()
+    methods = METHODS if methods is None else methods
+    fig, axes = plt.subplots(1, 4, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
+    feas = feas_tol if metric == "objective" else None
+    
+    idx = 0
+    for ax, (metric, title) in zip(axes, _PANELS):
+        finals = _finals_by_method(spec, methods, metric, tail)
+
+        # return an error if no data found
+        if not finals:
+            extra = f" feasible at max_viol<={feas_tol}" if feas is not None else ""
+            print(f"no '{SPLIT}' metrics found under {spec.agg_root}{extra} "
+                f"(run aggregate.py --approach opt first)")
+            return None
+
+        # aggregate the data for this feature
+        ms = [m for m in methods if m in finals]
+        data = [[r[1] for r in finals[m]] for m in ms]
+        if not data:
+            continue
+        ax.boxplot(data, tick_labels=[style_for(m)["label"] for m in ms],
+                   flierprops=dict(markersize=2))
+
+        if log_scales[idx]:
+            ax.set_yscale("log"); 
+            axes[idx].set_ylabel("Error (log scale)")
+        else: 
+            axes[idx].set_ylabel("Error")
+
+        ax.set_title(title)
+        ax.tick_params(axis="x", rotation=30)
+        idx += 1
+
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out); plt.close(fig)
+    print(f"wrote {out}")
+    return out
+
+
+def plot_kkt_boxes_single(specs, methods=None, tail=5, out="plots/kkt_boxes.pdf", 
+                log_scales = [True, False, False, False], feas_tol=0.0, metric="objective"):
+    """3 panels (stationarity | feasibility | KKT residual), one box per method;
+    each box = distribution of final (tail-mean) values over configs."""
+ 
+    set_neurips_style()
+    methods = METHODS if methods is None else methods
+    fig, axes = plt.subplots(1, 4, figsize=(COL_WIDTH * 3, COL_WIDTH * 0.9))
+
+    # for metric
+    for ax, (metric, title) in zip(axes, _PANELS):
+        pooled = {m: [] for m in methods}
+
+        for spec in specs:
+            finals = _finals_by_method(spec, methods, metric, tail)
+            # finals = _finals_by_method(spec, methods, metric, tail, feas_tol=feas)
+            ms = [m for m in methods if m in finals]
+
+            # per-spec baseline: best (lowest) final across ALL methods' runs
+            all_vals = [r[1] for m in ms for r in finals[m]]
+            best = min(all_vals)
+
+            eps = 1e-4
+            for m in ms:
+                pooled[m].extend((r[1] + eps) / (best + eps) for r in finals[m])
+
+        ms_plot = [m for m in methods if pooled[m]] 
+        data = [pooled[m] for m in ms_plot]
+        ax.boxplot(data, tick_labels=[style_for(m)["label"] for m in ms_plot],
+                   flierprops=dict(markersize=2))
+        ax.tick_params(axis="x", rotation=30)
+        ax.set_yscale("log")          # ratios spanning orders of magnitude read better on log
+        ax.axhline(1.0, ls="--", lw=0.6, color="gray")   # the "best" reference line
+        ax.set_title(title)
+
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out); plt.close(fig)
+    print(f"wrote {out}")
+
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--agg", default="../selection/opt/aggregated",
-                    help="dir of aggregate.py --approach opt per-cell aggregates")
-    ap.add_argument("--task", default="folktables_positive_rate_pair")
-    ap.add_argument("--data", default="income")
-    ap.add_argument("--bound", type=float, default=0.1)
-    ap.add_argument("--mode", default="cdf",
-                    choices=["cdf", "pdf", "scatter", "conv", "all", "duals"])
-    ap.add_argument("--metric", default="residual",
-                    choices=["residual", "grad_norm", "max_viol", "compl", "objective"])
-    ap.add_argument("--tail", type=int, default=1,
-                    help="window (last K epochs) collapsed to each config's final value")
-    ap.add_argument("--linear", action="store_true", help="linear metric axis (default: log)")
-    ap.add_argument("--feas-tol", type=float, default=0.0,
-                    help="objective plots only: keep configs with final max_viol <= this "
-                         "(default 0.0 = feasible); max_viol is c-b, so <=0 is feasible")
-    ap.add_argument("--out", default="plots/kkt_cdf.pdf")
-    args = ap.parse_args()
-    spec = ExperimentSpec(name=args.task, task=args.task, data=args.data,
-                          bound=args.bound, agg_root=args.agg)
-    plot_kkt(spec, mode=args.mode, metric=args.metric, tail=args.tail,
-             log=not args.linear, out=args.out, feas_tol=args.feas_tol)
+
+    # all possible experiments
+    experiments = [ 'folktables_positive_rate_vec',
+                    'folktables_positive_rate_pair', 
+                    'dutch_positive_rate_pair']
+
+    data_map = {    "folktables_positive_rate_vec": "income", 
+                    "folktables_positive_rate_pair": "income",
+                    "dutch_positive_rate_pair": "dutch"
+    }
+
+    bounds_map = {
+                    "folktables_positive_rate_vec": 0.2, 
+                    "folktables_positive_rate_pair": 0.1,
+                    "dutch_positive_rate_pair": 0.1
+    }
+
+    # map to the E 
+    mapping_name = {"folktables_positive_rate_vec": "E2", 
+                    "folktables_positive_rate_pair": "E3",
+                    "dutch_positive_rate_pair": "E4"}
+
+    # define output folder
+    out = "../../results/plots/"
+    agg = "../selection/aggregated/"
+
+    specs = []
+
+    # loop over all experiments and create the experiments
+    for experiment in experiments: 
+        
+        # load the details about the experiment
+        task = experiment
+        data = data_map[experiment]
+        bound = bounds_map[experiment]
+
+        spec = ExperimentSpec(name=task , task=task, data=data,
+                        bound=bound, agg_root=agg)
+
+        specs.append(spec)
+                          
+
+    # plot all
+    for spec in specs: 
+        plot_kkt_boxes(spec, out=out + f"kkt_{mapping_name[spec.task]}.pdf")
+
+    # plot a single combined plot
+    # plot_kkt_boxes_single(specs, methods=None, tail=5, out="../../results/plots/kkt_fair.pdf", 
+    #             feas_tol=0.0, metric="objective")
+

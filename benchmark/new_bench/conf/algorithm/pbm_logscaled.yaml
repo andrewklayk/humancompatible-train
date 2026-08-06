@@ -6,7 +6,7 @@ primal:
   _target_: torch.optim.Adam
   _partial_: true
   lr: 0.01
-  weight_decay: 0.01
+  weight_decay: 0.0
 moreau:
   mu: 1.0
 dual:

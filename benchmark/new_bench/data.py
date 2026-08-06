@@ -82,6 +82,11 @@ def _cifar(num_classes):
             cv_seed=cv["cv_seed"], n_folds=cv["n_folds"], fold=cv["fold"],
             init_seed=cv["init_seed"], approach=cv["approach"],
             opt_eval_size=cv["opt_eval_size"],
+            # Balanced batches guarantee every class is present each step, so the
+            # per-class-loss constraint is always well-defined. Without this, a
+            # shuffled batch can miss a class -> 0/0 per-group loss -> NaN that
+            # poisons the Lagrangian and, via Adam, every weight permanently.
+            balanced=True,
         )
         # A single batch stands in for ``train_full`` (feature/group dims only).
         features, sens, labels = next(iter(train_loader))

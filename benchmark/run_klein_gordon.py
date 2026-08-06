@@ -28,55 +28,54 @@ device = 'cuda'
 
 
 # ── HP GRIDS (ADDED) ─────────────────────────────────────────────────────────
+
 pbm_grid = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
      "dual__delta": 1., "moreau__mu": mu,
     "dual__primal_update_process_length": primal_update_process_length,
     "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
-    "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
-    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
     in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [0.9], [0., 1., 2.], 
-        [1], [True], [True], [False], [None])
+        [0.001, 0.005, 0.01, 0.02], [0.1, 0.9, 0.99, 1.0], ["dimin_adapt"],
+        ["quadratic_logarithmic"], [[1e-2, 1.]], [0.0, 0.1, 0.9, 0.999], [0., 2.], 
+        [1], [True], [True], [0.0])
 ]
-# ensure the primal update process length is the same for both moreau and dual
-for arr_dict in pbm_grid:
-    arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
 
-    if arr_dict["dual__gamma_annealing"] == True:
-        arr_dict["dual__gamma"] = 1 / 10 # in the case of dual anneling, gamma needs to be small at first
-
-pbm_logascaled_grid = [
+pbm_grid_2 = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
      "dual__delta": 1., "moreau__mu": mu,
     "dual__primal_update_process_length": primal_update_process_length,
     "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
-    "dual__logscaled_dual_update": logscaled_dual_update, "dual__logscaled_dual_step_size": logscaled_dual_step_size}
-    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, logscaled_dual_update, logscaled_dual_step_size) 
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
     in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0., 0.1, 0.5, 0.9, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-1, 1.], [1e-2, 1.]], [None], [0., 1., 2.], 
-        [1], [None], [True], [True], [0.1, 0.01, 0.5])
+        [0.001, 0.005, 0.01, 0.02], [0.0], ["alm"],
+        ["quadratic_logarithmic"], [[1e-2, 100.]], [0.0, 0.1, 0.9, 0.999], [0., 2.], 
+        [1], [True], [True], [0.1, 1.0, 2.0, 3.0])
 ]
+
+# IMPORTANT: we add the second pbm grid to the first one
+# IMPORTANT: WE DO NOT COUNT 0.0 GAMMA AS PART OF THE GRID - only for ablation study
+pbm_grid += pbm_grid_2
+
+# ensure the primal update process length is the same for both moreau and dual
+for arr_dict in pbm_grid:
+    arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
 
 alm_proj_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
             "dual__is_ineq": True}
     for (lr, dlr, pen, mu) in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1.], [0., 1., 2.])
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.008, 0.0005, 0.001, 0.005, 0.01, 0.05], [0., 1.], [0., 1., 2.])
 ]
-alm_max_grid = [
-    {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
-            "dual__is_ineq": False}
-    for (lr, dlr, pen, mu) in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1.], [0., 1., 2.])
-]
+
 ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
             for (lr, dlr, mu) in product(
-                [0.001, 0.005, 0.01, 0.02, 0.05], [0.001, 0.005, 0.01, 0.02, 0.05], [0., 1., 2.])]
+                [0.001, 0.005, 0.01, 0.02, 0.05], [0.0005, 0.001, 0.005, 0.01, 0.05], [0.])]
+
 adam_grid = [{"primal__lr": lr, "beta": beta}
              for (lr, beta) in product([0.001, 0.005, 0.01, 0.02, 0.05], [0.5, 1., 2., 5., 10.])]
 
@@ -212,8 +211,10 @@ def train(u_model, beta, trainloader, ini_bdry_data, val_test, optimizer, loss_f
         val_list.append(val_err)
         test_list.append(test_err)
 
+
+    kkt = {k: float(np.mean([d[k] for d in kkt_list])) for k in kkt_list[0]}  # ADDED
     return (np.mean(loss_list), np.mean(loss_list1), np.mean(loss_list2),
-            np.mean(loss_list3), np.mean(loss_list4), np.mean(val_list), np.mean(test_list))
+            np.mean(loss_list3), np.mean(loss_list4), np.mean(val_list), np.mean(test_list), kkt)
 
 
 # ── saving helpers ────────────────────────────────────────────────────────────
@@ -306,13 +307,13 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
 
         t0 = _time.time()
         for t in range(0, EPOCH):
-            loss, loss1, loss2, loss3, loss4, val_err, test_err = train(
+            loss, loss1, loss2, loss3, loss4, val_err, test_err, kkt = train(
                 u_model, b, trainloader=train_loader, ini_bdry_data=ini_bdry,
                 val_test=val_test, optimizer=optimizer, loss_f=nn.MSELoss(),
                 dual_opt=dual, clamp=clamp, mode=mode, sw_dual=sw_dual)
             history.append({"epoch": t, "time": _time.time() - t0, "loss": loss1,
                             "c_0": loss2, "c_1": loss3, "c_2": loss4,
-                            "val": val_err, "test": test_err})
+                            "val": val_err, "test": test_err, **kkt})
 
             # step the lr scheduler
             sched.step()
@@ -337,19 +338,10 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
         histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
         save_method(result_dir, "adam", histories, adam_grid)
 
-    # ===== SPBM (PBM) Log  =====
-    # ensure the pbm has the size of the epoch (for penalty annealing)
-    if 'pbm_logscaled' in cfg.algorithms:
-        for arr_dict in pbm_logascaled_grid:   
-            arr_dict["dual__epoch_length"] = len(train_loader)
-
-        histories = [run_config(p, make_pbm) for p in tqdm(pbm_logascaled_grid, desc="pbm")]
-        save_method(result_dir, "pbm_logscaled", histories, pbm_logascaled_grid)
-
     # ===== SPBM (PBM) =====
     if 'pbm' in cfg.algorithms:
         for arr_dict in pbm_grid:   
-            arr_dict["dual__epoch_length"] = len(train_loader)
+            arr_dict["dual__epoch_length"] = 60
         histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid, desc="pbm")]
         save_method(result_dir, "pbm", histories, pbm_grid)
 

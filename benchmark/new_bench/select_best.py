@@ -20,13 +20,17 @@ import argparse
 import glob
 import json
 import os
-
+import numpy as np
 import pandas as pd
 
 
-def _cell_name(cell):
-    return "_".join(str(x) for x in cell)
 
+def _cell_name(cell, cond=None):
+    base = "_".join(str(x) for x in cell)
+    if not cond:
+        return base
+    suffix = "_".join(f"{k}_{v}" for k, v in cond.items())
+    return f"{base}__{suffix}"
 
 def collapse(df, tail, last_epoch):
     """Reduce a seed-mean curve to representative scalars (shared with plotting).
@@ -71,18 +75,57 @@ def _stats_at(df, epoch, prefix):
     return {f"{prefix}_{k}": float(r[k]) for k in keys if k in sub.columns}
 
 
-def _select(items, filt, tol, tail, last_epoch, split=None):
+def _find_hparam(h, key, default=np.nan):
+    """Search a possibly-nested hyperparameter dict for `key`."""
+    if key in h:
+        return h[key]
+    for v in h.values():
+        if isinstance(v, dict):
+            r = _find_hparam(v, key, None)
+            if r is not None:
+                return r
+    return default
+
+def _select(items, filt, tol, tail, last_epoch, split=None, tolerance_decimal=None, 
+             cond=None):
     """Collapse each config's selection-split curve; return the feasible min-loss
     winner's collapse dict (+ config_index, n_seeds), or None if none is feasible."""
     sel = items[0]["sel_split"] if split is None else split
-    rows = [{"config_index": it["index"],
-             "n_seeds": int(it["splits"][sel]["n_seeds"].max()),
-             **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
+
+    if cond is None:
+        rows = [{"config_index": it["index"],
+                "n_seeds": int(it["splits"][sel]["n_seeds"].max()),
+                **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
+    else: 
+        rows = [{"config_index": it["index"],
+            "n_seeds": int(it["splits"][sel]["n_seeds"].max()),
+            **{k: _find_hparam(it["hyperparameters"], k) for k in cond.keys()},
+            **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
+    
     pool = pd.DataFrame(rows)
     filtered = filt != "none" and pool["viol_mean"].notna().any()
-    feasible = pool[pool["viol_mean"] <= tol] if filtered else pool
+    feasible = pool[pool["viol_mean"] < tol + tolerance_decimal] if filtered else pool
+
+    # apply condition mask (if any) up front
+    if cond is not None:
+        mask = np.ones(len(feasible), dtype=bool)
+        for k, v in cond.items():
+            mask &= np.isclose(feasible[k], v)
+        feasible = feasible[mask]
+
     if feasible.empty:
-        return None
+        if cond is None:
+            return None
+        # least-infeasible among condition-matching configs
+        mask = np.ones(len(pool), dtype=bool)
+        for k, v in cond.items():
+            mask &= np.isclose(pool[k], v)
+
+        pool_cond = pool[mask]
+        if pool_cond.empty:              # no config even matches the condition
+            return None
+        return pool_cond.loc[pool_cond["viol_mean"].idxmin()].to_dict()
+
     return feasible.loc[feasible["loss_mean"].idxmin()].to_dict()
 
 
@@ -118,10 +161,11 @@ def _load_cells(agg_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--agg", default="selection/aggregated",
+    ap.add_argument("--agg", default="selection/aggregated/",
                     help="dir of aggregate.py's per-config JSONs (run aggregate.py first)")
     ap.add_argument("--out", default="selection", help="output directory for best_*.json")
-    ap.add_argument("--tols", default="1.0,1.1,1.25",
+    # ap.add_argument("--tols", default="1.0,1.1,1.25",
+    ap.add_argument("--tols", default="1.0",
                     help="comma-separated feasibility-slack multipliers (tol = bound * mult); "
                          "one pick each. Ignored for select_filter='none' (adam).")
     ap.add_argument("--tail", type=int, default=5,
@@ -130,6 +174,10 @@ def main():
                     help="instead select the epoch minimising the rolling-`tail` mean loss")
     ap.add_argument("--selection_split", default="opt",
                     help="which split to select by; defaults to opt.")
+
+    # define the ablation study here - for pbm - select none if none
+    cond_pbm = [{'mu': 0, 'penalty_mult': 0}, {'penalty_mult': 0}, {'mu': 0}, None] # 4 options in total
+
     args = ap.parse_args()
     tol_mults = [float(x) for x in args.tols.split(",") if x.strip()]
     last_epoch = not args.rolling
@@ -146,41 +194,59 @@ def main():
         by_index = {it["index"]: it for it in items}
         filt, bound = items[0]["filter"], items[0]["bound"]
 
-        # One feasibility-first pick per slack multiplier (filter='none' -> single pick).
-        for mult in ([None] if filt == "none" else tol_mults):
-            tol = None if mult is None else bound * mult
-            tag = "none" if mult is None else f"{mult:g}"
-            best = _select(items, filt, tol, args.tail, last_epoch, args.selection_split)
-            if best is None:
-                print(f"[infeasible] {_cell_name(cell)} tol_mult={tag}: none met tol={tol}")
-                continue
+        def process(cell, items, by_index, filt, bound, cond, args, tol_mults, last_epoch, summary):
+            # One feasibility-first pick per slack multiplier (filter='none' -> single pick).
+            for mult in ([None] if filt == "none" else tol_mults):
+                tol = None if mult is None else bound * mult
+                tag = "none" if mult is None else f"{mult:g}"
 
-            epoch = int(best["epoch"])
-            winner = by_index[int(best["config_index"])]
-            test_stats = (_stats_at(winner["splits"]["test"], epoch, "test")
-                          if "test" in winner["splits"] else {})
-            record = {
-                "task": cell[0], "data": cell[1], "algorithm": cell[2],
-                "filter": filt, "tol_mult": mult, "tol": tol, "n_configs": len(items),
-                "tail": args.tail, "select_mode": "rolling" if args.rolling else "last_mean",
-                "config_index": int(best["config_index"]), "best_epoch": epoch,
-                "n_seeds": int(best["n_seeds"]), "sel_split": winner["sel_split"],
-                **_prefix_collapse(best, args.selection_split), **test_stats,
-                "aggregated_file": winner["agg_file"],
-                "best_hyperparameters": winner["hyperparameters"],
-            }
-            suffix = "" if mult is None else f"__tol{tag}"
-            with open(os.path.join(args.out, f"best_{_cell_name(cell)}{suffix}.json"), "w") as f:
-                json.dump(record, f, indent=2, default=str)
-            summary.append({k: v for k, v in record.items() if k != "best_hyperparameters"})
+                # define the decimal tolerance based on the experiment
+                task = cell[0]
+                if 'weight' in task: # 1 decimal point tolerance
+                    tolerance_decimal = 0.1
+                else: 
+                    tolerance_decimal = 0.01
 
-            tline = (f" | test {test_stats['test_loss_mean']:.5f}±{test_stats['test_loss_std']:.5f}"
-                     if "test_loss_mean" in test_stats else "")
-            print(f"[best] {_cell_name(cell)} tol_mult={tag}: {winner['sel_split']} "
-                  f"loss={best['loss_mean']:.5f} (±{best['loss_std_init']:.4f} init, "
-                  f"±{best['loss_std_fold']:.4f} fold) max_c={best['viol_mean']:.5f}{tline} "
-                  f"(cfg{int(best['config_index']):03d}, epoch {epoch}, "
-                  f"{int(best['n_seeds'])} runs, {len(items)} configs)")
+                best = _select(items, filt, tol, args.tail, last_epoch,
+                                args.selection_split, tolerance_decimal=tolerance_decimal,
+                                cond=cond)
+            
+                if best is None:
+                    print(f"[infeasible] {_cell_name(cell, cond=cond)} tol_mult={tag}: none met tol={tol}")
+                    continue
+
+                epoch = int(best["epoch"])
+                winner = by_index[int(best["config_index"])]
+                test_stats = (_stats_at(winner["splits"]["test"], epoch, "test")
+                            if "test" in winner["splits"] else {})
+                record = {
+                    "task": cell[0], "data": cell[1], "algorithm": cell[2],
+                    "filter": filt, "tol_mult": mult, "tol": tol, "n_configs": len(items),
+                    "tail": args.tail, "select_mode": "rolling" if args.rolling else "last_mean",
+                    "config_index": int(best["config_index"]), "best_epoch": epoch,
+                    "n_seeds": int(best["n_seeds"]), "sel_split": winner["sel_split"],
+                    **_prefix_collapse(best, args.selection_split), **test_stats,
+                    "aggregated_file": winner["agg_file"],
+                    "best_hyperparameters": winner["hyperparameters"],
+                }
+                suffix = "" if mult is None else f"__tol{tag}"
+                with open(os.path.join(args.out, f"best_{_cell_name(cell, cond=cond)}{suffix}.json"), "w") as f:
+                    json.dump(record, f, indent=2, default=str)
+                summary.append({k: v for k, v in record.items() if k != "best_hyperparameters"})
+
+                tline = (f" | test {test_stats['test_loss_mean']:.5f}±{test_stats['test_loss_std']:.5f}"
+                        if "test_loss_mean" in test_stats else "")
+                print(f"[best] {_cell_name(cell, cond=cond)} tol_mult={tag}: {winner['sel_split']} "
+                    f"loss={best['loss_mean']:.5f} (±{best['loss_std_init']:.4f} init, "
+                    f"±{best['loss_std_fold']:.4f} fold) max_c={best['viol_mean']:.5f}{tline} "
+                    f"(cfg{int(best['config_index']):03d}, epoch {epoch}, "
+                    f"{int(best['n_seeds'])} runs, {len(items)} configs)")
+
+        conds = cond_pbm if cell[2] == 'pbm' else [None]
+        for cond in conds:
+            process(cell, items, by_index, filt, bound, cond, args, tol_mults, last_epoch, summary)
+                
+        
 
     if summary:
         pd.DataFrame(summary).to_csv(os.path.join(args.out, "best_summary.csv"), index=False)

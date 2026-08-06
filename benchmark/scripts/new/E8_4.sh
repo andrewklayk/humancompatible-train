@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=10G
 #SBATCH --time=24:00:00
-#SBATCH --partition=h200
+#SBATCH --partition=amdgpu
 #SBATCH --array=0-4
 
 ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1

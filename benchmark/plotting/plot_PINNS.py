@@ -20,29 +20,105 @@ import os
 import re
 import numpy as np
 import pandas as pd
+import json
 
 from aggregate_results import ExperimentSpec, aggregate_experiment, _read_runs_csv
 from plotting import plot_losses_and_constraints_stochastic   # your existing module
 
+running_average = False
 
-# ── Step 1: best config per method (by mean val loss, feasible-preferred) ─────
-def select_best_configs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
-    """Returns {method: best_config_index}. Selection on the across-seed MEAN
-    validation loss, restricted to configs feasible on the mean violation; if no
-    config is feasible, falls back to global min mean-val."""
-    agg = aggregate_experiment(spec, methods=methods, split=split, 
+METHOD_LABELS = {
+    "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
+    "alm_max": "SSL-ALM (max)", "ssg": "SSw",
+}
+
+def expand_methods(methods, cond_pbm):
+    """Expand 'pbm' into one pseudo-method per condition.
+    Returns (expanded_names, resolver) where resolver[name] = (real_method, cond_dict_or_None).
+    """
+    expanded, resolver = [], {}
+    for m in methods:
+        if m == 'pbm' and cond_pbm:
+            for cond in cond_pbm:
+                name = _pbm_name(cond)           # e.g. 'pbm', 'pbm_mu0', 'pbm_mu0_gamma0'
+                expanded.append(name)
+                resolver[name] = ('pbm', cond)
+        else:
+            expanded.append(m)
+            resolver[m] = (m, None)
+    return expanded, resolver
+
+def _pbm_name(cond):
+    if cond is None:
+        return 'pbm'                             # baseline
+    return 'pbm_' + '_'.join(f"{k}{v}" for k, v in cond.items())
+
+def _config_params(spec, method):
+    """Return {config_index: {param_name: value}} for a method.
+    Adjust to wherever your configs live."""
+    # build the path the same way spec.seed_dir does, but for the grid file
+    grid_path = os.path.join(spec.results_root + '/' + spec.data + '_' + spec.task + '0', f"grid_{method}.csv")   # <-- see note
+    g = pd.read_csv(grid_path)
+    idx_col = "config" if "config" in g.columns else g.columns[0]
+    return {int(r[idx_col]): r.drop(labels=[idx_col]).to_dict()
+            for _, r in g.iterrows()}
+
+def _find_hparam(h, key, default=np.nan):
+    """Look up `key` in one config's hyperparameters.
+
+    grid_{method}.csv is FLAT with `__`-joined paths ('moreau__mu',
+    'dual__penalty_mult'), so accept the bare leaf ('mu'), the full path
+    ('moreau__mu'), or a dotted path ('moreau.mu'). Nested dicts (the
+    new_bench JSON schema) are still searched recursively.
+    """
+
+    if "dual__" + key in h:
+        return h["dual__" + key]
+
+    elif "primal__" + key in h:
+        return h["primal__" + key]
+
+    elif "moreau__" + key in h:
+        return h["moreau__" + key]
+
+def _matches(params, cond):
+    """Does this config's (nested) hyperparameters satisfy every key in cond?"""
+    for k, v in cond.items():
+        pv = _find_hparam(params, k)      # reuse the recursive finder from select_best.py
+        if pv is None or not np.isclose(pv, v):
+            return False
+    return True
+
+def select_best_configs(spec, expanded_methods, resolver, split="", best_validation_lastK=1):
+    real_methods = sorted({resolver[n][0] for n in expanded_methods})
+    agg = aggregate_experiment(spec, methods=real_methods, split=split,
                                tail=best_validation_lastK, last_epoch=not running_average)
-    best = {}
-    for method, df in agg.items():
-        pool = df
-        # PINN aggregation names the val column 'val_mean'
-        col = "val_mean" 
-        best_row = pool.loc[pool[col].idxmin()]
-        best[method] = int(best_row["config"])
-        print(f"  [{spec.name}] {method}: best config {best[method]} "
-              f"(mean val {best_row[col]:.4g}) ")
-    return best
+    params_cache = {rm: _config_params(spec, rm) for rm in real_methods}
 
+    best = {}
+    for name in expanded_methods:
+        real, cond = resolver[name]
+        df = agg[real]
+
+        # select feasible - TODO: add this after rebuttal
+        # pool = df[df["violation_constr_mean"] < 0.00011] if real != 'adam' else df # select feasible configs only
+
+        if cond is not None:
+            params = params_cache[real]
+            ok = [idx for idx in df["config"] if _matches(params.get(int(idx), {}), cond)]
+            pool = df[df["config"].isin(ok)]
+        else:
+            pool = df
+
+        if len(pool) == 0:
+            print(f"  [{spec.name}] {name}: no config matches {cond}, skipping")
+            continue
+ 
+        # col = "train_mean"   # TODO:  add this after rebuttal
+        best_row = pool.loc[pool["val_mean"].idxmin()]
+        best[name] = int(best_row["config"])
+        print(f"  [{spec.name}] {name}: config {best[name]} (val_mean={best_row['val_mean']:.4g})")
+    return best
 
 # ── Step 2: reload full trajectory of one config, stacked across seeds ────────
 def _load_config_trajectory(spec: ExperimentSpec, method: str, config_idx: int,
@@ -80,25 +156,32 @@ def _load_config_trajectory(spec: ExperimentSpec, method: str, config_idx: int,
 
 
 # ── assemble the lists the plotting function expects ─────────────────────────
-def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1):
+def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1,
+                      cond_pbm=None):
     """Returns the argument lists for plot_losses_and_constraints_stochastic:
         train_losses (PDE residual), test_losses (solution error),
         train_constraints (m x epochs), and their stds; plus titles.
     Each list is per-method; arrays are mean / std across seeds."""
-    best = select_best_configs(spec, methods, split=split, best_validation_lastK=best_validation_lastK)
+
+    expanded_methods, resolver = expand_methods(methods, cond_pbm) 
+
+    best = select_best_configs(spec, expanded_methods, resolver, split=split, 
+                               best_validation_lastK=best_validation_lastK)
 
     train_losses, train_losses_std = [], []
     test_losses, test_losses_std = [], []
     train_cons, train_cons_std = [], []
     titles = []
 
-    for method in methods:
-        if method not in best:
+    for name in expanded_methods:
+        if name not in best:
             continue
-        traj = _load_config_trajectory(spec, method, best[method], split=split)
+        real, cond = resolver[name]
+        traj = _load_config_trajectory(spec, real, best[name], split=split)
         if traj is None:
-            print(f"  {method}: no trajectory for config {best[method]}, skipping")
+            print(f"  {name}: no trajectory for config {best[name]}, skipping")
             continue
+    
         loss, test, cons, m = traj
         train_losses.append(loss.mean(0))
         train_losses_std.append(loss.std(0))
@@ -106,10 +189,21 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
         test_losses_std.append(test.std(0))
         train_cons.append(cons.mean(0))          # (m, epochs)
         train_cons_std.append(cons.std(0))       # (m, epochs)
-        titles.append(METHOD_LABELS.get(method, method))
+        titles.append(METHOD_LABELS.get(name, name))
+
+        # TODO: remove after rebuttal:
+        dump_path = "./results/logs/traj_dump.txt"
+        os.makedirs(os.path.dirname(dump_path), exist_ok=True)
+        with open(dump_path, "a") as f:
+            with np.printoptions(threshold=np.inf, precision=3, suppress=False):
+                f.write(f"=== [{spec.name}] {name} (config {best[name]}) ===\n")
+                f.write(f"test loss (last 1000 epochs, every 100th):\n{test.mean(0)[-1000::100]}\n\n"
+                        f"cons (m x last 1000 epochs, every 100th):\n{cons.mean(0)[:, -1000::100]}\nm: {m}\n\n")
+
+
 
     return dict(
-        train_losses_list=train_losses,
+        train_losses_list=np.array(train_losses),
         train_losses_std_list=train_losses_std,
         test_losses_list=test_losses,
         test_losses_std_list=test_losses_std,
@@ -125,18 +219,23 @@ METHOD_LABELS = {
 }
 
 
-def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, best_validation_lastK=1):
+def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
+               best_validation_lastK=1, cond_pbm=None):
     if spec is None:
         spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
                               results_root="results")
     if methods is None:
-        methods = ["adam", "pbm", "alm_proj", "alm_max"]#, "ssg"]
+        methods = ["adam", "pbm", "alm_proj", "ssg"]
 
-    inputs = build_plot_inputs(spec, methods, split="", best_validation_lastK=best_validation_lastK)
-    if not inputs["train_losses_list"]:
+    inputs = build_plot_inputs(spec, methods, split="", 
+                               best_validation_lastK=best_validation_lastK,
+                               cond_pbm=cond_pbm)
+    if not inputs["test_losses_list"]:
         print("no data to plot")
         return
+
+    inputs['train_losses_list'] += 1e-4  # avoid log(0) in plotting
 
     plot_losses_and_constraints_stochastic(
         **inputs,
@@ -146,17 +245,197 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
         log_constraints=True,         # PINN residuals span orders of magnitude
         std_multiplier=1,
         save_path=save_path,
-        constraint_titles=constraint_titles
+        constraint_titles=constraint_titles,
+        eval_points=10000,
+        log_train_loss=True,
+        log_test_loss=True
     )
 
+
+    print(f"wrote {save_path}")
+
+def plot_PINNs_single(specs, names, methods=None,
+        save_path="./results/plots/pinns_convergence.pdf",
+         best_validation_lastK=1):
+   
+    if methods is None:
+        methods = ["adam","alm_proj", "ssg", "pbm"]
+
+    # collect per-spec mean curves: {method: [curve_per_spec, ...]}
+    per = {m: {"loss": [], "test": [], "cons": []} for m in methods}
+    for name in names:
+
+        inputs = build_plot_inputs(specs[name], methods, best_validation_lastK=best_validation_lastK)
+
+        # per-spec baseline: best final value across methods (eps-floored)
+        eps = 1e-4 
+        base_loss = min(c[-1] for c in inputs["train_losses_list"]) + eps
+        base_test = min(c[-1] for c in inputs["test_losses_list"]) + eps
+
+        for i, title in enumerate(inputs["titles"]):
+            m = next(k for k, v in METHOD_LABELS.items() if v == title)
+            per[m]["loss"].append((inputs["train_losses_list"][i] + eps) / base_loss)
+            per[m]["test"].append((inputs["test_losses_list"][i] + eps) / base_test)
+            per[m]["cons"].append(inputs["train_constraints_list"][i].max(0))
+    
+    # mean/std across experiments
+    train_l, train_s, test_l, test_s, cons_l, cons_s, titles = [], [], [], [], [], [], []
+    for m in methods:
+        if not per[m]["loss"]:
+            continue
+        L = min(len(c) for c in per[m]["loss"])
+        stack = lambda key: np.stack([c[:L] for c in per[m][key]])
+        loss, test, cons = stack("loss"), stack("test"), stack("cons")
+        train_l.append(loss.mean(0)); train_s.append(loss.std(0))
+        test_l.append(test.mean(0));  test_s.append(test.std(0))
+        cons_l.append(cons.mean(0)[None, :]); cons_s.append(cons.std(0)[None, :])  # (1, epochs)
+        titles.append(METHOD_LABELS.get(m, m))
+
+    plot_losses_and_constraints_stochastic(
+        train_losses_list=train_l, train_losses_std_list=train_s,
+        test_losses_list=test_l, test_losses_std_list=test_s,
+        train_constraints_list=cons_l, train_constraints_std_list=cons_s,
+        titles=titles,
+        constraint_thresholds=specs[names[0]].bound,
+        mode="train", separate_constraints=True, log_constraints=True,
+        std_multiplier=1, save_path=save_path,
+        constraint_titles=["Max constraint violation"],
+        eval_points=10000, log_train_loss=True, log_test_loss=True,
+    )
+
+    print(f"wrote {save_path}")
+
+def print_table(specs, methods, names, cond_pbm=None):
+
+    # create an array for storing the best train loss and constraint violation for each method and experiment
+    best_train_losses = {name: {} for name in names}
+    best_constraint_violations = {name: {} for name in names}
+    best_max_viol = {name: {} for name in names}
+    best_train_losses_std = {name: {} for name in names}
+    best_constraint_violations_std = {name: {} for name in names}
+    best_max_viol_std = {name: {} for name in names}
+
+    for name in names: 
+        
+        spec = specs[name]
+        # for methods - store the tail of the losses and the tail of the max violation
+        inputs = build_plot_inputs(spec, methods, split="",
+                                    best_validation_lastK=best_validation_window,
+                                    cond_pbm=cond_pbm)
+
+        expanded_methods, resolver = expand_methods(methods, cond_pbm) 
+
+        for idx, method in enumerate(expanded_methods): 
+
+            # get the losses and the constraints
+            loss = np.array(inputs['train_losses_list'][idx])
+            constraints = np.array(inputs["train_constraints_list"][idx])
+            loss_std = np.array(inputs["train_losses_std_list"][idx])
+            constraints_std = np.array(inputs["train_constraints_std_list"][idx])
+
+            # tail the loss and the constraints
+            loss_tail = loss[-best_validation_window:].mean()
+            loss_std_tail = loss_std[-best_validation_window:].mean()
+            constraints_tail = constraints[:, -best_validation_window:].mean(axis=-1)
+            constraints_std_tail = constraints_std[:, -best_validation_window:].mean(axis=-1)
+
+            # compute the max violation
+            worst_idx = constraints_tail.argmax()
+            max_viol = max(0.0, constraints_tail[worst_idx] - 0.0001)
+            max_viol_std = constraints_std_tail[worst_idx]
+
+            # store the values
+            best_train_losses[name][method] = loss_tail
+            best_train_losses_std[name][method] = loss_std_tail
+            best_constraint_violations[name][method] = constraints_tail.mean()
+            best_constraint_violations_std[name][method] = constraints_std_tail.mean()
+            best_max_viol[name][method] = max_viol
+            best_max_viol_std[name][method] = max_viol_std
+    
+    def rank_format(values_by_method, stds_by_method, methods,
+                    precision=3, mark=True, tol=1e-5):
+        """{method: formatted cell}, best bold, second-best brown (lower is better).
+        Appends ± std. mark=False disables highlighting."""
+
+        fmt = lambda x: f"{x:.{precision}f}"
+
+        # round once, up front — everything downstream uses rounded values
+        vals = {m: round(values_by_method[m], precision) for m in methods}
+
+        def cell(m, wrap):
+            body = wrap(fmt(vals[m])) if wrap else fmt(vals[m])
+            return body + r" \footnotesize{$\pm$ " + fmt(stds_by_method[m]) + "}"
+
+        if not mark:
+            return {m: cell(m, None) for m in methods}
+
+
+        ordered = sorted(methods, key=lambda m: vals[m])
+        best_val = vals[ordered[0]]
+        second_val = vals[ordered[1]] if len(ordered) > 1 else None
+
+        bold  = lambda s: r"\textbf{" + s + "}"
+        brown = lambda s: r"\textcolor{brown}{" + s + "}"
+
+        out = {}
+        for m in methods:
+            v = vals[m]
+            if abs(v - best_val) < tol:
+                out[m] = cell(m, bold)
+            elif second_val is not None and abs(v - second_val) < tol:
+                out[m] = cell(m, brown)
+            else:
+                out[m] = cell(m, None)
+        return out
+
+    lines = [ r"\begin{table}[h]",
+            r"\centering",
+            r"\caption{Comparison of Adam, SSL-ALM, and SPBM on experiments \Exp{7} and \Exp{8}. We report the best test loss, together with the corresponding constraint violations (averaged over runs).}",
+            r"\label{tab:best_results}",
+        r"\begin{tabular}{l l c c c}",
+        r"\toprule",
+        r"Exp. & Method & Best loss & Max constraint viol. & Mean constraint \\",
+    ]
+
+    for name in names:
+        lines.append(r"\midrule")
+        exp_id = name.split('E')[1]
+
+        loss_cells = rank_format(best_train_losses[name],
+                                best_train_losses_std[name], expanded_methods,
+                                precision=3)
+        mean_cells = rank_format(best_constraint_violations[name],
+                                best_constraint_violations_std[name], expanded_methods,
+                                precision=4, mark=False)
+        maxv_cells = rank_format(best_max_viol[name],
+                                best_max_viol_std[name], expanded_methods, precision=4)
+
+        for i, method in enumerate(expanded_methods):
+            multirow = (r"\multirow{" + str(len(expanded_methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
+                        if i == 0 else "")
+            lines.append(
+                f"{multirow} & {METHOD_LABELS[method]} & "
+                f"{loss_cells[method]} & "
+                f"{maxv_cells[method]} & "
+                f"{mean_cells[method]} " + r"\\"
+            )
+        
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    table_str = "\n".join(lines)
+    print(table_str)
+
+    # dump into a text file
+    out = './results/tables/PINNS_latex_table.txt'
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w") as f:
+        f.write(table_str)
 
 if __name__ == "__main__":
 
     # True is a running window mean; False is a tail
-    running_average = True
-    best_validation_window = 20
+    best_validation_window = 50
 
-    name = "E8"
+    names = ["E7", "E8", "E9"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
@@ -169,13 +448,29 @@ if __name__ == "__main__":
                               results_root="results"),
     }
 
-    spec = specs[name]
-    constraint_titles = ["Initial Condition", "Boundary Condition"]
-    if name == "E9":
-        constraint_titles += ["Boundary Condition 2"]
 
-    # takes the best validation loss config, then takes the solution from that config and plots the 
-    # train / test loss and train constraints
-    # the plot uses the weight (E1) plotting function
-    plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.png", 
-               constraint_titles=constraint_titles, best_validation_lastK=best_validation_window)
+    cond_pbm = [{'mu': 0.0},
+                {'penalty_mult': 0.1},
+                {'gamma': 0.1},
+                None] # 4 options in total
+
+    # TODO: put best config and just change the variable one at a time  
+
+    constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
+    methods = ["adam", "alm_proj", "ssg", "pbm"]
+
+    # iterate and plot all single plot for each experiment
+    for name in names:
+        spec = specs[name]
+        plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
+                constraint_titles=constraint_titles, 
+                best_validation_lastK=best_validation_window,
+                cond_pbm=cond_pbm)
+
+    
+    # print the latex table
+    print_table(specs, methods, names, cond_pbm)
+
+    # plot a single plot - combined all PINN experiments
+    # plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 
+    #                     best_validation_lastK=best_validation_window)

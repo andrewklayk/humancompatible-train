@@ -13,6 +13,7 @@ if command -v ml >/dev/null 2>&1; then
   ml Optuna/4.6.0-foss-2025b
 fi
 
+
 # When a driver runs UNDER sbatch, its SLURM_MEM_* env is exported (--export=ALL) into
 # the submitit CHILD jobs, where it collides with the launcher's --mem-per-cpu:
 #   srun: fatal: SLURM_MEM_PER_CPU, SLURM_MEM_PER_GPU, and SLURM_MEM_PER_NODE are
@@ -21,6 +22,7 @@ fi
 # from conf/hydra/launcher/slurm_gpu.yaml (mem_per_cpu). This does NOT change the
 # driver's own already-granted allocation -- it only stops the leak into children.
 unset SLURM_MEM_PER_NODE SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU
+# export SLURM_CPU_BIND=none
 
 # Launcher plugin (install only if missing). The sweep uses Hydra's built-in
 # BASIC sweeper (manual grids in conf/sweep/), so no Optuna plugin is needed.

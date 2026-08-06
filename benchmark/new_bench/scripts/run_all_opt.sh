@@ -14,7 +14,6 @@
 #
 # Env (all optional):
 #   PARTITION  driver partition (long/CPU); unset -> cluster default
-#   TIME       driver walltime                    (default 1-00:00:00)
 #   DEP        afterok (stop chain on failure) | afterany (keep going)   (default afterok)
 #   ALGOS      space-separated sweep order  (default: adam alm_proj ssg pbm)
 #   SELECT=0   skip the final aggregate + select_best job

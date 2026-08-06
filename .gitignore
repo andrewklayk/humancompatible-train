@@ -25,6 +25,9 @@ benchmark/results
 benchmark/cache
 benchmark/data
 data/
+benchmark/new_bench/multirun
+benchmark/new_bench/selection
+
 
 NOTES.txt
 benchmark/run_bench_pareto.sh
