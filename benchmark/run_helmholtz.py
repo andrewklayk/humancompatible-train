@@ -87,10 +87,6 @@ adam_grid = [{"primal__lr": lr, "beta": beta}
              for (lr, beta) in product([0.001, 0.005, 0.01, 0.02, 0.05], [0.5, 1., 2., 5., 10.])]
 
 
-print(f"pbm_grid: {len(pbm_grid)}, alm_proj_grid: {len(alm_proj_grid)}, "
-      f"alm_max_grid: {len(alm_max_grid)}, ssg_grid: {len(ssg_grid)}, adam_grid: {len(adam_grid)}")
-exit()
-
 # ── PDE helpers ───────────────────────────────────────────────────────────────
 def q(data):
     x, y = data[:, 0].view(-1, 1), data[:, 1].view(-1, 1)
