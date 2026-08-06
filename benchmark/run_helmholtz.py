@@ -310,9 +310,9 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
         return ALM(m=1, **dp, device=device)
 
     # ===== ADAM =====
-    # if 'adam' in cfg.algorithms:
-    #     histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    #     save_method(result_dir, "adam", histories, adam_grid)
+    if 'adam' in cfg.algorithms:
+        histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+        save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) =====
     if 'pbm' in cfg.algorithms:

@@ -376,12 +376,23 @@ class PBM(Optimizer):
                 _last_c_group_index : _last_c_group_index + len(duals)
             ]
             _last_c_group_index = _last_c_group_index + len(duals)
+
+            # compute the lagrangian value - BEFORE THE DUAL UPDATE - otherwise, lagrangian will have a correlated random variables!
+            # snapshot the multipliers/penalties this primal step is entitled to use
+
+            lam = duals.detach().clone()
+            pen = penalties.detach().clone()          # clone, not just detach
+
+            cdivp = group_constraints / pen
+            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)            
+            lagrangian.add_((lam * pen) @ pbf_val)
+
             # calculate lagrangian
             if (
                 self.inner_iter + 1 == primal_update_process_length
             ):  # this enables a second variant of the algorithm
                 # update duals and penalties
-                cdivp = group_constraints.div(penalties)
+                cdivp_d = cdivp.detach()  # detach to avoid backprop through the dual update
 
                 # update gamma and K is annealing
                 gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
@@ -389,7 +400,7 @@ class PBM(Optimizer):
 
                 with torch.no_grad():
                     _update_duals(
-                        duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma
+                        duals, cdivp_d, penalty_barrier_funcs[pbf]["d"], gamma
                     )
                     clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
                     _update_penalties(
@@ -398,15 +409,13 @@ class PBM(Optimizer):
                         duals,
                         penalty_barrier_funcs[pbf]["d"](group_constraints),
                         delta,
-                        cdivp,
+                        cdivp_d,
                     )
                     clamp_(
                         penalties, min=self.penalty_range[0], max=self.penalty_range[1]
                     )
 
-            cdivp = group_constraints.div(penalties)
-            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)            
-            lagrangian.add_(duals.mul(penalties) @ pbf_val)
+
 
         # update the iter
         self.inner_iter = (self.inner_iter + 1) % self.primal_update_process_length

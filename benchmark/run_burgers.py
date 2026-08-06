@@ -322,9 +322,9 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg) :     # +seed
         return ALM(m=2, **dp, device=device)
 
     # ===== ADAM =====
-    # if 'adam' in cfg.algorithms:
-    #     histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
-    #     save_method(result_dir, "adam", histories, adam_grid)
+    if 'adam' in cfg.algorithms:
+        histories = [run_config(p, None) for p in tqdm(adam_grid, desc="adam")]
+        save_method(result_dir, "adam", histories, adam_grid)
 
     # ===== SPBM (PBM) =====
     # ensure the pbm has the size of the epoch (for gamma annealing)
