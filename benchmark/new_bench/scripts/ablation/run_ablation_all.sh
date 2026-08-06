@@ -25,7 +25,7 @@ set -euo pipefail
 
 PARTITION=${PARTITION:-cpulong}
 DEP=${DEP:-afterany}
-ALGOS=${ALGOS:-"pbm pbm_alm pbm_kappa0 pbm_ql pbm_qr pbm_gamma0 pbm_mu0"}
+ALGOS=${ALGOS:-"pbm pbm_alm pbm_kappa0 pbm_gamma0 pbm_gamma0_alm pbm_mu0 pbm_mu0_alm"}
 SELECT=${SELECT:-1}
 
 # sbatch options common to every DRIVER job (a lightweight blocking loop: 1 CPU, no GPU).
