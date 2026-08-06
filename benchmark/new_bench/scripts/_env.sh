@@ -41,6 +41,10 @@ python3 -m pip install -q hydra-submitit-launcher
 : "${INIT_SEEDS:=0 1 2 3 4}"
 : "${N_FOLDS:=5}"
 : "${CV_SEED:=0}"
+# Training length. NOTE: this only sets the default value -- for it to reach a run,
+# each driver must pass it as a Hydra override on its `run.py -m` line
+# (`n_epochs=${N_EPOCHS}`). A bare env var is NOT auto-applied by Hydra.
+: "${N_EPOCHS:=40}"
 : "${LAUNCHER:=slurm_gpu}"    # set LAUNCHER=local to drop the launcher (local run)
 
 # Optional launcher override (omitted when LAUNCHER=local / empty).
