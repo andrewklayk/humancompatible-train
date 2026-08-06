@@ -377,9 +377,9 @@ class PBM(Optimizer):
             ]
             _last_c_group_index = _last_c_group_index + len(duals)
 
+
             # compute the lagrangian value - BEFORE THE DUAL UPDATE - otherwise, lagrangian will have a correlated random variables!
             # snapshot the multipliers/penalties this primal step is entitled to use
-
             lam = duals.detach().clone()
             pen = penalties.detach().clone()          # clone, not just detach
 
@@ -414,7 +414,6 @@ class PBM(Optimizer):
                     clamp_(
                         penalties, min=self.penalty_range[0], max=self.penalty_range[1]
                     )
-
 
 
         # update the iter

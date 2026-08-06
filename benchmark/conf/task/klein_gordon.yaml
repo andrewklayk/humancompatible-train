@@ -1,5 +1,5 @@
 task: klein_gordon
-seed: 0          # overridden by task.seed=$SLURM_ARRAY_TASK_ID
+seed: 1          # overridden by task.seed=$SLURM_ARRAY_TASK_ID
 
 algorithms: [adam, pbm, pbm_logscaled, alm_proj, alm_max, ssg]
 model: deep_narrow

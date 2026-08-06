@@ -10,10 +10,11 @@ hydra:
   sweeper:
     params:
       algorithm.primal.lr: choice(0.001, 0.005, 0.01, 0.02, 0.05)
-      algorithm.dual.penalty_mult: choice(0.0)
-      algorithm.dual.penalty_range: choice([0.1, 1.], [0.01, 1])
       algorithm.dual.primal_update_process_length: choice(1)
-      algorithm.dual.gamma_annealing: choice(true)
-      algorithm.dual.gamma: choice(0.9)
+      algorithm.dual.penalty_mult: choice(0.0)
+      algorithm.dual.penalty_range: choice([0.1, 1.])
       algorithm.dual.penalty_annealing: choice(false)
-      algorithm.moreau.mu: choice(0.0, 1.0)
+      algorithm.dual.gamma: choice(0.9, 0.99, 0.999)
+      algorithm.dual.gamma_annealing: choice(false)
+      algorithm.dual.pbf: choice("quadratic_reciprocal", "quadratic_logarithmic")
+      algorithm.moreau.mu: choice(1.0, 2.0)
