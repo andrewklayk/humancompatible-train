@@ -1,4 +1,4 @@
-name: pbm_alm
+name: pbm
 updater: primal_dual
 constraints_to_eq: false
 select_filter: upper
