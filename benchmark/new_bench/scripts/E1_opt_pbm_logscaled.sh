@@ -15,6 +15,6 @@ for s in ${INIT_SEEDS}; do
   for lr in $(sweep_lrs ${ALGO}); do
     python3 -u run.py -m ${LAUNCHER_ARG} \
       +sweep=${ALGO} data=${DATA} task=${TASK} \
-      approach=opt init_seed=${s} algorithm.primal.lr=${lr}
+      approach=opt init_seed=${s} algorithm.primal.lr=${lr} n_epochs=${N_EPOCHS}
   done
 done

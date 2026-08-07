@@ -10,4 +10,4 @@ pip install hydra-submitit-launcher
 
 python3 -u run.py -m hydra/launcher=slurm_gpu algorithm=alm_proj +sweep=alm_proj \
   data=income task=folktables_positive_rate_pair \
-  n_folds=5 cv_seed=0 fold=0,1,2,3,4 init_seed=0,1,2
+  n_folds=5 cv_seed=0 fold=0,1,2,3,4 init_seed=0,1,2 n_epochs=${N_EPOCHS:-40}

@@ -15,6 +15,6 @@ for f in $(seq 0 $((N_FOLDS - 1))); do
   for s in ${INIT_SEEDS}; do
     python3 -u run.py -m ${LAUNCHER_ARG} \
       +sweep=${ALGO} data=${DATA} task=${TASK} \
-      n_folds=${N_FOLDS} cv_seed=${CV_SEED} fold=${f} init_seed=${s}
+      n_folds=${N_FOLDS} cv_seed=${CV_SEED} fold=${f} init_seed=${s} n_epochs=${N_EPOCHS}
   done
 done

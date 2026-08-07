@@ -16,5 +16,5 @@ ALGO=alm_proj
 for s in ${INIT_SEEDS}; do
   python3 -u run.py -m ${LAUNCHER_ARG} \
     +sweep=${ALGO} data=${DATA} task=${TASK} \
-    approach=opt init_seed=${s}
+    approach=opt init_seed=${s} n_epochs=${N_EPOCHS}
 done
