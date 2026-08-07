@@ -1,0 +1,25 @@
+# Base experiment config for Klein-Gordon PDE
+# Extend this with algorithm-specific configs
+
+defaults:
+  - task: dutch_positive_rate_pair
+  - data: dutch
+  - algorithm: adam
+  - override /hydra/launcher: configured_submitit_slurm_amdgpu
+  - _self_
+
+n_epochs: 5000
+seed: 0
+model: deep_narrow
+
+hydra:
+  sweeper:
+    max_batch_size: 99
+  sweep:
+    dir: multirun/klein_gordon/${algorithm.algorithm}
+    subdir: ./
+  run:
+    dir: multirun/klein_gordon/${algorithm.algorithm}
+  job:
+    chdir: false
+  output_subdir: null
