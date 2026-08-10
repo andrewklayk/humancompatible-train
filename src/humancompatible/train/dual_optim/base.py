@@ -369,6 +369,18 @@ class DualOptimizer(Optimizer, abc.ABC):
         :param constraints: Constraint values; flat tensor, per-group sequence,
             or name-keyed mapping.
         :return: The surrogate (Lagrangian) to call ``.backward()`` on.
+
+        .. warning::
+            Call ``.backward()`` on the returned surrogate **before**
+            :meth:`update`. The linear term is built from the live dual tensor,
+            which autograd keeps for its backward pass, and :meth:`update`
+            modifies that tensor in place -- so ``forward`` → ``update`` →
+            ``backward`` raises ``RuntimeError: one of the variables needed for
+            gradient computation has been modified by an inplace operation``.
+            :meth:`forward_update` is not subject to this, and is the recommended
+            entry point. Where the primal optimizer's ``step()`` goes relative to
+            :meth:`update` makes no difference: the constraint tensor already
+            holds the values from the current iterate.
         """
         return self._walk(loss, constraints, update=False)
 
@@ -376,6 +388,10 @@ class DualOptimizer(Optimizer, abc.ABC):
         """Update the auxiliary variables only.
 
         :param constraints: Constraint values, in any of the accepted forms.
+
+        .. note::
+            When paired with :meth:`forward`, this must come after the
+            ``.backward()`` call -- see the warning there.
         """
         self._walk(None, constraints, update=True)
 
@@ -384,8 +400,20 @@ class DualOptimizer(Optimizer, abc.ABC):
     def forward_update(self, loss: Tensor, constraints) -> Tensor:
         """Update the auxiliary variables and build the surrogate in one pass.
 
-        Marginally cheaper than :meth:`forward` followed by :meth:`update`, and
-        the documented entry point for the training loop.
+        Marginally cheaper than :meth:`forward` followed by :meth:`update`, free
+        of that pairing's ordering constraint, and the recommended entry point for
+        the training loop::
+
+            optimizer.zero_grad()
+            dual.forward_update(loss, constraints).backward()
+            optimizer.step()
+
+        The surrogate is formed with the **post**-update multipliers, which is what
+        the augmented-Lagrangian recursions prescribe
+        (:math:`\\mathcal{L}_{t+1} = f_t + \\pmb{\\lambda}_{t+1}^T \\mathbf{c}_t`).
+        :class:`~.pbm.PBM` is the exception and deliberately so: it overrides
+        ``_snapshot`` to take a pre-update copy, so that the surrogate and the dual
+        update do not share a random constraint estimate.
 
         :param loss: Objective value.
         :param constraints: Constraint values, in any of the accepted forms.
