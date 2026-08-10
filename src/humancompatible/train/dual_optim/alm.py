@@ -158,7 +158,9 @@ class ALM(DualOptimizer):
     def _add_global_terms(self, lagrangian: Tensor, constraints: Tensor) -> None:
         if self.penalty == 0:
             return
-        lagrangian.add_(0.5 * self.penalty * torch.dot(constraints, constraints))
+        # Violations only for inequality groups; see _penalty_constraints.
+        c = self._penalty_constraints(constraints)
+        lagrangian.add_(0.5 * self.penalty * torch.dot(c, c))
 
     def _extra_state(self) -> dict[str, Any]:
         return {"penalty": self.penalty}
@@ -205,6 +207,12 @@ ALM.__doc__ = (
         \pmb{\lambda}_{t+1} & \leftarrow \pmb{\lambda}_t + \gamma \mathbf{c}_t(\theta_{t})
 
         \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
+
+    For constraint groups registered with ``is_ineq=True`` the quadratic term acts
+    on the violation, :math:`\frac{\rho}{2} \| [\mathbf{c}_t(\theta_t)]_+ \|^2_2`,
+    since penalising the raw value of an inequality constraint would also penalise
+    being strictly feasible. The linear term and the dual update always use the raw
+    values.
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int

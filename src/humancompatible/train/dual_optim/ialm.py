@@ -153,9 +153,11 @@ class iALM(DualOptimizer):
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
         # The quadratic term uses this group's current beta, i.e. the value
-        # before _end_of_step applies the sigma schedule.
+        # before _end_of_step applies the sigma schedule, and acts on the
+        # violation only for inequality groups (see _penalty_constraints).
         lagrangian.add_(snapshot @ c)
-        lagrangian.add_(0.5 * group.get("beta") * torch.dot(c, c))
+        c_pen = c.clamp(min=0.0) if group.get("is_ineq") else c
+        lagrangian.add_(0.5 * group.get("beta") * torch.dot(c_pen, c_pen))
 
     def _end_of_step(self) -> None:
         # Advanced once per step, after every group's surrogate term has been
@@ -205,6 +207,14 @@ iALM.__doc__ = (
 
     After each update, every group's :math:`\beta` is multiplied by its
     :math:`\sigma`, giving the geometric penalty schedule of the inexact ALM.
+
+    For constraint groups registered with ``is_ineq=True`` the quadratic term acts
+    on the violation, :math:`\frac{\beta_k}{2} \| [\mathbf{c}_t(\theta_t)]_+ \|^2_2`,
+    since penalising the raw value of an inequality constraint would also penalise
+    being strictly feasible. The linear term and the dual update always use the raw
+    values. Note that :math:`\beta` is simultaneously the quadratic coefficient and
+    the dual step size, so unlike :class:`~.alm.ALM` this method cannot be reduced
+    to a pure Lagrangian by setting its penalty to zero.
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int

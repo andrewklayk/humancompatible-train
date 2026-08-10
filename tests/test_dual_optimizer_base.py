@@ -208,6 +208,85 @@ class TestSharedDefectsFixed(unittest.TestCase):
         self.assertFalse(torch.equal(a["momentum_buffer"], b["momentum_buffer"][:2]))
 
 
+class TestInequalityPenalty(unittest.TestCase):
+    """The quadratic penalty must act on [c]+ for inequality groups.
+
+    Penalising the raw value of an inequality constraint also penalises being
+    strictly feasible, and is minimised by driving c to 0 -- it pulls feasible
+    iterates back onto the boundary. Only the quadratic term is affected; the
+    linear term and the dual update keep the raw values.
+    """
+
+    LOSS = torch.tensor(1.0)
+    C = torch.tensor([-1.0, 3.0])  # one satisfied, one violated
+
+    def test_equality_group_uses_raw_values(self):
+        opt = ALM(m=2, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=False)
+        got = opt.forward(self.LOSS, self.C)
+        # loss + y.c + (rho/2)||c||^2 = 1 + 0.5*(-1+3) + 1.0*(1+9)
+        self.assertAlmostEqual(got.item(), 1.0 + 1.0 + 10.0, places=6)
+
+    def test_inequality_group_uses_violations_only(self):
+        opt = ALM(m=2, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=True)
+        got = opt.forward(self.LOSS, self.C)
+        # the satisfied constraint contributes 0 to the quadratic, not 1
+        self.assertAlmostEqual(got.item(), 1.0 + 1.0 + 9.0, places=6)
+
+    def test_ialm_per_group_quadratic(self):
+        eq = iALM(m=2, beta=2.0, sigma=1.0, gamma=1.0, init_duals=0.5, is_ineq=False)
+        ineq = iALM(m=2, beta=2.0, sigma=1.0, gamma=1.0, init_duals=0.5, is_ineq=True)
+        self.assertAlmostEqual(eq.forward(self.LOSS, self.C).item(), 1.0 + 1.0 + 10.0, places=6)
+        self.assertAlmostEqual(ineq.forward(self.LOSS, self.C).item(), 1.0 + 1.0 + 9.0, places=6)
+
+    def test_nupi_inequality_quadratic(self):
+        opt = nuPI(m=2, nu=0.5, ki=0.1, kp=1.0, penalty=2.0, init_duals=0.5, is_ineq=True)
+        self.assertAlmostEqual(opt.forward(self.LOSS, self.C).item(), 1.0 + 1.0 + 9.0, places=6)
+
+    def test_mixed_groups_are_treated_separately(self):
+        opt = ALM(m=1, lr=0.1, penalty=2.0, init_duals=0.0, is_ineq=False)
+        opt.add_constraint_group(m=1, lr=0.1, init_duals=0.0, is_ineq=True)
+        # duals are 0, so only the quadratic contributes: 1.0*((-2)^2 + [-3]+^2)
+        got = opt.forward(self.LOSS, torch.tensor([-2.0, -3.0]))
+        self.assertAlmostEqual(got.item(), 1.0 + 4.0, places=6)
+
+    def test_feasible_inequality_contributes_no_penalty_gradient(self):
+        # The whole point: a strictly feasible constraint must not be pushed
+        # toward the boundary. Only the linear term's gradient survives.
+        opt = ALM(m=1, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=True)
+        c = torch.tensor([-1.0], requires_grad=True)
+        opt.forward(self.LOSS, c).backward()
+        self.assertAlmostEqual(c.grad.item(), 0.5, places=6)
+
+    def test_violated_inequality_does_get_penalty_gradient(self):
+        opt = ALM(m=1, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=True)
+        c = torch.tensor([3.0], requires_grad=True)
+        opt.forward(self.LOSS, c).backward()
+        # d/dc [ y*c + (rho/2)c^2 ] = 0.5 + 2*3
+        self.assertAlmostEqual(c.grad.item(), 6.5, places=6)
+
+    def test_dual_update_still_uses_raw_values(self):
+        # y_i must fall while c_i < 0 -- that is what drives inactive
+        # multipliers to zero. Clamping the dual update would freeze them.
+        opt = ALM(m=1, lr=0.5, penalty=2.0, init_duals=1.0, is_ineq=True)
+        opt.update(torch.tensor([-1.0]))
+        self.assertAlmostEqual(opt.duals.item(), 0.5, places=6)
+
+    def test_equality_only_path_is_untouched(self):
+        # The fast path must return the argument itself, so the all-equality
+        # trajectories stay bit-exact.
+        opt = ALM(m=3, lr=0.1, penalty=1.0, is_ineq=False)
+        c = torch.tensor([1.0, -2.0, 3.0])
+        self.assertIs(opt._penalty_constraints(c), c)
+
+    def test_penalty_zero_short_circuits(self):
+        for opt in (
+            ALM(m=2, lr=0.1, penalty=0.0, init_duals=0.5, is_ineq=True),
+            nuPI(m=2, nu=0.5, ki=0.1, kp=1.0, penalty=0.0, init_duals=0.5, is_ineq=True),
+        ):
+            got = opt.forward(self.LOSS, self.C)
+            self.assertAlmostEqual(got.item(), 1.0 + 1.0, places=6, msg=type(opt).__name__)
+
+
 class TestDistributedAvailableEverywhere(unittest.TestCase):
     """Every dual optimizer accepts a process group, not just ALM."""
 

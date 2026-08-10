@@ -33,13 +33,18 @@ class nuPI(DualOptimizer):
 
     Note that :math:`\nu = 0, \kappa_p = 0` recovers plain dual gradient ascent.
 
+    The reference method defines a multiplier update, not an augmented surrogate,
+    so ``penalty`` defaults to 0 and the quadratic term above is absent unless it is
+    set explicitly. When it is set, and for groups registered with ``is_ineq=True``,
+    the term acts on the violation :math:`[\mathbf{c}_t(\theta_t)]_+`.
+
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int
     :param nu: Error-buffer decay of the PI controller.
     :type nu: float
     :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
     :type init_duals: float | Tensor
-    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`0.`
     :type penalty: float
     :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
     :type dual_range: Tuple[float, float]
@@ -64,7 +69,7 @@ class nuPI(DualOptimizer):
         m: int = None,
         nu: float = 0.01,
         init_duals: float | Tensor = None,
-        penalty: float = 1.0,
+        penalty: float = 0.,
         *,
         dual_range: Tuple[float, float] = (-100.0, 100.0),
         ki: float = 0.01,
@@ -194,7 +199,9 @@ class nuPI(DualOptimizer):
     def _add_global_terms(self, lagrangian: Tensor, constraints: Tensor) -> None:
         if self.penalty == 0:
             return
-        lagrangian.add_(0.5 * self.penalty * torch.dot(constraints, constraints))
+        # Violations only for inequality groups; see _penalty_constraints.
+        c = self._penalty_constraints(constraints)
+        lagrangian.add_(0.5 * self.penalty * torch.dot(c, c))
 
     def _extra_state(self) -> dict[str, Any]:
         return {"penalty": self.penalty}

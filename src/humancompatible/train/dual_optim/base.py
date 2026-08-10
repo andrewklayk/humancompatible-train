@@ -262,6 +262,35 @@ class DualOptimizer(Optimizer, abc.ABC):
             )
         return flat
 
+    def _penalty_constraints(self, constraints: Tensor) -> Tensor:
+        """The constraint vector as a quadratic penalty term should see it.
+
+        For an inequality constraint :math:`c \\le 0`, a penalty on the raw value
+        also penalises being *strictly feasible*, and is minimised by driving
+        :math:`c \\to 0` — it pulls feasible iterates back onto the boundary. The
+        correct exterior penalty acts on the violation only, so entries belonging
+        to groups registered with ``is_ineq=True`` are clamped to
+        :math:`[c]_+ = \\max(c, 0)`. Equality groups pass through unchanged.
+
+        Only the *quadratic* term uses this. The linear term :math:`y^T c` and the
+        dual update keep the raw values: that is what drives :math:`y_i \\to 0` for
+        inactive constraints, since dual ascent decreases :math:`y_i` while
+        :math:`c_i < 0` until the non-negativity clamp binds.
+
+        Returns the argument itself when no group is an inequality group, so the
+        all-equality path is unchanged down to the last bit.
+        """
+        if not any(group.get("is_ineq") for group in self.param_groups):
+            return constraints
+
+        parts = []
+        offset = 0
+        for group, n in zip(self.param_groups, self._sizes()):
+            chunk = constraints[offset : offset + n]
+            parts.append(chunk.clamp(min=0.0) if group.get("is_ineq") else chunk)
+            offset += n
+        return parts[0] if len(parts) == 1 else torch.cat(parts)
+
     def violation(self, constraints) -> Tensor:
         """``max_j (c_j - b_j)`` over all groups, using the declared bounds."""
         flat = self._gather_constraints(constraints).detach()
