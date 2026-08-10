@@ -1,17 +1,21 @@
-import torch
-from torch.nn import Parameter
-from torch.optim import Optimizer
-from typing import Any, Tuple, Callable
-from torch import clamp_, Tensor
-from .barrier import quad_log, quad_log_der, quad_recipr, quad_recipr_der
-import numpy as np
+import warnings
 
-class PBM(Optimizer):
+import torch
+import torch.distributed as dist
+from torch.nn import Parameter
+from typing import Any, Optional, Tuple
+from torch import clamp_, Tensor
+
+from .barrier import quad_log, quad_log_der, quad_recipr, quad_recipr_der
+from .base import DualOptimizer
+
+
+class PBM(DualOptimizer):
     def __init__(
         self,
         m: int = None,
         penalty_mult: float = 0.1,
-        gamma: float = 0.1, 
+        gamma: float = 0.1,
         delta: float = 1.0,
         penalty_update: str = "dimin_adapt",
         *,
@@ -25,7 +29,8 @@ class PBM(Optimizer):
         gamma_annealing=True,
         penalty_annealing=True,
         epoch_length = None, # set this if gamma_annealing=True,
-        rho = None # only should be set if penalty_update == 'alm'; is equal to the penalty multiplier of the ALM; by default rho = 2.0
+        rho = None, # only should be set if penalty_update == 'alm'; is equal to the penalty multiplier of the ALM; by default rho = 2.0
+        process_group: Optional[dist.ProcessGroup] = None,
     ) -> None:
 
         self.dual_range = dual_range
@@ -43,7 +48,7 @@ class PBM(Optimizer):
             raise ValueError("For gamma / penalty annealing, 'epoch_length' must be set to len(train_loader)!")
 
         # gamma schedule -> 1
-        if self.gamma_annealing: 
+        if self.gamma_annealing:
             def gamma_schedule(step_num, gamma0, k0=None):
                 # (1 - gamma_k) decays like 1/k  ->  gamma_k -> 1, never equals 1
                 # at k=0 returns gamma0; k0 sets how fast it climbs
@@ -53,22 +58,22 @@ class PBM(Optimizer):
             self.gamma_schedule = gamma_schedule
 
         else: # constant schedule - no change in gamma
-            self.gamma_schedule = lambda step_num, gamma0: gamma0 # constant 
+            self.gamma_schedule = lambda step_num, gamma0: gamma0 # constant
 
         # K schedule for annealing penalty changes
         if self.penalty_annealing:
             def K_schedule(step_num, K0):
                 if K0 == 1:
                     return 1.0 # constant
-                
+
                 k0 = 1.0 / (1.0 - K0)
                 return 1.0 - 1.0 / (step_num**0.5 + k0)
-                
+
             self.K_schedule = K_schedule
         else: # constant schedule - no change in gamma
-            self.K_schedule = lambda step_num, K: K # constant 
+            self.K_schedule = lambda step_num, K: K # constant
 
-        params, defaults = self._init_constraint_group(
+        params, settings = self._make_group(
             m,
             penalty_mult,
             penalty_update,
@@ -79,13 +84,18 @@ class PBM(Optimizer):
             dual_range,
             penalty_range,
             primal_update_process_length,
-            rho = rho,
+            rho=rho,
             device=device,
         )
-        super().__init__(params, defaults)
+        super().__init__(
+            [{"params": params, **settings}],
+            self._scalar_defaults(settings),
+            process_group=process_group,
+        )
 
-    @staticmethod
-    def _init_constraint_group(
+    @classmethod
+    def _make_group(
+        cls,
         m: int,
         p_mult: float = None,
         penalty_update: str = None,
@@ -99,82 +109,59 @@ class PBM(Optimizer):
         rho = None,
         device=None,
     ):
+        # Checked before defaulting init_duals below, which would otherwise mask
+        # the "neither m nor init_duals given" error.
         if init_duals is None and m is None:
-            raise ValueError("At least one of`size`,`init_duals` must be set")
+            raise ValueError("At least one of m, init_duals must be set")
 
-        if init_duals is None or isinstance(
-            init_duals, (int, float)
-        ):  # initialize duals if not set or set to scalar
-            init_duals = torch.zeros(m, requires_grad=False, device=device) + (
-                init_duals if isinstance(init_duals, (int, float)) else dual_range[0]
-            )
-        if init_penalties is None or isinstance(
-            init_penalties, (int, float)
-        ):  # initialize penalties if not set or set to scalar
+        # Duals default to the lower end of their range (they must stay strictly
+        # positive), penalties to the upper end of theirs.
+        if init_duals is None:
+            init_duals = dual_range[0]
+        if init_penalties is None or isinstance(init_penalties, (int, float)):
             init_penalties = torch.zeros(m, requires_grad=False, device=device) + (
                 init_penalties
                 if isinstance(init_penalties, (int, float))
                 else penalty_range[1]
             )
 
-        duals = Parameter(init_duals, requires_grad=False)
+        duals, settings = cls._base_group(
+            m, init_duals, dual_range, is_ineq=False, device=device
+        )
         penalties = Parameter(init_penalties, requires_grad=False)
 
-        primal_update_process_length = primal_update_process_length
-
-        if penalty_update == "dimin":
-            penalty_update_f = _update_penalties_dimin
-        elif penalty_update == "dimin_dual":
-            penalty_update_f = _update_penalties_dimin_dual
-        elif penalty_update == "dimin_adapt":
-            penalty_update_f = _update_penalties_adapt
-        elif penalty_update == "const":
-            penalty_update_f = _update_penalties_const
-        elif penalty_update == "aimd":
-            penalty_update_f = _update_penalties_aimd
-        elif penalty_update == "alm":
-            if rho is None:
-                print('----------\n'\
-                      'WARNING: rho parameter is not set for the ALM penalty update.' \
-                        ' By default, rho = 2.0. Set a custom value in the init to hide this message. '\
-                        '\n----------')
-                rho = 2.0
-            if penalty_range[1] <= 10.0:
-                print('----------\n'\
-                        'WARNING: penalty range for ALM penalty update should be large. ' \
-                        'Note that the penalty is in each iteration equal to lambda * rho, ' \
-                        'which can give large numbers in norm. We suggest setting the upper ' \
-                        'range of the penalties to some bigger number. '\
-                        '\n----------')
-
-            penalty_update_f = _update_penalties_alm(rho=rho)
-        elif penalty_update is None:
-            penalty_update_f = None
-        else:
+        if penalty_update is not None and penalty_update not in penalty_updates:
             raise ValueError(f"Unknown penalty update function: {penalty_update}!")
 
-        settings_dict = {
-            "p_mult": p_mult,
-            "penalty_update": penalty_update_f,
-            "delta": delta,
-            "pbf": pbf,
-            "primal_update_process_length": primal_update_process_length,
-        }
-        settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
+        if penalty_update == "alm":
+            if rho is None:
+                warnings.warn(
+                    "rho parameter is not set for the ALM penalty update. "
+                    "By default, rho = 2.0. Set a custom value in the init to "
+                    "hide this message.",
+                    stacklevel=3,
+                )
+                rho = 2.0
+            if penalty_range[1] <= 10.0:
+                warnings.warn(
+                    "penalty range for ALM penalty update should be large. Note "
+                    "that the penalty is in each iteration equal to lambda * rho, "
+                    "which can give large numbers in norm. We suggest setting the "
+                    "upper range of the penalties to some bigger number.",
+                    stacklevel=3,
+                )
 
-        param_group = ([duals, penalties], settings_dict)
-
-        return param_group
-
-    @property
-    def duals(self) -> Tensor:
-        """
-        Returns all dual variables concatenated from all constraint groups.
-
-        :return: Dual variables, concatenated into a single tensor.
-        :rtype: Tensor
-        """
-        return torch.cat([group["params"][0] for group in self.param_groups])
+        settings.update(
+            {
+                "p_mult": p_mult,
+                "penalty_update": penalty_update,
+                "delta": delta,
+                "pbf": pbf,
+                "primal_update_process_length": primal_update_process_length,
+                "rho": rho,
+            }
+        )
+        return [duals, penalties], cls._drop_none(settings)
 
     @property
     def penalties(self) -> Tensor:
@@ -198,6 +185,9 @@ class PBM(Optimizer):
         *,
         momentum: float = None,
         primal_update_process_length: int = 1,
+        rho: float = None,
+        name: str = None,
+        bound: float = None,
     ) -> None:
         """
         Adds an additional group of dual variables with separate hyperparameters and barrier functions.
@@ -206,7 +196,7 @@ class PBM(Optimizer):
         :type m: int
         :param penalty_mult: Multiplier for penalty update (K1 or K2). If None, inherits from parent. For adaptive penalty update, values close to 1 correspond to high "momentum".
         :type penalty_mult: float
-        :param penalty_update: Penalty update strategy; must be one of `dimin`, `dimin_dual`, `dimin_adapt`, `const`. If None, defaults to `dimin`.
+        :param penalty_update: Penalty update strategy; must be one of `dimin`, `dimin_dual`, `dimin_adapt`, `const`, `aimd`, `alm`. If None, inherits from parent.
         :type penalty_update: str
         :param delta: Violation/satisfaction parameter for penalty update. If None, inherits from parent.
         :type delta: float
@@ -216,13 +206,30 @@ class PBM(Optimizer):
         :type init_duals: float | Tensor
         :param init_penalties: Initial values for the penalty variables in this group. Defaults to penalty upper bound for all.
         :type init_penalties: float | Tensor
-        :param momentum: Multiplier for dual parameter update in this group. Values close to 1 correspond to high "momentum". If None, inherits from parent.
+        :param momentum: Deprecated and ignored. The dual smoothing factor `gamma` is a property of the optimizer, not of a group.
         :type momentum: float
         :param primal_update_process_length: Length of the primal update process for this group. If 1 (default), uses original algorithm variant.
         :type primal_update_process_length: int
-        """
+        :param rho: ALM penalty multiplier; only used when `penalty_update='alm'`.
+        :type rho: float
+        :param name: Name for this group, used when passing constraints as a mapping. Defaults to `group<k>`.
+        :type name: str
+        :param bound: Right-hand side of this group's constraints, if any. Only used by :meth:`violation`.
+        :type bound: float
 
-        params, settings_dict = self._init_constraint_group(
+        .. note::
+            The dual and penalty safeguarding ranges are properties of the
+            optimizer and are shared by every group.
+        """
+        if momentum is not None:
+            warnings.warn(
+                "PBM.add_constraint_group(momentum=...) is ignored and will be "
+                "removed; the dual smoothing factor gamma is set on the optimizer.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        params, settings = self._make_group(
             m,
             penalty_mult,
             penalty_update,
@@ -233,233 +240,99 @@ class PBM(Optimizer):
             self.dual_range,
             self.penalty_range,
             primal_update_process_length,
+            rho=rho,
         )
-        param_group_dict = {"params": params, **settings_dict}
-        self.add_param_group(param_group_dict)
+        if bound is not None:
+            settings["bound"] = bound
+        if name is not None:
+            settings["name"] = name
+        self.add_param_group({"params": params, **settings})
 
-    def update(self, constraints: Tensor) -> None:
+    # ------------------------------------------------------------------ #
+    # hooks
+    # ------------------------------------------------------------------ #
+
+    def _snapshot(self, group: dict[str, Any]) -> Any:
+        """The multipliers and penalties this primal step is entitled to use.
+
+        Copied *before* the dual update: sharing a constraint estimate between the
+        surrogate and the multiplier update correlates the two, which biases the
+        primal gradient.
         """
-        Updates the dual variables and penalties based on the current constraint violations.
+        return (
+            group["params"][0].detach().clone(),
+            group["params"][1].detach().clone(),
+        )
 
-        :param constraints: Tensor of constraint violations.
-        :type constraints: torch.Tensor
-        :return: None
-        :rtype: None
-        """
+    def _should_update(self, group: dict[str, Any]) -> bool:
+        # Enables the variant with several primal steps per dual step.
+        return self.inner_iter + 1 == group["primal_update_process_length"]
 
-        _last_c_group_index = 0
-        for group in self.param_groups:
-            (
-                duals,
-                penalties,
-                p_mult,
-                _update_penalties,
-                delta,
-                pbf,
-                primal_update_process_length,
-            ) = (
-                group["params"][0],
-                group["params"][1],
-                group["p_mult"],
-                group["penalty_update"],
-                group["delta"],
-                group["pbf"],
-                group["primal_update_process_length"],
-            )
-            group_constraints = constraints[_last_c_group_index : _last_c_group_index + len(duals)]
-            _last_c_group_index += len(duals)
+    def _dual_update(self, group: dict[str, Any], c: Tensor) -> None:
+        duals, penalties = group["params"][0], group["params"][1]
+        gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
+        _update_duals(
+            duals,
+            c.div(penalties),
+            penalty_barrier_funcs[group["pbf"]]["d"],
+            gamma,
+        )
 
-            # update the duals only if the inner loop ended
-            if (
-                self.inner_iter + 1 == primal_update_process_length
-            ): 
-                
-                cdivp = group_constraints.div(penalties)
+    def _post_update(self, group: dict[str, Any], c: Tensor) -> None:
+        duals, penalties = group["params"][0], group["params"][1]
+        pbf = group["pbf"]
+        # Computed against the pre-update penalties, which _update_penalties then
+        # overwrites in place.
+        cdivp = c.div(penalties)
+        p_mult = self.K_schedule(self.epoch_counter, group["p_mult"])
+        penalty_updates[group["penalty_update"]](
+            penalties,
+            p_mult,
+            duals,
+            penalty_barrier_funcs[pbf]["d"](c),
+            group["delta"],
+            cdivp,
+            rho=group.get("rho", 2.0),
+        )
+        clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
-                # update gamma and K
-                gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
-                p_mult = self.K_schedule(self.epoch_counter, p_mult)
+    def _add_surrogate_terms(
+        self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
+    ) -> None:
+        lam, pen = snapshot
+        pbf_val = penalty_barrier_funcs[group["pbf"]]["f"](c / pen)
+        lagrangian.add_((lam * pen) @ pbf_val)
 
-                with torch.no_grad():
-                    _update_duals(duals, cdivp, penalty_barrier_funcs[pbf]["d"], gamma)
-                    clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                    _update_penalties(
-                        penalties,
-                        p_mult,
-                        duals,
-                        penalty_barrier_funcs[pbf]["d"](group_constraints),
-                        delta,
-                        cdivp,
-                    )
-                    clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
-
-        # update the iter
+    def _end_of_step(self) -> None:
         self.inner_iter = (self.inner_iter + 1) % self.primal_update_process_length
-        
+
         # keep track of the epoch counter only in the case of gamma annealing
         if self.gamma_annealing:
             self.epoch_iter += 1
 
-        # update all iters if gamma annealing
         if self.gamma_annealing and self.epoch_iter == self.epoch_length:
             self.epoch_counter += 1 # increment the epoch
             self.epoch_iter = 0 # reset the counter
 
+    def _extra_state(self) -> dict[str, Any]:
+        return {
+            "dual_range": self.dual_range,
+            "penalty_range": self.penalty_range,
+            # Without these, resuming a checkpoint would restart the gamma / K
+            # annealing schedules from epoch 0.
+            "inner_iter": self.inner_iter,
+            "epoch_iter": self.epoch_iter,
+            "epoch_counter": self.epoch_counter,
+        }
 
-    step = update
-
-    def forward(self, loss: Tensor, constraints: Tensor) -> Tensor:
-        """
-        Computes the Penalty-Barrier Lagrangian value for the given loss and constraints.
-
-        :param loss: Loss (objective function) value.
-        :type loss: torch.Tensor
-        :param constraints: Tensor of constraint violations.
-        :type constraints: torch.Tensor
-        :return: Penalty-Barrier Lagrangian value.
-        :rtype: torch.Tensor
-        """
-
-        lagrangian = torch.zeros_like(loss)
-        lagrangian.add_(loss)
-        start = 0
-        for i, group in enumerate(self.param_groups):
-            duals, penalties, pbf = group["params"][0], group["params"][1], group["pbf"]
-            group_constraints = constraints[start : start + len(duals)]
-            start += len(duals)
-            # calculate lagrangian
-            cdivp = group_constraints.div(penalties)
-            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)
-            lagrangian.add_(duals.mul(penalties) @ pbf_val)
-
-        return lagrangian
-
-    # evaluate the Lagrangian and update the dual variables
-    # TODO: optimize e.g. c/p
-    def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
-        """
-        Evaluates the Penalty-Barrier Lagrangian and updates the dual variables and penalties.
-
-        Combines the computation of the Lagrangian and the update of dual variables and penalties
-        in a single step.
-
-        :param loss: Loss (objective function) value.
-        :type loss: torch.Tensor
-        :param constraints: Tensor of constraint violations.
-        :type constraints: torch.Tensor
-        :return: Penalty-Barrier Lagrangian value.
-        :rtype: torch.Tensor
-        """
-
-        lagrangian = torch.zeros_like(loss)
-        lagrangian.add_(loss)
-        _last_c_group_index = 0
-        for i, group in enumerate(self.param_groups):
-            (
-                duals,
-                penalties,
-                p_mult,
-                _update_penalties,
-                delta,
-                pbf,
-                primal_update_process_length,
-            ) = (
-                group["params"][0],
-                group["params"][1],
-                group["p_mult"],
-                group["penalty_update"],
-                group["delta"],
-                group["pbf"],
-                group["primal_update_process_length"],
-            )
-            group_constraints = constraints[
-                _last_c_group_index : _last_c_group_index + len(duals)
-            ]
-            _last_c_group_index = _last_c_group_index + len(duals)
-
-
-            # compute the lagrangian value - BEFORE THE DUAL UPDATE - otherwise, lagrangian will have a correlated random variables!
-            # snapshot the multipliers/penalties this primal step is entitled to use
-            lam = duals.detach().clone()
-            pen = penalties.detach().clone()          # clone, not just detach
-
-            cdivp = group_constraints / pen
-            pbf_val = penalty_barrier_funcs[pbf]["f"](cdivp)            
-            lagrangian.add_((lam * pen) @ pbf_val)
-
-            # calculate lagrangian
-            if (
-                self.inner_iter + 1 == primal_update_process_length
-            ):  # this enables a second variant of the algorithm
-                # update duals and penalties
-                cdivp_d = cdivp.detach()  # detach to avoid backprop through the dual update
-
-                # update gamma and K is annealing
-                gamma = self.gamma_schedule(self.epoch_counter, self.gamma0)
-                p_mult = self.K_schedule(self.epoch_counter, p_mult)
-
-                with torch.no_grad():
-                    _update_duals(
-                        duals, cdivp_d, penalty_barrier_funcs[pbf]["d"], gamma
-                    )
-                    clamp_(duals, min=self.dual_range[0], max=self.dual_range[1])
-                    _update_penalties(
-                        penalties,
-                        p_mult,
-                        duals,
-                        penalty_barrier_funcs[pbf]["d"](group_constraints),
-                        delta,
-                        cdivp_d,
-                    )
-                    clamp_(
-                        penalties, min=self.penalty_range[0], max=self.penalty_range[1]
-                    )
-
-
-        # update the iter
-        self.inner_iter = (self.inner_iter + 1) % self.primal_update_process_length
-        
-        if self.gamma_annealing:
-            self.epoch_iter += 1
-
-        # update all iters if gamma annealing
-        if self.gamma_annealing and self.epoch_iter == self.epoch_length:
-            self.epoch_counter += 1 # increment the epoch
-            self.epoch_iter = 0 # reset the counter
-
-        return lagrangian
-
-    def state_dict(self) -> dict[str, Any]:
-        """
-        Returns the state of the optimizer as a dictionary, including dual and penalty ranges and all constraint groups.
-
-        :return: Dictionary containing optimizer state with param groups and configuration.
-        :rtype: dict[str, Any]
-        """
-
-        state_dict = super().state_dict()
-        state_dict["state"]["penalty_range"] = self.penalty_range
-        state_dict["state"]["dual_range"] = self.dual_range
-        # save params themselves in state_dict instead of param ID in default PyTorch
-        for id_pg, pg in enumerate(state_dict["param_groups"]):
-            pg["params"] = self.param_groups[id_pg]["params"]
-        return state_dict
-
-    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        """
-        Loads the optimizer state from a dictionary, including ranges and all constraint groups.
-
-        :param state_dict: Dictionary containing optimizer state (as returned by state_dict).
-        :type state_dict: dict[str, Any]
-        :return: None
-        :rtype: None
-        """
-        self.penalty_range = state_dict["state"]["penalty_range"]
-        self.dual_range = state_dict["state"]["dual_range"]
-        params = state_dict["param_groups"]
-        self.param_groups = []
-        for param in params:
-            self.param_groups.append(param)
+    def _load_extra_state(self, state: dict[str, Any]) -> None:
+        self.dual_range = state["dual_range"]
+        self.penalty_range = state["penalty_range"]
+        # .get() so that checkpoints written before the counters were persisted
+        # still load.
+        self.inner_iter = state.get("inner_iter", self.inner_iter)
+        self.epoch_iter = state.get("epoch_iter", self.epoch_iter)
+        self.epoch_counter = state.get("epoch_counter", self.epoch_counter)
 
 
 penalty_barrier_funcs = {
@@ -469,12 +342,17 @@ penalty_barrier_funcs = {
 
 
 def _update_duals(
-    duals: Tensor, cdivp: Tensor, pbf_der: Callable, gamma: float
+    duals: Tensor, cdivp: Tensor, pbf_der, gamma: float
 ) -> None:
 
     pbf_der_val = pbf_der(cdivp)
     upd = pbf_der_val.mul(duals)
     duals.mul_(gamma).add_(upd, alpha=1 - gamma)
+
+
+# Every penalty update takes the same arguments so that the strategy can be
+# stored in the param group as a *string* and resolved here; keeping a resolved
+# callable in the group made state dicts pickle a module-level function.
 
 
 def _update_penalties_const(
@@ -483,28 +361,25 @@ def _update_penalties_const(
     duals: Tensor = None,
     phi_der: Tensor = None,
     delta: float = None,
-    cdivp: Tensor = None
+    cdivp: Tensor = None,
+    rho: float = None,
     ):
 
     pass
 
 
 def _update_penalties_alm(
-    rho: float = 2.0 # penalty parameter of the ALM
+    penalties: Tensor,
+    p_mult: Tensor = None,
+    duals: Tensor = None,
+    phi_der: Tensor = None,
+    delta: float = None,
+    cdivp: Tensor = None,
+    rho: float = 2.0,
     ):
-    
-    def _update_penalties_curry(
-        penalties: Tensor,
-        p_mult: Tensor = None,
-        duals: Tensor = None,
-        phi_der: Tensor = None,
-        delta: float = None,
-        cdivp: Tensor = None
-        ):
-        
-        penalties.copy_(duals * rho) # return the penalty updating that transform SPBM into ALM
 
-    return _update_penalties_curry
+    penalties.copy_(duals * rho) # the penalty update that transforms SPBM into ALM
+
 
 def _update_penalties_dimin(
     penalties: Tensor,
@@ -513,6 +388,7 @@ def _update_penalties_dimin(
     phi_der: Tensor = None,
     delta: float = None,
     cdivp: Tensor = None,
+    rho: float = None,
 ):
     penalties.mul_(p_mult)
 
@@ -524,6 +400,7 @@ def _update_penalties_adapt(
     phi_der: Tensor,
     delta: float,
     cdivp: Tensor = None,
+    rho: float = None,
 ):
     d_phd = torch.where(phi_der < 1.0, phi_der, delta * phi_der)
     b = (1 - p_mult) * penalties / (d_phd + 1e-8)
@@ -537,6 +414,7 @@ def _update_penalties_aimd(
     phi_der: Tensor,
     delta: float,
     cdivp: Tensor,
+    rho: float = None,
 ):
     p_add_rate = 0.1
     p_upd_add = torch.where(cdivp <= 0.0, p_add_rate, 0.0)
@@ -551,17 +429,33 @@ def _update_penalties_dimin_dual(
     phi_der: Tensor = None,
     delta: float = None,
     cdivp: Tensor = None,
+    rho: float = None,
 ):
     penalties.mul_(p_mult).mul_(duals)
+
+
+penalty_updates = {
+    "const": _update_penalties_const,
+    "dimin": _update_penalties_dimin,
+    "dimin_dual": _update_penalties_dimin_dual,
+    "dimin_adapt": _update_penalties_adapt,
+    "aimd": _update_penalties_aimd,
+    "alm": _update_penalties_alm,
+}
 
 
 PBM.__doc__ = (
 
     r"""
-    A Dual Optimizer that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2605.18618
-    
+    A Dual Optimizer that works on the dual maximization tasks according to the Penalty-Barrier Method rule. Creates and updates dual variables.
+
+    .. math::
+        \mathcal{L}(\theta; \pmb{\lambda}, \mathbf{p}) = f(\theta) + \sum_i \lambda_i p_i \varphi \left( \frac{c_i(\theta)}{p_i} \right)
+
+        \pmb{\lambda}_{t+1} \leftarrow \gamma \pmb{\lambda}_t + (1 - \gamma) \pmb{\lambda}_t \varphi' \left( \frac{\mathbf{c}_t}{\mathbf{p}_t} \right)
+
     .. note::
-        
+
         Natively, this method only supports inequality constraints (see reference). However, it is easy to transform one into the other:
 
         .. math::
@@ -577,7 +471,7 @@ PBM.__doc__ = (
     :type gamma: float
     :param delta: Violation/satisfaction parameter for penalty update; values > 1 make the penalties decrease faster on violated constraints and vice versa.
     :type delta: float
-    :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`dimin_adapt`,`const`. Defaults to`dimin_adapt`.
+    :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`dimin_adapt`,`const`,`aimd`,`alm`. Defaults to`dimin_adapt`.
     :type penalty_update: str
     :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`,`quadratic_reciprocal`
     :type pbf: str
@@ -587,5 +481,25 @@ PBM.__doc__ = (
     :type init_penalties: float | Tensor
     :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
     :type dual_range: Tuple[float, float]
+    :param penalty_range: Safeguarding range for penalty variables; they will be`clamp`-ed to this range.
+    :type penalty_range: Tuple[float, float]
+    :param primal_update_process_length: Number of primal steps per dual/penalty update. `1` (default) is the original algorithm.
+    :type primal_update_process_length: int
+    :param gamma_annealing: Whether to anneal `gamma` towards 1 over epochs. Requires `epoch_length`.
+    :type gamma_annealing: bool
+    :param penalty_annealing: Whether to anneal the penalty multiplier towards 1 over epochs. Requires `epoch_length`.
+    :type penalty_annealing: bool
+    :param epoch_length: `len(train_loader)`; required when either annealing option is enabled.
+    :type epoch_length: int
+    :param rho: ALM penalty multiplier; only used when `penalty_update='alm'`, where it reduces this method to the Augmented Lagrangian.
+    :type rho: float
+    :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
+    :type process_group: dist.ProcessGroup, optional
+
+    .. note::
+        Constraint values may be passed to :meth:`forward` / :meth:`update` /
+        :meth:`forward_update` as a flat tensor, as one tensor per constraint
+        group, or as a mapping from group name to tensor. See
+        :meth:`~humancompatible.train.dual_optim.base.DualOptimizer._gather_constraints`.
     """
 )
