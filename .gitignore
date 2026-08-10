@@ -206,3 +206,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+# Paper experiment artifacts: re-included despite the *.csv / *.png rules above,
+# so the reproducibility artifact can be committed alongside the scripts.
+!paper/results/**
