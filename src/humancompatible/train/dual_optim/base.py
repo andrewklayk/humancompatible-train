@@ -294,8 +294,9 @@ class DualOptimizer(Optimizer, abc.ABC):
 
         lagrangian = None
         if loss is not None:
-            lagrangian = torch.zeros_like(loss)
-            lagrangian.add_(loss)
+            base = self._initial_surrogate(loss, constraints, constraints_for_update)
+            lagrangian = torch.zeros_like(base)
+            lagrangian.add_(base)
 
         offset = 0
         for group in self.param_groups:
@@ -412,6 +413,24 @@ class DualOptimizer(Optimizer, abc.ABC):
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
         """Add this group's constraint-dependent surrogate terms, in place."""
+
+    def _initial_surrogate(
+        self, loss: Tensor, constraints: Tensor, constraints_for_update: Tensor
+    ) -> Tensor:
+        """The term the surrogate starts from, before per-group terms are added.
+
+        Defaults to the objective, which is what every multiplier method wants.
+        Switching methods, whose surrogate *replaces* the objective rather than
+        augmenting it, override this instead of adding per-group terms.
+
+        Both constraint tensors are supplied because a switching method needs
+        each for a different purpose: any *decision* must be taken on
+        ``constraints_for_update`` so that data-parallel replicas agree on it,
+        while the returned tensor must be built from the local ``constraints`` so
+        that autograd still flows through this rank's data. Outside a process
+        group the two are the same tensor.
+        """
+        return loss
 
     def _snapshot(self, group: dict[str, Any]) -> Any:
         """What the surrogate may use; by default the live (post-update) duals."""
