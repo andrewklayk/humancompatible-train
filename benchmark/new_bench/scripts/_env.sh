@@ -5,12 +5,18 @@
 # Assumes the working directory is benchmark/new_bench/ (run.py, multirun/, and
 # ../env_humancompatible are relative to it -- same convention as scripts/E3.sh).
 
-# Cluster modules (skipped off-cluster, e.g. a local conda env, where `ml` is absent).
+# Cluster modules (skipped off-cluster, e.g. a local conda env, where ml is absent).
 if command -v ml >/dev/null 2>&1; then
   ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
   ml Hydra/1.3.2-GCCcore-14.3.0
   ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
   ml Optuna/4.6.0-foss-2025b
+  source env_empty/bin/activate
+  pip install ../../
+  pip install folktables
+  pip install fairret
+  pip install fairml-datasets
+  pip install scikit-learn
 fi
 
 
@@ -18,7 +24,7 @@ fi
 # the submitit CHILD jobs, where it collides with the launcher's --mem-per-cpu:
 #   srun: fatal: SLURM_MEM_PER_CPU, SLURM_MEM_PER_GPU, and SLURM_MEM_PER_NODE are
 #   mutually exclusive.
-# Clear them here (sourced before any `run.py -m`) so each child sets its OWN memory
+# Clear them here (sourced before any run.py -m) so each child sets its OWN memory
 # from conf/hydra/launcher/slurm_gpu.yaml (mem_per_cpu). This does NOT change the
 # driver's own already-granted allocation -- it only stops the leak into children.
 unset SLURM_MEM_PER_NODE SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU
@@ -42,10 +48,10 @@ python3 -m pip install -q hydra-submitit-launcher
 : "${N_FOLDS:=5}"
 : "${CV_SEED:=0}"
 # Training length. NOTE: this only sets the default value -- for it to reach a run,
-# each driver must pass it as a Hydra override on its `run.py -m` line
-# (`n_epochs=${N_EPOCHS}`). A bare env var is NOT auto-applied by Hydra.
+# each driver must pass it as a Hydra override on its run.py -m line
+# (n_epochs=${N_EPOCHS}). A bare env var is NOT auto-applied by Hydra.
 : "${N_EPOCHS:=40}"
-: "${LAUNCHER:=slurm_gpu}"    # set LAUNCHER=local to drop the launcher (local run)
+: "${LAUNCHER:=slurm_h200fast}"    # set LAUNCHER=local to drop the launcher (local run)
 
 # Optional launcher override (omitted when LAUNCHER=local / empty).
 LAUNCHER_ARG=""
@@ -58,14 +64,14 @@ fi
 # opt drivers loop only init_seed outside the -m call; the FULL grid (lr included) is
 # swept INSIDE each -m, so hydra.job.num is unique per config and runs never overwrite.
 #
-# SLURM LIMITS. submitit submits ONE job array per `run.py -m` call (one task per grid
+# SLURM LIMITS. submitit submits ONE job array per run.py -m call (one task per grid
 # point), so a grid must stay under both:
-#   - MaxArraySize    (`scontrol show config | grep MaxArraySize`, e.g. 1001), and
-#   - the QOS submit cap (queued+running jobs). NOTE `array_parallelism`/`%N` throttles
+#   - MaxArraySize    (scontrol show config | grep MaxArraySize, e.g. 1001), and
+#   - the QOS submit cap (queued+running jobs). NOTE array_parallelism/%N throttles
 #     RUNNING tasks but does NOT relieve the submit cap -- pending array tasks still count.
 # Current opt grids are small (adam 5, ssg 50, alm_proj 100, pbm 100), well under both.
 # If you enlarge a grid past a limit, peel its biggest axis into an outer shell loop
 # (remove that line from conf/sweep/<algo>.yaml and pass it as a scalar override, e.g.
-# `for lr in 0.001 0.01; do run.py -m +sweep=pbm ... algorithm.primal.lr=$lr; done`).
+# for lr in 0.001 0.01; do run.py -m +sweep=pbm ... algorithm.primal.lr=$lr; done).
 # Peeled chunks are collision-safe automatically: the multirun subdir is a per-config
 # hash (conf/config.yaml -> run.py:_hp_hash), so every distinct config gets its own dir.

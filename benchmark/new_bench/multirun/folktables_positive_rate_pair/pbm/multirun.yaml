@@ -15,7 +15,7 @@ hydra:
     name: ${hydra.job.name}
     stderr_to_stdout: false
     _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
-    partition: amdgpu
+    partition: h200fast
     qos: null
     comment: null
     constraint: null
@@ -24,13 +24,13 @@ hydra:
     cpus_per_gpu: null
     gpus_per_task: null
     mem_per_gpu: null
-    mem_per_cpu: 60G
+    mem_per_cpu: 12G
     account: null
     signal_delay_s: 120
     max_num_timeout: 0
     additional_parameters:
       gres: gpu:1
-    array_parallelism: 99
+    array_parallelism: 199
     setup: null
   sweeper:
     _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
@@ -145,19 +145,19 @@ hydra:
   output_subdir: .hydra
   overrides:
     hydra:
-    - hydra/launcher=slurm_gpu
+    - hydra/launcher=slurm_h200fast
     - hydra.mode=MULTIRUN
     task:
     - +sweep=pbm
     - data=income
     - task=folktables_positive_rate_pair
     - approach=opt
-    - init_seed=4
-    - n_epochs=40
+    - init_seed=1
+    - n_epochs=1
   job:
     name: run
     chdir: false
-    override_dirname: +sweep=pbm,approach=opt,data=income,init_seed=4,n_epochs=40,task=folktables_positive_rate_pair
+    override_dirname: +sweep=pbm,approach=opt,data=income,init_seed=1,n_epochs=1,task=folktables_positive_rate_pair
     id: ???
     num: ???
     config_name: config
@@ -171,12 +171,12 @@ hydra:
   runtime:
     version: 1.3.2
     version_base: '1.3'
-    cwd: /mnt/personal/kliacand/humancompatible-train/benchmark/new_bench
+    cwd: /home/bosakad1/humancompatible-train/benchmark/new_bench
     config_sources:
     - path: hydra.conf
       schema: pkg
       provider: hydra
-    - path: /mnt/personal/kliacand/humancompatible-train/benchmark/new_bench/conf
+    - path: /home/bosakad1/humancompatible-train/benchmark/new_bench/conf
       schema: file
       provider: main
     - path: ''
@@ -195,7 +195,7 @@ hydra:
       hydra/hydra_help: default
       hydra/help: default
       hydra/sweeper: basic
-      hydra/launcher: slurm_gpu
+      hydra/launcher: slurm_h200fast
       hydra/output: default
   verbose: false
 data:
@@ -244,11 +244,11 @@ algorithm:
     gamma_annealing: true
     penalty_annealing: true
     primal_update_process_length: 1
-n_epochs: 40
+n_epochs: 1
 verbose: true
 approach: opt
 opt_eval_size: 5000
-init_seed: 4
+init_seed: 1
 cv_seed: 0
 n_folds: 5
 fold: 0
