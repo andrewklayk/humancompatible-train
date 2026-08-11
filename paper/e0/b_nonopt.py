@@ -24,8 +24,9 @@ Two independent things are being measured, and they should not be conflated:
    * ``point_set_options["size_factor"]``: pruning keeps
      ``int(min(size_factor * n, size_maximum))`` points, which at ``n = 50`` with
      the default ``0.05`` is **two** — and for ``n < 20`` it is **zero**, i.e. the
-     bundle is emptied every step. This is likely the largest single deviation
-     from the reference at this dimension, so ``size_factor`` is swept.
+     bundle is emptied every step. Swept because that looked like it had to matter.
+     It does not: see Q4, which this experiment falsified. Of the two, only
+     ``inverse_hessian`` costs anything.
 
 Three implementation facts, all found by reading the code, are worked around here
 rather than papered over — and they are reported, since a user of the package will
@@ -405,7 +406,7 @@ def main(argv=None) -> None:
     checks = Checks(enabled=args.check)
     if not args.quick and not args.problems and n == DIMENSION:
         register_predictions(checks, records)
-    main_exit(checks)
+    main_exit(checks, EXPERIMENT, "e0b_predictions")
 
 
 if __name__ == "__main__":

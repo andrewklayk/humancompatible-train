@@ -1,0 +1,56 @@
+# e0a: registered predictions
+
+- **PASS** — P1: ALM (rho=1) reaches ||y-y*||inf <= 0.0001 on qp_active
+  - got 1.132e-14
+- **PASS** — P1: ALM (rho=1) reaches ||y-y*||inf <= 0.0001 on qp_inactive
+  - got 1.776e-15
+- **PASS** — P1: ALM (rho=1) reaches ||y-y*||inf <= 0.0001 on svm_iris
+  - got 3.042e-14
+- **PASS** — P1: nuPI (rho=0) reaches ||y-y*||inf <= 0.0001 on qp_active
+  - got 4.663e-15
+- **PASS** — P1: nuPI (rho=0) reaches ||y-y*||inf <= 0.0001 on qp_inactive
+  - got 1.332e-15
+- **PASS** — P1: nuPI (rho=0) reaches ||y-y*||inf <= 0.0001 on svm_iris
+  - got 9.812e-07
+- **PASS** — P2: ALM (rho=0) reaches ||y-y*||inf <= 0.0001 on qp_active (strongly convex primal)
+  - got 1.288e-14
+- **PASS** — P2: ALM (rho=0) reaches ||y-y*||inf <= 0.0001 on qp_inactive (strongly convex primal)
+  - got 1.998e-15
+- **PASS** — P2: on svm_iris, whose Lagrangian is bilinear in the bias, ALM (rho=0) does worse than ALM (rho=1)
+  - rho=0 9.812e-07 vs rho=1 3.042e-14
+- **PASS** — P3: PBM reaches 0.0001 on qp_active, where every y*_i > 0
+  - got 5.107e-15
+- **PASS** — P3: PBM floors near its dual_range lower bound on qp_inactive
+  - ||y-y*||inf 1.000e-04, smallest dual 1.000e-04
+- **PASS** — P3: PBM floors near its dual_range lower bound on svm_iris
+  - ||y-y*||inf 3.378e-03, smallest dual 1.000e-04
+- **KNOWN-FALSE** — P4: iALM cannot drop its quadratic term, so its best beta does not match ALM (rho=1) on svm_iris
+  - beta=0.1: 2.054e-15; beta=1: 1.887e-14; beta=10: 6.043e-03; ALM(rho=1) 3.042e-14
+  - *known false:* withdrawn, as the plan's own conditional required: at beta=0.1 iALM matches ALM(rho=1) (both at machine precision), so the beta coupling is benign at small beta and only bites at beta=10. An earlier version of this experiment drove the loop with forward() + update() instead of forward_update(), under which iALM did look consistently worse -- that apparent finding was an artifact of the non-canonical call ordering, not a property of the method. The surviving claim is the monotonicity below.
+- **PASS** — P4: iALM's final multiplier error varies monotonically with beta on svm_iris
+  - beta=0.1: 2.054e-15; beta=1: 1.887e-14; beta=10: 6.043e-03
+- **KNOWN-FALSE** — P5a: every method ends feasible (max [c]+ <= 1e-6) on every convex problem
+  - svm_iris/ALM (rho=10): 4.12e-05; svm_iris/iALM (beta=10): 3.53e-05
+  - *known false:* the blanket form is subsumed by P1/P2/P6: a configuration that has not converged is not feasible either, so this only restates their failures. The claim with content is P5b.
+- **PASS** — P5b: on qp_active, every method that recovered y* is also feasible to 1e-8 (feasibility and multiplier accuracy arrive together)
+- **PASS** — P5b: on qp_inactive, every method that recovered y* is also feasible to 1e-8 (feasibility and multiplier accuracy arrive together)
+- **KNOWN-FALSE** — P5b: on svm_iris, every method that recovered y* is also feasible to 1e-8 (feasibility and multiplier accuracy arrive together)
+  - ALM (rho=0): 5.64e-08; nuPI (rho=0): 5.64e-08
+  - *known false:* the two thresholds were picked independently and are not comparable: 1e-4 on ||y-y*|| against 1e-8 on the violation demands feasibility be ten thousand times tighter, which nothing in the claim justifies. The configurations that trip it clear the multiplier bar only marginally (9.8e-07) and are correspondingly marginally feasible (5.6e-08) -- comparable magnitudes, so the claim holds in substance and it is the asymmetric thresholds that are wrong.
+- **KNOWN-FALSE** — P6: on qp_nonconvex exactly the configurations whose quadratic coefficient exceeds -lambda_min(Q) = 2.2 stay bounded
+  - bounded: ['ALM (rho=1)', 'ALM (rho=10)', 'iALM (beta=10)', 'nuPI (rho=0)', 'nuPI (rho=1)']; solved: ['ALM (rho=10)', 'iALM (beta=10)', 'nuPI (rho=1)']; expected: ['ALM (rho=10)', 'iALM (beta=10)']
+  - *known false:* the reasoning was wrong twice over. (i) 'Bounded' was the wrong test: ALM(rho=1) stays finite at violation 36, which is bounded and useless. (ii) The rho > -lambda_min(Q) argument only bounds the surrogate at *fixed* y, and the duals are not fixed -- rising multipliers can hold the iterates in the box even where the surrogate is nonconvex. nuPI(rho=0) settles this outright: with no quadratic term at all it stays bounded. See P6b for what the data does support.
+- **PASS** — P6b: a quadratic coefficient above -lambda_min(Q) = 2.2 is *sufficient* to reach a KKT point on qp_nonconvex
+  - solved: ['ALM (rho=10)', 'iALM (beta=10)', 'nuPI (rho=1)']
+- **PASS** — P6b: ... but not *necessary* -- some configuration below 2.2 also reaches one, so convexifying the surrogate is not what makes this work
+  - solved with a coefficient below 2.2: ['nuPI (rho=1)']
+- **PASS** — P7: nuPI(kp=0) is bitwise identical to ALM(rho=0, lr=0.01) on qp_active — the same recursion through two implementations
+- **PASS** — P7: nuPI(kp=0) is bitwise identical to ALM(rho=0, lr=0.01) on qp_inactive — the same recursion through two implementations
+- **PASS** — P7: nuPI(kp=0) is bitwise identical to ALM(rho=0, lr=0.01) on svm_iris — the same recursion through two implementations
+- **PASS** — P7: nuPI(kp=0) is bitwise identical to ALM(rho=0, lr=0.01) on qp_nonconvex — the same recursion through two implementations
+- **PASS** — P8: nuPI(rho=1) reaches ||y-y*||inf <= 0.0001 on qp_active, so the svm_iris obstruction is the missing curvature in the bias and not the PI dual rule
+  - got 6.661e-15
+- **PASS** — P8: nuPI(rho=1) reaches ||y-y*||inf <= 0.0001 on qp_inactive, so the svm_iris obstruction is the missing curvature in the bias and not the PI dual rule
+  - got 1.110e-15
+- **PASS** — P8: nuPI(rho=1) reaches ||y-y*||inf <= 0.0001 on svm_iris, so the svm_iris obstruction is the missing curvature in the bias and not the PI dual rule
+  - got 5.745e-15 (nuPI(rho=0): 9.812e-07, ALM(rho=1): 3.042e-14)

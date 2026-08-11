@@ -196,21 +196,24 @@ class Checks:
         self.results.append((bool(ok), claim, detail, known_false))
         return bool(ok)
 
+    def _marks(self):
+        for ok, claim, detail, known_false in self.results:
+            if known_false is None:
+                mark = "PASS" if ok else "FAIL"
+            elif ok:
+                mark = "UNEXPECTED-PASS"
+            else:
+                mark = "KNOWN-FALSE"
+            yield mark, ok, claim, detail, known_false
+
     def report(self) -> int:
         """Print every registered expectation; return a process exit code."""
         if not self.results:
             return 0
         failures = 0
         print("\nPredictions:")
-        for ok, claim, detail, known_false in self.results:
-            if known_false is None:
-                mark = "PASS" if ok else "FAIL"
-                failures += not ok
-            elif ok:
-                mark = "UNEXPECTED-PASS"
-                failures += 1
-            else:
-                mark = "KNOWN-FALSE"
+        for mark, _, claim, detail, known_false in self._marks():
+            failures += mark in ("FAIL", "UNEXPECTED-PASS")
             print(f"  [{mark}] {claim}")
             if detail:
                 print(f"         {detail}")
@@ -223,7 +226,31 @@ class Checks:
             print(f"\n{failures} prediction(s) failed (--check not set, exiting 0).")
         return 0
 
+    def write(self, experiment: str, name: str) -> Optional[Path]:
+        """Persist the evaluated predictions alongside the numeric artifacts.
 
-def main_exit(checks: Checks) -> None:
-    """Report checks and exit with the appropriate status."""
-    sys.exit(checks.report())
+        Without this the predictions live only in a terminal scrollback, which
+        makes the reproducibility bundle strictly less informative than the run:
+        the tables say what happened, this says what was *expected* to happen.
+        """
+        if not self.results:
+            return None
+        lines = [f"# {experiment}: registered predictions", ""]
+        for mark, _, claim, detail, known_false in self._marks():
+            lines.append(f"- **{mark}** — {claim}")
+            if detail:
+                lines.append(f"  - {detail}")
+            if known_false:
+                lines.append(f"  - *known false:* {known_false}")
+        path = _dir(experiment) / f"{name}.md"
+        path.write_text("\n".join(lines) + "\n")
+        print(f"  checks -> {_display(path)}")
+        return path
+
+
+def main_exit(checks: Checks, experiment: str = None, name: str = None) -> None:
+    """Report checks, persist them if asked, and exit with the right status."""
+    code = checks.report()
+    if experiment and name:
+        checks.write(experiment, name)
+    sys.exit(code)

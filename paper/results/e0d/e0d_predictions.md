@@ -1,0 +1,63 @@
+# e0d: registered predictions
+
+- **PASS** — D1: duals are bitwise identical on every rank, for every method and both constraint types
+  - 0 of 60 configurations disagree
+- **PASS** — D5: duals round-trip through state_dict on every rank
+- **PASS** — D2: ALM (rho=0) on a mean-type constraint matches 1 x 32 after 1 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 2.58e-17
+- **PASS** — D2: nuPI on a mean-type constraint matches 1 x 32 after 1 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 2.58e-17
+- **PASS** — D2: ALM (rho=0) on a mean-type constraint matches 1 x 32 after 20 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 9.22e-17
+- **PASS** — D2: nuPI on a mean-type constraint matches 1 x 32 after 20 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 2.31e-17
+- **PASS** — D2: ALM (rho=0) on a mean-type constraint matches 1 x 128 after 1 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 0.00e+00
+- **PASS** — D2: nuPI on a mean-type constraint matches 1 x 128 after 1 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 0.00e+00
+- **PASS** — D2: ALM (rho=0) on a mean-type constraint matches 1 x 128 after 20 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 6.09e-17
+- **PASS** — D2: nuPI on a mean-type constraint matches 1 x 128 after 20 step(s) (surrogate linear in c)
+  - dual 3.33e-16, param 1.22e-16
+- **PASS** — D2: ALM (rho=0) on a mean-type constraint matches 1 x 512 after 1 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 5.20e-17
+- **PASS** — D2: nuPI on a mean-type constraint matches 1 x 512 after 1 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 5.20e-17
+- **PASS** — D2: ALM (rho=0) on a mean-type constraint matches 1 x 512 after 20 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 1.89e-16
+- **PASS** — D2: nuPI on a mean-type constraint matches 1 x 512 after 20 step(s) (surrogate linear in c)
+  - dual 0.00e+00, param 1.89e-16
+- **PASS** — D3: after one step ALM (rho=1)'s duals match 1 x 32 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 0.00e+00
+- **PASS** — D3: after one step iALM's duals match 1 x 32 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 0.00e+00
+- **PASS** — D3: after one step PBM's duals match 1 x 32 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 0.00e+00
+- **PASS** — D3: after one step ALM (rho=1)'s duals match 1 x 128 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 0.00e+00
+- **PASS** — D3: after one step iALM's duals match 1 x 128 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 1.80e-16
+- **PASS** — D3: after one step PBM's duals match 1 x 128 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 0.00e+00
+- **PASS** — D3: after one step ALM (rho=1)'s duals match 1 x 512 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 0.00e+00
+- **PASS** — D3: after one step iALM's duals match 1 x 512 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 1.68e-16
+- **PASS** — D3: after one step PBM's duals match 1 x 512 exactly — the dual update only ever sees the reduced constraint vector
+  - dual 0.00e+00
+- **PASS** — D3: after one step the parameters already differ, because mean_r ||[c_r]_+||^2 != ||[mean_r c_r]_+||^2
+  - ALM (rho=1) 4.16e-04; iALM 4.16e-04; PBM 4.14e-08; ALM (rho=1) 4.00e-06; iALM 4.00e-06; PBM 3.99e-10; ALM (rho=1) 2.29e-05; iALM 2.29e-05; PBM 2.28e-09
+- **PASS** — D3: over 20 steps that primal discrepancy propagates into the duals through the constraint values
+  - ALM (rho=1) 3.48e-06; iALM 3.88e-05; PBM 1.91e-08; ALM (rho=1) 2.17e-06; iALM 6.36e-06; PBM 1.80e-08; ALM (rho=1) 1.24e-05; iALM 2.80e-05; PBM 2.26e-07
+- **PASS** — D4: no method reproduces the pooled-batch parameters under a ratio-type constraint, because the average of per-rank ratios is not the pooled ratio
+  - smallest param gap 1.10e-08
+- **PASS** — D4: ALM (rho=0)'s ratio-type gap shrinks as the per-rank batch grows
+  - b=16: 9.05e-03; b=64: 4.14e-03; b=256: 3.84e-04
+- **PASS** — D4: ALM (rho=1)'s ratio-type gap shrinks as the per-rank batch grows
+  - b=16: 9.05e-03; b=64: 4.14e-03; b=256: 3.84e-04
+- **PASS** — D4: nuPI's ratio-type gap shrinks as the per-rank batch grows
+  - b=16: 8.73e-03; b=64: 4.07e-03; b=256: 3.78e-04
+- **PASS** — D4: iALM's ratio-type gap shrinks as the per-rank batch grows
+  - b=16: 1.55e-03; b=64: 6.28e-04; b=256: 8.29e-05
+- **PASS** — D4: PBM's ratio-type gap shrinks as the per-rank batch grows
+  - b=16: 5.45e-06; b=64: 1.38e-06; b=256: 2.66e-07

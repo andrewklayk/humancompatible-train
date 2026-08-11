@@ -1,0 +1,37 @@
+# e0b: registered predictions
+
+- **PASS** — Q1: some configuration reaches f* on maxq
+  - best rel gap 2.324e-05 via gradient/limited_memory/size_factor=0.05, status=stationary
+- **PASS** — Q2: maxq is convex, so reaching f* is expected
+  - best rel gap 2.324e-05 via gradient/limited_memory/size_factor=0.05, status=stationary
+- **PASS** — Q1: some configuration reaches f* on mxhilb
+  - best rel gap 3.595e-08 via gradient_combination/limited_memory/size_factor=0.05, status=objective_similarity
+- **PASS** — Q2: mxhilb is convex, so reaching f* is expected
+  - best rel gap 3.595e-08 via gradient_combination/limited_memory/size_factor=0.05, status=objective_similarity
+- **PASS** — Q1: some configuration reaches f* on chained_lq
+  - best rel gap 2.694e-07 via gradient/dense/size_factor=0.05, status=objective_similarity
+- **PASS** — Q2: chained_lq is convex, so reaching f* is expected
+  - best rel gap 2.694e-07 via gradient/dense/size_factor=0.05, status=objective_similarity
+- **PASS** — Q1: some configuration reaches f* on chained_cb3_1
+  - best rel gap 5.143e-06 via gradient_combination/dense/size_factor=0.05, status=objective_similarity
+- **PASS** — Q2: chained_cb3_1 is convex, so reaching f* is expected
+  - best rel gap 5.143e-06 via gradient_combination/dense/size_factor=0.05, status=objective_similarity
+- **PASS** — Q1: some configuration reaches f* on chained_cb3_2
+  - best rel gap 9.801e-10 via gradient_combination/limited_memory/size_factor=2.0, status=objective_similarity
+- **PASS** — Q2: chained_cb3_2 is convex, so reaching f* is expected
+  - best rel gap 9.801e-10 via gradient_combination/limited_memory/size_factor=2.0, status=objective_similarity
+- **PASS** — Q1: some configuration reaches f* on active_faces
+  - best rel gap 7.735e-12 via cutting_plane/limited_memory/size_factor=0.05, status=stationary
+- **PASS** — Q1: some configuration reaches f* on brown_2
+  - best rel gap 1.730e-07 via gradient/dense/size_factor=0.05, status=objective_similarity
+- **PASS** — Q1: some configuration reaches f* on chained_mifflin_2
+  - best rel gap 1.572e-04 via gradient_combination/dense/size_factor=0.4, status=objective_similarity
+- **PASS** — Q1: some configuration reaches f* on chained_crescent_1
+  - best rel gap 3.533e-11 via cutting_plane/limited_memory/size_factor=0.05, status=stationary
+- **PASS** — Q1: some configuration reaches f* on chained_crescent_2
+  - best rel gap 2.179e-06 via gradient/limited_memory/size_factor=0.05, status=objective_similarity
+- **PASS** — Q3: dense (the reference-matching setting) beats the shipped limited_memory default on the median relative gap
+  - dense 1.529e-06 vs limited_memory 1.904e-05
+- **KNOWN-FALSE** — Q4: size_factor=2.0 beats the shipped 0.05 (which keeps only 2 bundle points at n=50)
+  - 2.0: 4.253e-06 vs 0.05: 3.065e-06; the shipped default wins on 8 of 10 problems
+  - *known false:* the measurement stands; the inference behind the prediction did not. 'Two bundle points must be too few' was asserted from the pruning arithmetic alone, with no evidence that bundle size is what limits accuracy here — and it is not: a larger point set is slightly worse. Why is NOT established by this experiment. One untested possibility is that a larger bundle retains gradients from more distant iterates, which the direction QP then averages; establishing that would need the per-iteration bundle contents, which the experiment does not record. What the data does support: the shipped default is not the deviation from the reference configuration that costs anything -- inverse_hessian (Q3) is.

@@ -1,0 +1,181 @@
+problem,convex,direction,reference algorithm,inverse_hessian,size_factor,point set limit,iterations,closure calls,status,f(x0),f final,f*,f* source,rel gap,effective tol,final radius
+maxq,True,gradient,SVANO-BFGS,dense,0.05,2,257,648,objective_similarity,2500.0,6.789185994751358e-05,0.0,closed form,6.789185994751358e-05,0.01,0.0001
+maxq,True,gradient,SVANO-BFGS,dense,0.4,20,257,648,objective_similarity,2500.0,6.789185994751358e-05,0.0,closed form,6.789185994751358e-05,0.01,0.0001
+maxq,True,gradient,SVANO-BFGS,dense,2.0,100,257,648,objective_similarity,2500.0,6.789185994751358e-05,0.0,closed form,6.789185994751358e-05,0.01,0.0001
+maxq,True,gradient,SVANO-BFGS,limited_memory,0.05,2,251,896,stationary,2500.0,2.3238180894994344e-05,0.0,closed form,2.3238180894994344e-05,0.01,0.0001
+maxq,True,gradient,SVANO-BFGS,limited_memory,0.4,20,251,896,stationary,2500.0,2.3238180894994344e-05,0.0,closed form,2.3238180894994344e-05,0.01,0.0001
+maxq,True,gradient,SVANO-BFGS,limited_memory,2.0,100,251,896,stationary,2500.0,2.3238180894994344e-05,0.0,closed form,2.3238180894994344e-05,0.01,0.0001
+maxq,True,cutting_plane,SVANO-Bundle,dense,0.05,2,257,908,objective_similarity,2500.0,6.789185994751358e-05,0.0,closed form,6.789185994751358e-05,0.01,0.0001
+maxq,True,cutting_plane,SVANO-Bundle,dense,0.4,20,257,908,objective_similarity,2500.0,6.789185994751358e-05,0.0,closed form,6.789185994751358e-05,0.01,0.0001
+maxq,True,cutting_plane,SVANO-Bundle,dense,2.0,100,257,908,objective_similarity,2500.0,6.789185994751358e-05,0.0,closed form,6.789185994751358e-05,0.01,0.0001
+maxq,True,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,251,1152,stationary,2500.0,2.3238180894994344e-05,0.0,closed form,2.3238180894994344e-05,0.01,0.0001
+maxq,True,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,251,1152,stationary,2500.0,2.3238180894994344e-05,0.0,closed form,2.3238180894994344e-05,0.01,0.0001
+maxq,True,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,251,1152,stationary,2500.0,2.3238180894994344e-05,0.0,closed form,2.3238180894994344e-05,0.01,0.0001
+maxq,True,gradient_combination,SVANO-GS,dense,0.05,2,264,1010,objective_similarity,2500.0,0.000127437096870225,0.0,closed form,0.000127437096870225,0.01,0.0001
+maxq,True,gradient_combination,SVANO-GS,dense,0.4,20,264,1010,objective_similarity,2500.0,0.000127437096870225,0.0,closed form,0.000127437096870225,0.01,0.0001
+maxq,True,gradient_combination,SVANO-GS,dense,2.0,100,264,1010,objective_similarity,2500.0,0.000127437096870225,0.0,closed form,0.000127437096870225,0.01,0.0001
+maxq,True,gradient_combination,SVANO-GS,limited_memory,0.05,2,228,1018,stationary,2500.0,2.678852199716034e-05,0.0,closed form,2.678852199716034e-05,0.01,0.0001
+maxq,True,gradient_combination,SVANO-GS,limited_memory,0.4,20,228,1018,stationary,2500.0,2.678852199716034e-05,0.0,closed form,2.678852199716034e-05,0.01,0.0001
+maxq,True,gradient_combination,SVANO-GS,limited_memory,2.0,100,228,1018,stationary,2500.0,2.678852199716034e-05,0.0,closed form,2.678852199716034e-05,0.01,0.0001
+mxhilb,True,gradient,SVANO-BFGS,dense,0.05,2,119,365,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,gradient,SVANO-BFGS,dense,0.4,20,119,365,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,gradient,SVANO-BFGS,dense,2.0,100,119,365,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,gradient,SVANO-BFGS,limited_memory,0.05,2,103,373,objective_similarity,4.499205338329425,5.392061769334661e-08,0.0,closed form,5.392061769334661e-08,0.0001,0.0001
+mxhilb,True,gradient,SVANO-BFGS,limited_memory,0.4,20,103,373,objective_similarity,4.499205338329425,5.392061769334661e-08,0.0,closed form,5.392061769334661e-08,0.0001,0.0001
+mxhilb,True,gradient,SVANO-BFGS,limited_memory,2.0,100,103,373,objective_similarity,4.499205338329425,5.392061769334661e-08,0.0,closed form,5.392061769334661e-08,0.0001,0.0001
+mxhilb,True,cutting_plane,SVANO-Bundle,dense,0.05,2,119,485,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,cutting_plane,SVANO-Bundle,dense,0.4,20,119,485,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,cutting_plane,SVANO-Bundle,dense,2.0,100,119,485,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,103,465,objective_similarity,4.499205338329425,5.312334389674959e-08,0.0,closed form,5.312334389674959e-08,0.0001,0.0001
+mxhilb,True,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,103,483,objective_similarity,4.499205338329425,7.424267502529153e-08,0.0,closed form,7.424267502529153e-08,0.0001,0.0001
+mxhilb,True,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,103,483,objective_similarity,4.499205338329425,7.424267502529153e-08,0.0,closed form,7.424267502529153e-08,0.0001,0.0001
+mxhilb,True,gradient_combination,SVANO-GS,dense,0.05,2,119,485,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,gradient_combination,SVANO-GS,dense,0.4,20,119,485,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,gradient_combination,SVANO-GS,dense,2.0,100,119,485,objective_similarity,4.499205338329425,1.5292641743190627e-06,0.0,closed form,1.5292641743190627e-06,0.0001,0.0001
+mxhilb,True,gradient_combination,SVANO-GS,limited_memory,0.05,2,105,520,objective_similarity,4.499205338329425,3.594918752112915e-08,0.0,closed form,3.594918752112915e-08,0.0001,0.0001
+mxhilb,True,gradient_combination,SVANO-GS,limited_memory,0.4,20,99,514,stationary,4.499205338329425,1.3148287874003434e-07,0.0,closed form,1.3148287874003434e-07,0.0001,0.0001
+mxhilb,True,gradient_combination,SVANO-GS,limited_memory,2.0,100,99,514,stationary,4.499205338329425,1.3148287874003434e-07,0.0,closed form,1.3148287874003434e-07,0.0001,0.0001
+chained_lq,True,gradient,SVANO-BFGS,dense,0.05,2,111,414,objective_similarity,49.0,-69.2964458890052,-69.29646455628166,closed form,2.6938281171611286e-07,0.0002,0.0001
+chained_lq,True,gradient,SVANO-BFGS,dense,0.4,20,111,414,objective_similarity,49.0,-69.2964458890052,-69.29646455628166,closed form,2.6938281171611286e-07,0.0002,0.0001
+chained_lq,True,gradient,SVANO-BFGS,dense,2.0,100,111,414,objective_similarity,49.0,-69.2964458890052,-69.29646455628166,closed form,2.6938281171611286e-07,0.0002,0.0001
+chained_lq,True,gradient,SVANO-BFGS,limited_memory,0.05,2,108,502,objective_similarity,49.0,-69.29137119594229,-69.29646455628166,closed form,7.350101295912811e-05,0.0002,0.0001
+chained_lq,True,gradient,SVANO-BFGS,limited_memory,0.4,20,108,502,objective_similarity,49.0,-69.29137119594229,-69.29646455628166,closed form,7.350101295912811e-05,0.0002,0.0001
+chained_lq,True,gradient,SVANO-BFGS,limited_memory,2.0,100,108,502,objective_similarity,49.0,-69.29137119594229,-69.29646455628166,closed form,7.350101295912811e-05,0.0002,0.0001
+chained_lq,True,cutting_plane,SVANO-Bundle,dense,0.05,2,108,532,objective_similarity,49.0,-69.2964408898905,-69.29646455628166,closed form,3.415237892648276e-07,0.0002,0.0001
+chained_lq,True,cutting_plane,SVANO-Bundle,dense,0.4,20,113,547,objective_similarity,49.0,-69.2964424836271,-69.29646455628166,closed form,3.185249738288904e-07,0.0002,0.0001
+chained_lq,True,cutting_plane,SVANO-Bundle,dense,2.0,100,106,544,objective_similarity,49.0,-69.29643637913486,-69.29646455628166,closed form,4.0661737915347876e-07,0.0002,0.0001
+chained_lq,True,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,119,932,objective_similarity,49.0,-69.29398266167965,-69.29646455628166,closed form,3.581560210763063e-05,0.0002,0.0001
+chained_lq,True,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,102,750,objective_similarity,49.0,-69.29303246894386,-69.29646455628166,closed form,4.952759653433432e-05,0.0002,0.0001
+chained_lq,True,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,95,739,objective_similarity,49.0,-69.29273660205715,-69.29646455628166,closed form,5.37971777981269e-05,0.0002,0.0001
+chained_lq,True,gradient_combination,SVANO-GS,dense,0.05,2,110,981,objective_similarity,49.0,-69.29586751253999,-69.29646455628166,closed form,8.615789355211377e-06,0.0002,0.0001
+chained_lq,True,gradient_combination,SVANO-GS,dense,0.4,20,117,1270,objective_similarity,49.0,-69.29604613178687,-69.29646455628166,closed form,6.0381795445944515e-06,0.0002,0.0001
+chained_lq,True,gradient_combination,SVANO-GS,dense,2.0,100,112,1272,objective_similarity,49.0,-69.2957858163654,-69.29646455628166,closed form,9.794726478668794e-06,0.0002,0.0001
+chained_lq,True,gradient_combination,SVANO-GS,limited_memory,0.05,2,103,1557,objective_similarity,49.0,-69.28971751198655,-69.29646455628166,closed form,9.736491375589107e-05,0.0002,0.0001
+chained_lq,True,gradient_combination,SVANO-GS,limited_memory,0.4,20,110,1676,objective_similarity,49.0,-69.29156649752494,-69.29646455628166,closed form,7.068266452099805e-05,0.0002,0.0001
+chained_lq,True,gradient_combination,SVANO-GS,limited_memory,2.0,100,101,1434,objective_similarity,49.0,-69.2890074065265,-69.29646455628166,closed form,0.00010761226857558022,0.0002,0.0001
+chained_cb3_1,True,gradient,SVANO-BFGS,dense,0.05,2,185,765,objective_similarity,980.0,98.00070218778191,98.0,closed form,7.165181448074839e-06,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient,SVANO-BFGS,dense,0.4,20,185,765,objective_similarity,980.0,98.00070218778191,98.0,closed form,7.165181448074839e-06,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient,SVANO-BFGS,dense,2.0,100,185,765,objective_similarity,980.0,98.00070218778191,98.0,closed form,7.165181448074839e-06,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient,SVANO-BFGS,limited_memory,0.05,2,309,1405,objective_similarity,980.0,98.01656266066783,98.0,closed form,0.0001690067415084713,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient,SVANO-BFGS,limited_memory,0.4,20,309,1405,objective_similarity,980.0,98.01656266066783,98.0,closed form,0.0001690067415084713,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient,SVANO-BFGS,limited_memory,2.0,100,309,1405,objective_similarity,980.0,98.01656266066783,98.0,closed form,0.0001690067415084713,0.0036000000000000003,0.0001
+chained_cb3_1,True,cutting_plane,SVANO-Bundle,dense,0.05,2,189,978,objective_similarity,980.0,98.0005569825764,98.0,closed form,5.683495677535389e-06,0.0036000000000000003,0.0001
+chained_cb3_1,True,cutting_plane,SVANO-Bundle,dense,0.4,20,177,911,objective_similarity,980.0,98.00150939714851,98.0,closed form,1.540201171949042e-05,0.0036000000000000003,0.0001
+chained_cb3_1,True,cutting_plane,SVANO-Bundle,dense,2.0,100,177,911,objective_similarity,980.0,98.00150939714851,98.0,closed form,1.540201171949042e-05,0.0036000000000000003,0.0001
+chained_cb3_1,True,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,329,2303,objective_similarity,980.0,98.01230390349765,98.0,closed form,0.0001255500356903354,0.0036000000000000003,0.0001
+chained_cb3_1,True,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,305,2119,objective_similarity,980.0,98.01630422181475,98.0,closed form,0.00016636961035458727,0.0036000000000000003,0.0001
+chained_cb3_1,True,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,304,2108,objective_similarity,980.0,98.0267319937575,98.0,closed form,0.0002727754465050399,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient_combination,SVANO-GS,dense,0.05,2,190,1023,objective_similarity,980.0,98.00050398867917,98.0,closed form,5.1427416241905605e-06,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient_combination,SVANO-GS,dense,0.4,20,192,1012,objective_similarity,980.0,98.0005607427601,98.0,closed form,5.721864898986245e-06,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient_combination,SVANO-GS,dense,2.0,100,192,1012,objective_similarity,980.0,98.0005607427601,98.0,closed form,5.721864898986245e-06,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient_combination,SVANO-GS,limited_memory,0.05,2,378,5742,objective_similarity,980.0,98.01221548509434,98.0,closed form,0.00012464780708514855,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient_combination,SVANO-GS,limited_memory,0.4,20,385,5891,objective_similarity,980.0,98.01761787629138,98.0,closed form,0.0001797742478712461,0.0036000000000000003,0.0001
+chained_cb3_1,True,gradient_combination,SVANO-GS,limited_memory,2.0,100,319,4720,objective_similarity,980.0,98.01163222804398,98.0,closed form,0.00011869620453039692,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient,SVANO-BFGS,dense,0.05,2,67,219,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient,SVANO-BFGS,dense,0.4,20,67,219,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient,SVANO-BFGS,dense,2.0,100,67,219,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient,SVANO-BFGS,limited_memory,0.05,2,67,406,objective_similarity,980.0,98.00000038496556,98.0,closed form,3.928219998716505e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient,SVANO-BFGS,limited_memory,0.4,20,67,406,objective_similarity,980.0,98.00000038496556,98.0,closed form,3.928219998716505e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient,SVANO-BFGS,limited_memory,2.0,100,67,406,objective_similarity,980.0,98.00000038496556,98.0,closed form,3.928219998716505e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,cutting_plane,SVANO-Bundle,dense,0.05,2,67,287,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,cutting_plane,SVANO-Bundle,dense,0.4,20,67,287,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,cutting_plane,SVANO-Bundle,dense,2.0,100,67,287,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,67,519,objective_similarity,980.0,98.00000018053706,98.0,closed form,1.8422148704470303e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,67,455,objective_similarity,980.0,98.00000034691692,98.0,closed form,3.539968572243067e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,67,455,objective_similarity,980.0,98.00000034691692,98.0,closed form,3.539968572243067e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient_combination,SVANO-GS,dense,0.05,2,67,287,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient_combination,SVANO-GS,dense,0.4,20,67,287,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient_combination,SVANO-GS,dense,2.0,100,67,287,objective_similarity,980.0,98.00000034656051,98.0,closed form,3.536331753505748e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient_combination,SVANO-GS,limited_memory,0.05,2,67,598,objective_similarity,980.0,98.00000035084958,98.0,closed form,3.580097705819252e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient_combination,SVANO-GS,limited_memory,0.4,20,65,611,objective_similarity,980.0,98.000000174868,98.0,closed form,1.7843674111979769e-09,0.0036000000000000003,0.0001
+chained_cb3_2,True,gradient_combination,SVANO-GS,limited_memory,2.0,100,65,654,objective_similarity,980.0,98.00000009605236,98.0,closed form,9.801261299168002e-10,0.0036000000000000003,0.0001
+active_faces,False,gradient,SVANO-BFGS,dense,0.05,2,44,187,objective_similarity,3.9318256327243257,7.9972917174231e-11,0.0,closed form,7.9972917174231e-11,0.0001,0.0001
+active_faces,False,gradient,SVANO-BFGS,dense,0.4,20,44,187,objective_similarity,3.9318256327243257,7.9972917174231e-11,0.0,closed form,7.9972917174231e-11,0.0001,0.0001
+active_faces,False,gradient,SVANO-BFGS,dense,2.0,100,44,187,objective_similarity,3.9318256327243257,7.9972917174231e-11,0.0,closed form,7.9972917174231e-11,0.0001,0.0001
+active_faces,False,gradient,SVANO-BFGS,limited_memory,0.05,2,44,187,objective_similarity,3.9318256327243257,7.992806416403972e-11,0.0,closed form,7.992806416403972e-11,0.0001,0.0001
+active_faces,False,gradient,SVANO-BFGS,limited_memory,0.4,20,44,187,objective_similarity,3.9318256327243257,7.992806416403972e-11,0.0,closed form,7.992806416403972e-11,0.0001,0.0001
+active_faces,False,gradient,SVANO-BFGS,limited_memory,2.0,100,44,187,objective_similarity,3.9318256327243257,7.992806416403972e-11,0.0,closed form,7.992806416403972e-11,0.0001,0.0001
+active_faces,False,cutting_plane,SVANO-Bundle,dense,0.05,2,21,90,stationary,3.9318256327243257,7.735589946348322e-12,0.0,closed form,7.735589946348322e-12,0.0001,0.0001
+active_faces,False,cutting_plane,SVANO-Bundle,dense,0.4,20,21,88,stationary,3.9318256327243257,5.4919180313019633e-11,0.0,closed form,5.4919180313019633e-11,0.0001,0.0001
+active_faces,False,cutting_plane,SVANO-Bundle,dense,2.0,100,21,88,stationary,3.9318256327243257,5.4919180313019633e-11,0.0,closed form,5.4919180313019633e-11,0.0001,0.0001
+active_faces,False,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,21,90,stationary,3.9318256327243257,7.734923812533551e-12,0.0,closed form,7.734923812533551e-12,0.0001,0.0001
+active_faces,False,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,23,95,stationary,3.9318256327243257,1.919309156032567e-11,0.0,closed form,1.919309156032567e-11,0.0001,0.0001
+active_faces,False,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,23,95,stationary,3.9318256327243257,1.919309156032567e-11,0.0,closed form,1.919309156032567e-11,0.0001,0.0001
+active_faces,False,gradient_combination,SVANO-GS,dense,0.05,2,29,283,stationary,3.9318256327243257,1.2075318522145956e-10,0.0,closed form,1.2075318522145956e-10,0.0001,0.0001
+active_faces,False,gradient_combination,SVANO-GS,dense,0.4,20,39,514,objective_similarity,3.9318256327243257,3.092497368816556e-10,0.0,closed form,3.092497368816556e-10,0.0001,0.0001
+active_faces,False,gradient_combination,SVANO-GS,dense,2.0,100,37,483,objective_similarity,3.9318256327243257,1.3279000120831467e-10,0.0,closed form,1.3279000120831467e-10,0.0001,0.0001
+active_faces,False,gradient_combination,SVANO-GS,limited_memory,0.05,2,29,283,stationary,3.9318256327243257,1.207101085681093e-10,0.0,closed form,1.207101085681093e-10,0.0001,0.0001
+active_faces,False,gradient_combination,SVANO-GS,limited_memory,0.4,20,39,514,objective_similarity,3.9318256327243257,3.092484046140265e-10,0.0,closed form,3.092484046140265e-10,0.0001,0.0001
+active_faces,False,gradient_combination,SVANO-GS,limited_memory,2.0,100,37,483,objective_similarity,3.9318256327243257,1.3274514819812576e-10,0.0,closed form,1.3274514819812576e-10,0.0001,0.0001
+brown_2,False,gradient,SVANO-BFGS,dense,0.05,2,114,605,objective_similarity,98.0,1.7295220318606092e-07,0.0,closed form,1.7295220318606092e-07,0.0004,0.0001
+brown_2,False,gradient,SVANO-BFGS,dense,0.4,20,114,605,objective_similarity,98.0,1.7295220318606092e-07,0.0,closed form,1.7295220318606092e-07,0.0004,0.0001
+brown_2,False,gradient,SVANO-BFGS,dense,2.0,100,114,605,objective_similarity,98.0,1.7295220318606092e-07,0.0,closed form,1.7295220318606092e-07,0.0004,0.0001
+brown_2,False,gradient,SVANO-BFGS,limited_memory,0.05,2,118,887,objective_similarity,98.0,1.904290494677115e-05,0.0,closed form,1.904290494677115e-05,0.0004,0.0001
+brown_2,False,gradient,SVANO-BFGS,limited_memory,0.4,20,118,887,objective_similarity,98.0,1.904290494677115e-05,0.0,closed form,1.904290494677115e-05,0.0004,0.0001
+brown_2,False,gradient,SVANO-BFGS,limited_memory,2.0,100,118,887,objective_similarity,98.0,1.904290494677115e-05,0.0,closed form,1.904290494677115e-05,0.0004,0.0001
+brown_2,False,cutting_plane,SVANO-Bundle,dense,0.05,2,98,957,objective_similarity,98.0,2.9676025379178325e-07,0.0,closed form,2.9676025379178325e-07,0.0004,0.0001
+brown_2,False,cutting_plane,SVANO-Bundle,dense,0.4,20,104,626,objective_similarity,98.0,9.027195418039808e-07,0.0,closed form,9.027195418039808e-07,0.0004,0.0001
+brown_2,False,cutting_plane,SVANO-Bundle,dense,2.0,100,98,709,objective_similarity,98.0,3.308262274665148e-06,0.0,closed form,3.308262274665148e-06,0.0004,0.0001
+brown_2,False,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,102,1162,objective_similarity,98.0,1.6592618697320364e-06,0.0,closed form,1.6592618697320364e-06,0.0004,0.0001
+brown_2,False,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,108,973,objective_similarity,98.0,1.798549200036509e-05,0.0,closed form,1.798549200036509e-05,0.0004,0.0001
+brown_2,False,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,84,603,objective_similarity,98.0,4.4306196065105175e-06,0.0,closed form,4.4306196065105175e-06,0.0004,0.0001
+brown_2,False,gradient_combination,SVANO-GS,dense,0.05,2,189,2322,objective_similarity,98.0,5.562154304736075e-06,0.0,closed form,5.562154304736075e-06,0.0004,0.0001
+brown_2,False,gradient_combination,SVANO-GS,dense,0.4,20,166,2707,objective_similarity,98.0,2.701125730792322e-05,0.0,closed form,2.701125730792322e-05,0.0004,0.0001
+brown_2,False,gradient_combination,SVANO-GS,dense,2.0,100,210,2977,objective_similarity,98.0,4.549219616244275e-06,0.0,closed form,4.549219616244275e-06,0.0004,0.0001
+brown_2,False,gradient_combination,SVANO-GS,limited_memory,0.05,2,442,10247,objective_similarity,98.0,0.0003032163360596283,0.0,closed form,0.0003032163360596283,0.0004,0.0001
+brown_2,False,gradient_combination,SVANO-GS,limited_memory,0.4,20,537,12854,objective_similarity,98.0,0.0004906950697188273,0.0,closed form,0.0004906950697188273,0.0004,0.0001
+brown_2,False,gradient_combination,SVANO-GS,limited_memory,2.0,100,359,7254,objective_similarity,98.0,0.0005213386661825325,0.0,closed form,0.0005213386661825325,0.0004,0.0001
+chained_mifflin_2,False,gradient,SVANO-BFGS,dense,0.05,2,77,515,objective_similarity,232.75,-34.7346697524218,-34.8,published (1 decimal),0.0018773059648906785,0.0016,0.0001
+chained_mifflin_2,False,gradient,SVANO-BFGS,dense,0.4,20,77,515,objective_similarity,232.75,-34.7346697524218,-34.8,published (1 decimal),0.0018773059648906785,0.0016,0.0001
+chained_mifflin_2,False,gradient,SVANO-BFGS,dense,2.0,100,77,515,objective_similarity,232.75,-34.7346697524218,-34.8,published (1 decimal),0.0018773059648906785,0.0016,0.0001
+chained_mifflin_2,False,gradient,SVANO-BFGS,limited_memory,0.05,2,140,866,objective_similarity,232.75,-34.78326203128976,-34.8,published (1 decimal),0.0004809761123631681,0.0016,0.0001
+chained_mifflin_2,False,gradient,SVANO-BFGS,limited_memory,0.4,20,140,866,objective_similarity,232.75,-34.78326203128976,-34.8,published (1 decimal),0.0004809761123631681,0.0016,0.0001
+chained_mifflin_2,False,gradient,SVANO-BFGS,limited_memory,2.0,100,140,866,objective_similarity,232.75,-34.78326203128976,-34.8,published (1 decimal),0.0004809761123631681,0.0016,0.0001
+chained_mifflin_2,False,cutting_plane,SVANO-Bundle,dense,0.05,2,116,793,objective_similarity,232.75,-34.79404110108523,-34.8,published (1 decimal),0.00017123272743591557,0.0016,0.0001
+chained_mifflin_2,False,cutting_plane,SVANO-Bundle,dense,0.4,20,118,808,objective_similarity,232.75,-34.79248781316179,-34.8,published (1 decimal),0.00021586743787946946,0.0016,0.0001
+chained_mifflin_2,False,cutting_plane,SVANO-Bundle,dense,2.0,100,119,804,objective_similarity,232.75,-34.79321683359562,-34.8,published (1 decimal),0.00019491857483836645,0.0016,0.0001
+chained_mifflin_2,False,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,123,1001,objective_similarity,232.75,-34.78583784424458,-34.8,published (1 decimal),0.00040695849871880965,0.0016,0.0001
+chained_mifflin_2,False,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,155,1262,objective_similarity,232.75,-34.78825922465398,-34.8,published (1 decimal),0.00033737860189712404,0.0016,0.0001
+chained_mifflin_2,False,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,139,1095,objective_similarity,232.75,-34.78762792701053,-34.8,published (1 decimal),0.0003555193387777098,0.0016,0.0001
+chained_mifflin_2,False,gradient_combination,SVANO-GS,dense,0.05,2,126,1397,objective_similarity,232.75,-34.79443399356662,-34.8,published (1 decimal),0.00015994271360277178,0.0016,0.0001
+chained_mifflin_2,False,gradient_combination,SVANO-GS,dense,0.4,20,122,1190,objective_similarity,232.75,-34.79452869358856,-34.8,published (1 decimal),0.00015722144860450207,0.0016,0.0001
+chained_mifflin_2,False,gradient_combination,SVANO-GS,dense,2.0,100,123,1207,objective_similarity,232.75,-34.79437180441334,-34.8,published (1 decimal),0.000161729758237342,0.0016,0.0001
+chained_mifflin_2,False,gradient_combination,SVANO-GS,limited_memory,0.05,2,130,2253,objective_similarity,232.75,-34.78626518888086,-34.8,published (1 decimal),0.00039467848043493595,0.0016,0.0001
+chained_mifflin_2,False,gradient_combination,SVANO-GS,limited_memory,0.4,20,127,2018,objective_similarity,232.75,-34.78636515538693,-34.8,published (1 decimal),0.0003918058796857877,0.0016,0.0001
+chained_mifflin_2,False,gradient_combination,SVANO-GS,limited_memory,2.0,100,136,2148,objective_similarity,232.75,-34.78738706599708,-34.8,published (1 decimal),0.0003624406322677193,0.0016,0.0001
+chained_crescent_1,False,gradient,SVANO-BFGS,dense,0.05,2,71,304,objective_similarity,292.25,7.0923225070629314e-09,0.0,closed form,7.0923225070629314e-09,0.0007,0.0001
+chained_crescent_1,False,gradient,SVANO-BFGS,dense,0.4,20,71,304,objective_similarity,292.25,7.0923225070629314e-09,0.0,closed form,7.0923225070629314e-09,0.0007,0.0001
+chained_crescent_1,False,gradient,SVANO-BFGS,dense,2.0,100,71,304,objective_similarity,292.25,7.0923225070629314e-09,0.0,closed form,7.0923225070629314e-09,0.0007,0.0001
+chained_crescent_1,False,gradient,SVANO-BFGS,limited_memory,0.05,2,70,366,objective_similarity,292.25,2.9559465541950658e-08,0.0,closed form,2.9559465541950658e-08,0.0007,0.0001
+chained_crescent_1,False,gradient,SVANO-BFGS,limited_memory,0.4,20,70,366,objective_similarity,292.25,2.9559465541950658e-08,0.0,closed form,2.9559465541950658e-08,0.0007,0.0001
+chained_crescent_1,False,gradient,SVANO-BFGS,limited_memory,2.0,100,70,366,objective_similarity,292.25,2.9559465541950658e-08,0.0,closed form,2.9559465541950658e-08,0.0007,0.0001
+chained_crescent_1,False,cutting_plane,SVANO-Bundle,dense,0.05,2,47,222,stationary,292.25,4.9870885199254644e-11,0.0,closed form,4.9870885199254644e-11,0.0007,0.0001
+chained_crescent_1,False,cutting_plane,SVANO-Bundle,dense,0.4,20,52,263,stationary,292.25,6.985256817415575e-10,0.0,closed form,6.985256817415575e-10,0.0007,0.0001
+chained_crescent_1,False,cutting_plane,SVANO-Bundle,dense,2.0,100,52,260,stationary,292.25,9.88154336134528e-10,0.0,closed form,9.88154336134528e-10,0.0007,0.0001
+chained_crescent_1,False,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,56,311,stationary,292.25,3.532762971047987e-11,0.0,closed form,3.532762971047987e-11,0.0007,0.0001
+chained_crescent_1,False,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,65,350,stationary,292.25,2.1862744947753754e-10,0.0,closed form,2.1862744947753754e-10,0.0007,0.0001
+chained_crescent_1,False,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,55,293,stationary,292.25,2.0476111028955302e-08,0.0,closed form,2.0476111028955302e-08,0.0007,0.0001
+chained_crescent_1,False,gradient_combination,SVANO-GS,dense,0.05,2,46,276,stationary,292.25,2.930530262901243e-10,0.0,closed form,2.930530262901243e-10,0.0007,0.0001
+chained_crescent_1,False,gradient_combination,SVANO-GS,dense,0.4,20,45,265,stationary,292.25,6.882390213291956e-10,0.0,closed form,6.882390213291956e-10,0.0007,0.0001
+chained_crescent_1,False,gradient_combination,SVANO-GS,dense,2.0,100,45,261,stationary,292.25,7.044096417274659e-10,0.0,closed form,7.044096417274659e-10,0.0007,0.0001
+chained_crescent_1,False,gradient_combination,SVANO-GS,limited_memory,0.05,2,60,448,stationary,292.25,1.5468580860655834e-09,0.0,closed form,1.5468580860655834e-09,0.0007,0.0001
+chained_crescent_1,False,gradient_combination,SVANO-GS,limited_memory,0.4,20,69,532,objective_similarity,292.25,3.1535052347209103e-10,0.0,closed form,3.1535052347209103e-10,0.0007,0.0001
+chained_crescent_1,False,gradient_combination,SVANO-GS,limited_memory,2.0,100,69,522,objective_similarity,292.25,3.0529315742100493e-09,0.0,closed form,3.0529315742100493e-09,0.0007,0.0001
+chained_crescent_2,False,gradient,SVANO-BFGS,dense,0.05,2,115,766,objective_similarity,292.25,4.307021686156265e-05,0.0,closed form,4.307021686156265e-05,0.0007,0.0001
+chained_crescent_2,False,gradient,SVANO-BFGS,dense,0.4,20,115,766,objective_similarity,292.25,4.307021686156265e-05,0.0,closed form,4.307021686156265e-05,0.0007,0.0001
+chained_crescent_2,False,gradient,SVANO-BFGS,dense,2.0,100,115,766,objective_similarity,292.25,4.307021686156265e-05,0.0,closed form,4.307021686156265e-05,0.0007,0.0001
+chained_crescent_2,False,gradient,SVANO-BFGS,limited_memory,0.05,2,118,987,objective_similarity,292.25,2.1785170841726043e-06,0.0,closed form,2.1785170841726043e-06,0.0007,0.0001
+chained_crescent_2,False,gradient,SVANO-BFGS,limited_memory,0.4,20,118,987,objective_similarity,292.25,2.1785170841726043e-06,0.0,closed form,2.1785170841726043e-06,0.0007,0.0001
+chained_crescent_2,False,gradient,SVANO-BFGS,limited_memory,2.0,100,118,987,objective_similarity,292.25,2.1785170841726043e-06,0.0,closed form,2.1785170841726043e-06,0.0007,0.0001
+chained_crescent_2,False,cutting_plane,SVANO-Bundle,dense,0.05,2,108,993,objective_similarity,292.25,3.950516585971009e-06,0.0,closed form,3.950516585971009e-06,0.0007,0.0001
+chained_crescent_2,False,cutting_plane,SVANO-Bundle,dense,0.4,20,101,821,objective_similarity,292.25,1.0781018742411774e-05,0.0,closed form,1.0781018742411774e-05,0.0007,0.0001
+chained_crescent_2,False,cutting_plane,SVANO-Bundle,dense,2.0,100,95,611,objective_similarity,292.25,4.074625588934566e-06,0.0,closed form,4.074625588934566e-06,0.0007,0.0001
+chained_crescent_2,False,cutting_plane,SVANO-Bundle,limited_memory,0.05,2,124,1422,objective_similarity,292.25,5.516452965537155e-06,0.0,closed form,5.516452965537155e-06,0.0007,0.0001
+chained_crescent_2,False,cutting_plane,SVANO-Bundle,limited_memory,0.4,20,135,1509,objective_similarity,292.25,3.681606559735595e-05,0.0,closed form,3.681606559735595e-05,0.0007,0.0001
+chained_crescent_2,False,cutting_plane,SVANO-Bundle,limited_memory,2.0,100,107,1138,objective_similarity,292.25,1.1454112938680261e-05,0.0,closed form,1.1454112938680261e-05,0.0007,0.0001
+chained_crescent_2,False,gradient_combination,SVANO-GS,dense,0.05,2,196,3012,objective_similarity,292.25,2.7598013886076522e-05,0.0,closed form,2.7598013886076522e-05,0.0007,0.0001
+chained_crescent_2,False,gradient_combination,SVANO-GS,dense,0.4,20,201,3636,objective_similarity,292.25,3.183720943922275e-05,0.0,closed form,3.183720943922275e-05,0.0007,0.0001
+chained_crescent_2,False,gradient_combination,SVANO-GS,dense,2.0,100,189,3095,objective_similarity,292.25,2.7328192149567165e-05,0.0,closed form,2.7328192149567165e-05,0.0007,0.0001
+chained_crescent_2,False,gradient_combination,SVANO-GS,limited_memory,0.05,2,458,8710,objective_similarity,292.25,0.000533977401608654,0.0,closed form,0.000533977401608654,0.0007,0.0001
+chained_crescent_2,False,gradient_combination,SVANO-GS,limited_memory,0.4,20,719,14254,objective_similarity,292.25,0.0007386236218025477,0.0,closed form,0.0007386236218025477,0.0007,0.0001
+chained_crescent_2,False,gradient_combination,SVANO-GS,limited_memory,2.0,100,413,8748,objective_similarity,292.25,0.0009259485271412293,0.0,closed form,0.0009259485271412293,0.0007,0.0001

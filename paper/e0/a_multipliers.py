@@ -35,12 +35,12 @@ is violated):
 
 P1 ``ALM(rho=1)`` and ``nuPI(rho=0)`` reach ``||y - y*||_inf <= 1e-4`` on all
    three reference problems.
-   (The ``nuPI`` half of P1 is **false on svm_iris** and is left standing as
-   registered. It was mis-scoped: the property that carries P1 is *having a
-   quadratic term*, which ``nuPI`` by construction does not — so ``nuPI`` inherits
-   exactly the bilinear-bias obstruction P2 identifies for ``ALM(rho=0)``, and its
-   selected configuration turns out to be ``kp = 0``, i.e. plain dual gradient
-   ascent. See P7.)
+   (Holds, but read the ``nuPI(rho=0)`` half next to P8: on ``svm_iris`` it clears
+   the bar only marginally, at 9.8e-07, while ``nuPI(rho=1)`` reaches 5.7e-15.
+   The bilinear-bias obstruction of P2 is real and costs eight orders of
+   magnitude; it simply is not enough to fail a 1e-4 threshold. Under the
+   non-canonical ``forward``/``update`` ordering an earlier version of this
+   experiment ran, it *did* fail, at 3.0e-03.)
 P2 ``ALM(rho=0)`` is plain gradient descent-ascent on the Lagrangian. On the two
    QPs the primal is strongly convex, which contracts, so it should also reach
    ``1e-4``. On ``svm_iris`` the Lagrangian is *bilinear* in the bias and its
@@ -54,7 +54,12 @@ P3 ``PBM`` cannot represent ``y_i = 0``: its dual update is multiplicative and i
    consequence of strict positivity, not a defect.
 P4 ``iALM`` cannot drop its quadratic term, so its best ``beta`` should not match
    ``ALM(rho=1)`` on ``svm_iris``, and its final error should vary systematically
-   with ``beta``.
+   with ``beta``. **The first half is withdrawn**, as the plan's own conditional
+   required: at ``beta=0.1`` ``iALM`` matches ``ALM(rho=1)`` at machine precision,
+   so the coupling is benign at small ``beta`` and only bites at ``beta=10``. It
+   looked consistently harmful under the ``forward``/``update`` ordering — an
+   artifact of the call ordering, not a property of the method. The monotonicity
+   in ``beta`` survives.
 P5a Every method ends feasible (``max [c]_+ <= 1e-6``) on the three convex problems.
    **False**, and recorded as such rather than edited: it is subsumed by P1, P2 and
    P6, since a configuration that has not converged is not feasible either.
@@ -68,6 +73,18 @@ P6 On ``qp_nonconvex``, exactly the configurations whose quadratic coefficient
    box the surrogate's Hessian is ``Q + rho I`` on the violated faces, so it is
    bounded below only once ``rho > 2.2``, which ``rho = 1`` provably cannot
    satisfy. ``ALM(rho=10)`` was added to the method list for this reason.
+   **False, on two counts, and both are instructive.** "Bounded" was the wrong
+   property to test — ``ALM(rho=1)`` stays finite at violation 36, which is bounded
+   and useless, hence the three-way ``solved``/``bounded``/``diverged`` status in
+   the results table. And the argument itself only bounds the surrogate at *fixed*
+   ``y``: the multipliers are not fixed, and rising ones can hold the iterates in
+   the box where the surrogate is nonconvex. ``nuPI(rho=0)`` settles it — no
+   quadratic term at all, and it stays bounded.
+P6b What the data does support, stated as two halves: a coefficient above 2.2 is
+   *sufficient* to reach a KKT point, and *not necessary*. ``nuPI(rho=1)`` reaches
+   one at ``rho = 1`` with a strong proportional gain (``ki=0.3, kp=3``) where
+   ``ALM(rho=1)`` — same coefficient, no damping — only manages bounded. So on this
+   problem the dual dynamics, not the surrogate's convexity, are what make it work.
 P7 A cross-implementation consistency check, not a claim about a method:
    ``nuPI(kp=0)`` is algebraically ``y <- y + ki*c``, which is ``ALM(lr=ki,
    rho=0)``. The two independent implementations must therefore produce **bitwise
@@ -352,6 +369,22 @@ def _record_at(iterations: int, points: int = 200) -> set[int]:
     return set(int(k) for k in grid) | {0, iterations}
 
 
+KKT_TOLERANCE = 1e-6
+
+
+def _status(final: dict) -> str:
+    """``diverged`` / ``bounded`` / ``solved``.
+
+    ``bounded`` is a distinct outcome and needs its own name: on ``qp_nonconvex``
+    ``ALM(rho=1)`` stays finite while sitting at violation 36 and stationarity 98,
+    which a two-way diverged/ok split would report as "ok".
+    """
+    if final.get("diverged"):
+        return "diverged"
+    residual = max(final["stationarity"], final["violation"])
+    return "solved" if residual <= KKT_TOLERANCE else "bounded"
+
+
 def _score(final: dict) -> float:
     """Sweep objective: final multiplier error, or the KKT residual without a reference."""
     if final.get("diverged"):
@@ -421,14 +454,6 @@ def register_predictions(checks: Checks, best: dict, problems: list[Problem]) ->
                 value <= TOLERANCE,
                 f"P1: {label} reaches ||y-y*||inf <= {TOLERANCE:g} on {problem}",
                 f"got {value:.3e}",
-                known_false=(
-                    "P1 was mis-scoped for nuPI: it has no quadratic term, so it "
-                    "inherits the bilinear-bias obstruction of P2 rather than "
-                    "escaping it. Its selected configuration here is kp=0, i.e. "
-                    "plain dual gradient ascent (see P7). P8 tests the implied "
-                    "remedy."
-                    if label == "nuPI (rho=0)" and problem == "svm_iris" else None
-                ),
             )
 
     # P2
@@ -474,6 +499,16 @@ def register_predictions(checks: Checks, best: dict, problems: list[Problem]) ->
         "ALM (rho=1) on svm_iris",
         "; ".join(f"beta={b:g}: {v:.3e}" for b, v in ialm_errors)
         + f"; ALM(rho=1) {augmented:.3e}",
+        known_false=(
+            "withdrawn, as the plan's own conditional required: at beta=0.1 iALM "
+            "matches ALM(rho=1) (both at machine precision), so the beta coupling "
+            "is benign at small beta and only bites at beta=10. An earlier version "
+            "of this experiment drove the loop with forward() + update() instead of "
+            "forward_update(), under which iALM did look consistently worse -- that "
+            "apparent finding was an artifact of the non-canonical call ordering, "
+            "not a property of the method. The surviving claim is the monotonicity "
+            "below."
+        ),
     )
     ordered = [value for _, value in ialm_errors]
     monotone = ordered == sorted(ordered) or ordered == sorted(ordered, reverse=True)
@@ -517,6 +552,17 @@ def register_predictions(checks: Checks, best: dict, problems: list[Problem]) ->
             f"P5b: on {problem}, every method that recovered y* is also feasible "
             f"to 1e-8 (feasibility and multiplier accuracy arrive together)",
             "; ".join(f"{k}: {v:.2e}" for k, v in offenders.items()),
+            known_false=(
+                "the two thresholds were picked independently and are not "
+                "comparable: 1e-4 on ||y-y*|| against 1e-8 on the violation demands "
+                "feasibility be ten thousand times tighter, which nothing in the "
+                "claim justifies. The configurations that trip it clear the "
+                "multiplier bar only marginally (9.8e-07) and are correspondingly "
+                "marginally feasible (5.6e-08) -- comparable magnitudes, so the "
+                "claim holds in substance and it is the asymmetric thresholds that "
+                "are wrong."
+                if problem == "svm_iris" else None
+            ),
         )
 
     # P6 — added after a smoke run showed every method diverging on qp_nonconvex,
@@ -524,16 +570,38 @@ def register_predictions(checks: Checks, best: dict, problems: list[Problem]) ->
     # Hessian Q + rho*I on the violated faces, so it is bounded below only once
     # rho exceeds -lambda_min(Q) = 2.2. rho = 1 provably cannot; rho = 10 and
     # beta = 10 can.
-    survivors = {
-        method for (name, method) in best
-        if name == "qp_nonconvex" and not best[(name, method)]["diverged"]
-    }
+    nonconvex = {method: best[(name, method)]
+                 for (name, method) in best if name == "qp_nonconvex"}
+    bounded = {m for m, f in nonconvex.items() if not f["diverged"]}
+    solved = {m for m, f in nonconvex.items() if _status(f) == "solved"}
     expected = {"ALM (rho=10)", "iALM (beta=10)"}
     checks.expect(
-        survivors == expected,
+        bounded == expected,
         "P6: on qp_nonconvex exactly the configurations whose quadratic "
         "coefficient exceeds -lambda_min(Q) = 2.2 stay bounded",
-        f"bounded: {sorted(survivors)}; expected: {sorted(expected)}",
+        f"bounded: {sorted(bounded)}; solved: {sorted(solved)}; "
+        f"expected: {sorted(expected)}",
+        known_false=(
+            "the reasoning was wrong twice over. (i) 'Bounded' was the wrong test: "
+            "ALM(rho=1) stays finite at violation 36, which is bounded and useless. "
+            "(ii) The rho > -lambda_min(Q) argument only bounds the surrogate at "
+            "*fixed* y, and the duals are not fixed -- rising multipliers can hold "
+            "the iterates in the box even where the surrogate is nonconvex. "
+            "nuPI(rho=0) settles this outright: with no quadratic term at all it "
+            "stays bounded. See P6b for what the data does support."
+        ),
+    )
+    checks.expect(
+        expected <= solved,
+        "P6b: a quadratic coefficient above -lambda_min(Q) = 2.2 is *sufficient* to "
+        "reach a KKT point on qp_nonconvex",
+        f"solved: {sorted(solved)}",
+    )
+    checks.expect(
+        bool(solved - expected),
+        "P6b: ... but not *necessary* -- some configuration below 2.2 also reaches "
+        "one, so convexifying the surrogate is not what makes this work",
+        f"solved with a coefficient below 2.2: {sorted(solved - expected)}",
     )
 
     # P7
@@ -643,7 +711,7 @@ def main(argv=None) -> None:
                 "method": method.label,
                 "dual config": final["config"],
                 "primal lr": final["primal_lr"],
-                "status": "diverged" if final["diverged"] else "ok",
+                "status": _status(final),
                 "||y-y*||inf": final.get("y_inf", float("nan")),
                 "||y-y*||2/||y*||2": final.get("y_rel", float("nan")),
                 "max [c]+": final["violation"],
@@ -662,7 +730,7 @@ def main(argv=None) -> None:
     checks = Checks(enabled=args.check)
     if not args.problems and not args.quick:
         register_predictions(checks, best, problems)
-    main_exit(checks)
+    main_exit(checks, EXPERIMENT, "e0a_predictions")
 
 
 if __name__ == "__main__":

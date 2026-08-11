@@ -351,7 +351,7 @@ def main(argv=None) -> None:
 
     checks = Checks(enabled=args.check)
     register_predictions(checks, rows, batch_sizes)
-    main_exit(checks)
+    main_exit(checks, EXPERIMENT, "e0d_predictions")
 
 
 def _default_outdir() -> Path:
