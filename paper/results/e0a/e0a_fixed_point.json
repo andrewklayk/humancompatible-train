@@ -1,0 +1,200 @@
+[
+  {
+    "problem": "qp_active",
+    "method": "ALM (rho=0)",
+    "grad_x": 7.105427357601002e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 4.2298073622305945e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_active",
+    "method": "ALM (rho=1)",
+    "grad_x": 7.105427357601002e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 4.2298073622305945e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_active",
+    "method": "nuPI (rho=0)",
+    "grad_x": 7.105427357601002e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 4.2298073622305945e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_active",
+    "method": "nuPI (rho=1)",
+    "grad_x": 7.105427357601002e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 4.2298073622305945e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_active",
+    "method": "iALM",
+    "grad_x": 7.105427357601002e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 4.2298073622305945e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_active",
+    "method": "PBM",
+    "grad_x": 7.105427357601002e-15,
+    "dual drift": 4.440892098500626e-16,
+    "lower_bound": 0.0001,
+    "unavoidable deviation": 0.0,
+    "excess drift": 4.440892098500626e-16,
+    "tolerance": 4.2298073622305945e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "ALM (rho=0)",
+    "grad_x": 3.552713678800501e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 3.3843050071026257e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "ALM (rho=1)",
+    "grad_x": 3.552713678800501e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 3.3843050071026257e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "nuPI (rho=0)",
+    "grad_x": 3.552713678800501e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 3.3843050071026257e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "nuPI (rho=1)",
+    "grad_x": 3.552713678800501e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 3.3843050071026257e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "iALM",
+    "grad_x": 3.552713678800501e-15,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 3.3843050071026257e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "PBM",
+    "grad_x": 0.00010031064492288522,
+    "dual drift": 0.0001,
+    "lower_bound": 0.0001,
+    "unavoidable deviation": 0.0001,
+    "excess drift": 0.0,
+    "tolerance": 3.3843050071026257e-14,
+    "grad_x tolerance": 0.004943477926912334
+  },
+  {
+    "problem": "svm_iris",
+    "method": "ALM (rho=0)",
+    "grad_x": 4.440892098500626e-16,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 1.9994224339773387e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "svm_iris",
+    "method": "ALM (rho=1)",
+    "grad_x": 4.440892098500626e-16,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 1.9994224339773387e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "svm_iris",
+    "method": "nuPI (rho=0)",
+    "grad_x": 4.440892098500626e-16,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 1.9994224339773387e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "svm_iris",
+    "method": "nuPI (rho=1)",
+    "grad_x": 4.440892098500626e-16,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 1.9994224339773387e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "svm_iris",
+    "method": "iALM",
+    "grad_x": 4.440892098500626e-16,
+    "dual drift": 0.0,
+    "lower_bound": 0,
+    "unavoidable deviation": 0.0,
+    "excess drift": 0.0,
+    "tolerance": 1.9994224339773387e-14,
+    "grad_x tolerance": 1.4210854715202004e-11
+  },
+  {
+    "problem": "svm_iris",
+    "method": "PBM",
+    "grad_x": 0.0031877126559504143,
+    "dual drift": 0.0001,
+    "lower_bound": 0.0001,
+    "unavoidable deviation": 0.0001,
+    "excess drift": 0.0,
+    "tolerance": 1.9994224339773387e-14,
+    "grad_x tolerance": 0.017453777956263853
+  }
+]

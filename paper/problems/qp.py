@@ -157,6 +157,70 @@ def qp_inactive(n=10, m=6, n_active=2, seed=1):
     )
 
 
+def qp_equality(n=8, m=3, seed=3):
+    """Strictly convex QP with **equality** constraints ``A x - b = 0``.
+
+    Exists to test the reduction the paper's problem statement relies on: an
+    equality ``h = 0`` is expressed as the pair ``h <= 0, -h <= 0``. That claim is
+    made in the documentation and is otherwise untested.
+
+    Constructed backwards from a chosen ``(x*, y_eq)`` like :func:`qp_active`, but
+    ``y_eq`` is **sign-free** — an equality multiplier may be negative, which is
+    exactly what the reduction has to represent via the difference of two
+    nonnegative multipliers.
+
+    :return: A problem whose ``constraints`` returns the ``m`` equality residuals.
+        ``meta["reduced"]`` holds the ``2m``-row inequality form and
+        ``meta["y_eq"]`` the reference difference ``y+ - y-``.
+    """
+    rng = np.random.default_rng(seed)
+    B = rng.standard_normal((n, n))
+    Q = B @ B.T + n * np.eye(n)
+    A = rng.standard_normal((m, n))
+    x_star = rng.standard_normal(n)
+    # Signs are alternated deliberately rather than drawn: the point of this
+    # problem is that an equality multiplier may be negative, and a draw can hand
+    # back a negative of magnitude 1e-3, which tests nothing. Every |y_eq_i| >= 0.5.
+    signs = np.array([1.0 if i % 2 == 0 else -1.0 for i in range(m)])
+    y_eq = signs * (0.5 + rng.random(m))
+    b = A @ x_star
+    q = -Q @ x_star - A.T @ y_eq
+
+    problem = _torch_qp(
+        "qp_equality", Q, q, A, b,
+        y_star=y_eq, x_star=x_star, is_convex=True,
+        x0=np.zeros(n),
+        notes=f"convex QP with {m} equality constraints, y_eq sign-free "
+              f"(min {y_eq.min():.3f})",
+    )
+    # The two-sided form: rows [A; -A], bounds [b; -b]. Individual y+, y- are not
+    # determined (only their difference is), so tests must assert on the difference.
+    problem.meta["reduced"] = {
+        "A": np.vstack([A, -A]),
+        "b": np.concatenate([b, -b]),
+    }
+    problem.meta["y_eq"] = y_eq
+    return problem
+
+
+def qp_equality_reduced(n=8, m=3, seed=3):
+    """:func:`qp_equality` rewritten as ``2m`` inequalities, for the I2 test."""
+    base = qp_equality(n, m, seed)
+    reduced = base.meta["reduced"]
+    problem = _torch_qp(
+        "qp_equality_reduced",
+        base.meta["Q"], base.meta["q"], reduced["A"], reduced["b"],
+        # No reference multipliers: y+ and y- are individually non-unique.
+        y_star=None, x_star=base.x_star, is_convex=True,
+        x0=np.zeros(n),
+        notes=f"the {m} equalities of qp_equality as {2 * m} inequalities; only "
+              f"y+ - y- is determined",
+    )
+    problem.meta["y_eq"] = base.meta["y_eq"]
+    problem.meta["m_eq"] = m
+    return problem
+
+
 def qp_nonconvex(n=5, seed=2):
     """Indefinite QP over a box, so it is bounded but has no reference multipliers.
 

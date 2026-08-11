@@ -1,120 +1,91 @@
 """
-E0a — do the dual variables converge to the true Lagrange multipliers?
+E0a — mathematical faithfulness of the dual optimizers.
 
-The claim under test is faithfulness, not performance: each dual optimizer in
-``humancompatible.train.dual_optim`` should recover the multipliers of a problem
-whose KKT point is known independently. Four problems, chosen so that the ways a
-method can fail are separated:
+The question is whether each implementation in
+``humancompatible.train.dual_optim`` encodes the surrogate and multiplier update
+its reference specifies. That is an **algebraic** property, and this experiment
+tests it algebraically. Convergence is a separate question — it depends on step
+sizes, conditioning and tuning — and is reported here in one untuned
+configuration per method, not as a ranking.
 
-* ``qp_active``    — strictly convex QP, every constraint active, every ``y*_i > 0``.
-                     The easy case; failing here is a bug, not a limitation.
-* ``qp_inactive``  — strictly convex QP where four of six multipliers are *exactly*
-                     zero. Representing an exact zero is what the pre-``[c]_+``
-                     quadratic penalty could not do.
-* ``svm_iris``     — hard-margin SVM, 96 of 100 multipliers zero: the same test at
-                     a realistic sparsity level, and with a *singular* objective
-                     Hessian (no curvature in the bias).
-* ``qp_nonconvex`` — indefinite QP over a box. No reference multipliers exist, so
-                     only the KKT residual at the returned iterate is reported.
+An earlier version of E0a tested convergence and used it as a proxy for
+faithfulness. That produced predictions naming particular methods at particular
+hyperparameters, four unrelated tolerances, and one failure that turned out to be
+an artifact of two of those thresholds being mismatched by 10^4. See the
+superseded-predictions note in paper/README.md.
 
-Protocol. One primal gradient step per dual update (the single-loop form all four
-methods are published in; ``PBM`` gates its own dual step through
-``primal_update_process_length``), driven through ``forward_update`` — the
-package's documented training-loop entry point, and the ordering the published
-recursions write, ``L_{t+1} = f_t + y_{t+1}'c_t``. The primal step is *derived*, not tuned:
-``1/(L_f + rho ||J||^2)``, so every method gets the largest step that is safe for
-its own surrogate, and a method carrying a large quadratic term visibly pays for
-it. Each method's *dual* step is swept over a small grid and the value minimising
-the final ``||y - y*||_inf`` is reported, so no result is an artifact of a step
-size shared across methods. ``iALM`` is the exception: its ``beta`` is
-simultaneously the quadratic coefficient and the dual step, so it is reported as
-a labelled sweep rather than tuned away.
+Four categories of claim, in decreasing strength:
 
-Predictions, registered before the first run (``--check`` fails the script if one
-is violated):
+**F — fixed-point consistency.** At a KKT point ``(x*, y*)``, a faithful method
+must be stationary: one ``forward_update`` from ``(x*, y*)`` must leave the
+multipliers where they are, and ``grad_x`` of the surrogate must vanish. No step
+size, no tuning, no iteration. This is the strongest test available and it is
+sharp: switching ``ALM``'s quadratic term back to raw ``c`` on inequality data
+takes ``grad_x`` from 1.8e-15 to 4.7 on ``qp_inactive``, so F is a live regression
+guard for the ``[c]_+`` fix. It also requires the non-negativity clamp, and detects
+the loss of *either* ingredient — it does not isolate one of them.
 
-P1 ``ALM(rho=1)`` and ``nuPI(rho=0)`` reach ``||y - y*||_inf <= 1e-4`` on all
-   three reference problems.
-   (Holds, but read the ``nuPI(rho=0)`` half next to P8: on ``svm_iris`` it clears
-   the bar only marginally, at 9.8e-07, while ``nuPI(rho=1)`` reaches 5.7e-15.
-   The bilinear-bias obstruction of P2 is real and costs eight orders of
-   magnitude; it simply is not enough to fail a 1e-4 threshold. Under the
-   non-canonical ``forward``/``update`` ordering an earlier version of this
-   experiment ran, it *did* fail, at 3.0e-03.)
-P2 ``ALM(rho=0)`` is plain gradient descent-ascent on the Lagrangian. On the two
-   QPs the primal is strongly convex, which contracts, so it should also reach
-   ``1e-4``. On ``svm_iris`` the Lagrangian is *bilinear* in the bias and its
-   multiplier (the objective has no curvature in ``b``), where the last iterate
-   of GDA need not converge — so ``ALM(rho=0)`` is predicted to do strictly worse
-   there than ``ALM(rho=1)``.
-P3 ``PBM`` cannot represent ``y_i = 0``: its dual update is multiplicative and its
-   ``dual_range`` floor is ``1e-4``. Its ``||y - y*||_inf`` should therefore floor
-   at roughly that value on the two problems with zero multipliers, while still
-   converging on ``qp_active`` where every multiplier is positive. A predicted
-   consequence of strict positivity, not a defect.
-P4 ``iALM`` cannot drop its quadratic term, so its best ``beta`` should not match
-   ``ALM(rho=1)`` on ``svm_iris``, and its final error should vary systematically
-   with ``beta``. **The first half is withdrawn**, as the plan's own conditional
-   required: at ``beta=0.1`` ``iALM`` matches ``ALM(rho=1)`` at machine precision,
-   so the coupling is benign at small ``beta`` and only bites at ``beta=10``. It
-   looked consistently harmful under the ``forward``/``update`` ordering — an
-   artifact of the call ordering, not a property of the method. The monotonicity
-   in ``beta`` survives.
-P5a Every method ends feasible (``max [c]_+ <= 1e-6``) on the three convex problems.
-   **False**, and recorded as such rather than edited: it is subsumed by P1, P2 and
-   P6, since a configuration that has not converged is not feasible either.
-P5b The sharper, non-redundant half of P5a: on every convex problem, every method
-   that *did* recover ``y*`` to ``1e-4`` is also feasible to ``1e-8``, i.e. the two
-   halves of the KKT conditions arrive together. Registered alongside P5a rather
-   than in place of it.
-P6 On ``qp_nonconvex``, exactly the configurations whose quadratic coefficient
-   exceeds ``-lambda_min(Q) = 2.2`` stay bounded. Added after a smoke run showed
-   every configuration diverging there, but derived rather than fitted: over the
-   box the surrogate's Hessian is ``Q + rho I`` on the violated faces, so it is
-   bounded below only once ``rho > 2.2``, which ``rho = 1`` provably cannot
-   satisfy. ``ALM(rho=10)`` was added to the method list for this reason.
-   **False, on two counts, and both are instructive.** "Bounded" was the wrong
-   property to test — ``ALM(rho=1)`` stays finite at violation 36, which is bounded
-   and useless, hence the three-way ``solved``/``bounded``/``diverged`` status in
-   the results table. And the argument itself only bounds the surrogate at *fixed*
-   ``y``: the multipliers are not fixed, and rising ones can hold the iterates in
-   the box where the surrogate is nonconvex. ``nuPI(rho=0)`` settles it — no
-   quadratic term at all, and it stays bounded.
-P6b What the data does support, stated as two halves: a coefficient above 2.2 is
-   *sufficient* to reach a KKT point, and *not necessary*. ``nuPI(rho=1)`` reaches
-   one at ``rho = 1`` with a strong proportional gain (``ki=0.3, kp=3``) where
-   ``ALM(rho=1)`` — same coefficient, no damping — only manages bounded. So on this
-   problem the dual dynamics, not the surrogate's convexity, are what make it work.
-P7 A cross-implementation consistency check, not a claim about a method:
-   ``nuPI(kp=0)`` is algebraically ``y <- y + ki*c``, which is ``ALM(lr=ki,
-   rho=0)``. The two independent implementations must therefore produce **bitwise
-   identical** iterates. This is what explains P1's ``nuPI`` failure — the swept
-   configuration that wins on ``svm_iris`` is exactly ``kp = 0`` — and it is a
-   genuine test of both dual-update code paths against each other.
-P8 ``nuPI(rho=1)`` reaches ``1e-4`` on all three reference problems. Added after
-   P1's ``nuPI`` half failed, and it is the *discriminating* test between the two
-   candidate explanations of that failure: either the PI dual rule is inadequate
-   on ``svm_iris``, or the obstruction is the objective's missing curvature in the
-   bias and any quadratic term supplies it. P2 argues for the second; if
-   ``nuPI(rho=1)`` converges where ``nuPI(rho=0)`` does not, that settles it, and
-   ``rho > 0`` becomes a documented recommendation rather than a deviation from the
-   reference method. (The ``nuPI`` paper defines a multiplier update, not an
-   augmented surrogate, so ``rho=0`` remains the published form and stays in the
-   comparison.)
+**R — exact reductions between methods.** Three of the four classes reduce to
+``ALM`` under specific settings, which tests them against an independent
+implementation rather than against a tolerance:
 
-A note on the reference values. ``svm_iris``'s ``y*`` is *not* taken from the QP
-solver's output, which is accurate to only ~1e-9 and would become a floor that
-several methods tie at for reasons that have nothing to do with the methods. The
-solver is used only to identify the active set; the multipliers then come from an
-exact solve of the resulting equality-constrained KKT system. The two QPs are
-constructed backwards from a chosen ``(x*, y*)``, so their references are exact by
-construction.
+======  ==========================================================  ================================
+R1      ``nuPI(kp=0, ki=g)``            == ``ALM(lr=g, rho=0)``     no preconditions
+R2      ``iALM(beta, sigma=1, gamma>>)``== ``ALM(lr=b, rho=b)``     ``gamma >= beta*||c||``
+R3      ``PBM(penalty_update="alm")``   == ``ALM((1-g)/r, 1/r)``    ``p0 = y0*r``; ``c/p >= -0.5``
+======  ==========================================================  ================================
+
+R3 is the strongest single assertion in the experiment: with ``p = y*r`` the
+quadratic-logarithmic barrier ``sum_i y_i p_i phi(c_i/p_i)`` collapses to
+``y'c + ||c||^2/(2r)``, so one comparison validates PBM's barrier algebra, its
+penalty update and its dual rule together. Note ``PBM`` snapshots multipliers
+*pre*-update and ``ALM`` *post*-update, so the comparison is ``PBM.forward_update``
+against ``ALM.forward`` **then** ``ALM.update``. Each reduction is checked both for
+a single step and along a trajectory, reporting the step at which a precondition
+first breaks — that boundary is informative in itself.
+
+**I — invariances the mathematics requires.**
+
+* I1 ``c -> alpha*c`` implies ``y* -> y*/alpha``. Catches an absolute constraint
+  scale leaking into a dual rule.
+* I2 an equality ``h = 0`` expressed as ``h <= 0, -h <= 0`` recovers ``x*`` and
+  ``y+ - y- = y_eq``. The package's problem statement relies on this reduction and
+  nothing else tests it. Individual ``y+``/``y-`` are not determined, so only the
+  difference is asserted.
+
+**C — convergence, one configuration per method.** The primal step is derived as
+``1/(L_f + rho*||J||^2)`` and the dual step is ``1/||J||^2`` for every method on
+every problem, so nothing here is tuned. Expectations are stated per problem and
+conditioned on a *structural predicate* of the method rather than on its name:
+
+* ``qp_active`` — strongly convex, all constraints active, ``y* > 0``, LICQ and
+  strict complementarity, so the KKT point is unique. **Every** method must
+  converge; a failure is a defect.
+* ``qp_inactive`` — adds exact zeros in ``y*``. Every method whose declared
+  ``lower_bound`` is 0 reaches ``y*_i = 0`` exactly; one with ``lower_bound > 0``
+  cannot, and its error is bounded below by that bound.
+* ``svm_iris`` — 96 of 100 multipliers are zero, so the same ``lower_bound`` rule as
+  ``qp_inactive`` applies. The objective Hessian is **singular** in the bias, which
+  turns out to slow convergence rather than prevent it: ``ALM(rho=0)`` reaches 9.1e-14
+  given the derived budget. With ``m = 100`` and ``n = 5``, ``J'`` has a
+  95-dimensional null space, so stationarity alone does not pin ``y`` — only
+  complementarity does, which is why the residual includes ``||y - y*||``.
+* ``qp_nonconvex`` — no convergence theory exists for a fixed-penalty Lagrangian on
+  an indefinite objective. **Nothing is claimed**; outcomes are counted.
+
+**O — observations, reported but not gated.** The ``qp_nonconvex`` outcome counts,
+framed as limits of applicability rather than as defects.
+
+Tolerances, one rule per category rather than four ad-hoc constants: F, R and I are
+algebraic identities, so they assert bitwise where the operations are literally
+identical and ``64*eps*scale`` otherwise — anything above rounding is a bug. C
+reports a relative KKT residual and states the value achieved.
 
 Usage::
 
-    python paper/e0/a_multipliers.py            # full run
-    python paper/e0/a_multipliers.py --quick    # seconds, for smoke testing
-    python paper/e0/a_multipliers.py --check    # exit non-zero on a failed prediction
+    python paper/e0/a_multipliers.py            # everything
+    python paper/e0/a_multipliers.py --quick    # F, R, I only (algebra, seconds)
+    python paper/e0/a_multipliers.py --check    # exit non-zero on a failed claim
 """
 
 from __future__ import annotations
@@ -142,23 +113,38 @@ from paper._harness import (
     write_table,
 )
 from paper.problems import Problem
-from paper.problems.qp import qp_active, qp_inactive, qp_nonconvex
+from paper.problems.qp import (
+    qp_active,
+    qp_equality,
+    qp_equality_reduced,
+    qp_inactive,
+    qp_nonconvex,
+)
 from paper.problems.svm import svm_iris
 
 EXPERIMENT = "e0a"
 
-# Dual step sizes swept for the methods whose dual step is a free parameter.
-# The grid reaches 1e-4 because a method with no quadratic term is driven to the
-# smallest step it is offered on svm_iris, and a grid that ends at its own choice
-# is a truncated grid, not a tuned method.
-DUAL_STEPS = [1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1.0]
-# PBM's "dual step" is the smoothing factor gamma of y <- gamma*y + (1-gamma)*y*phi'(c/p):
-# small gamma means a fast, nearly multiplicative update.
-PBM_GAMMAS = [0.1, 0.3, 0.5, 0.7, 0.9]
-# nuPI's proportional gain, as a multiple of its integral gain. 0 reduces the
-# controller to plain dual gradient ascent, which is the sanity check that the PI
-# terms are what makes the difference.
-NUPI_GAIN_RATIOS = [0.0, 1.0, 10.0]
+# Algebraic tolerance: these are identities, so the only admissible error is
+# floating-point rounding. 64 eps leaves room for a few dozen dependent
+# operations without leaving room for a wrong formula.
+ALGEBRAIC = 64 * float(np.finfo(np.float64).eps)
+# Convergence tolerance, on the *relative* KKT residual.
+KKT_TOLERANCE = 1e-6
+SCALE_ALPHA = 7.0          # for I1; not a round number, so a missing factor shows
+
+# Iteration budget for C, in units of "iterations x dual step". A *fixed* iteration
+# count is not comparable across problems: with the dual step derived as
+# 1/||J||^2, the number of dual updates needed to carry y from 0 to y* scales like
+# ||y*||*||J||^2, so a count that converges on qp_active (||J||^2 = 19) is 16x too
+# small for svm_iris (||J||^2 = 305). Measured on svm_iris at its derived step:
+# 1.6e-03 relative KKT after 20k iterations, 4.7e-06 after 50k, 2.8e-10 after 100k,
+# 4.6e-14 after 200k. 700 puts every problem comfortably past convergence.
+DUAL_STEP_BUDGET = 700.0
+
+
+def _iterations(problem: Problem) -> int:
+    """``budget / dual_step``, i.e. equal progress rather than equal iterations."""
+    return int(np.ceil(DUAL_STEP_BUDGET * problem.jac_norm_sq))
 
 
 # --------------------------------------------------------------------------- #
@@ -168,117 +154,124 @@ NUPI_GAIN_RATIOS = [0.0, 1.0, 10.0]
 
 @dataclass
 class Method:
-    """One line in the figure: a constructor plus the grid of dual settings.
+    """One method at one configuration.
 
-    :param build: Called as ``build(problem, config)`` where ``config`` is one
-        entry of ``sweep``, spelled as the constructor's own keyword names so the
-        results table reports what was actually passed.
-    :param penalty_coefficient: The quadratic coefficient this configuration
-        carries, used *only* to derive the primal step size. Reporting it is the
-        point: it is the price of the quadratic term.
+    :param build: ``build(problem) -> DualOptimizer``, already carrying this
+        configuration's dual step.
+    :param penalty_coefficient: The quadratic coefficient, used only to derive the
+        primal step size.
+    :param seed_buffer: True when the method carries an error buffer that must be
+        initialised to ``c(x*)`` for the fixed-point test to be meaningful (nuPI's
+        PI recursion is stationary only once its buffer has converged).
+    :param equality_via_two_sided: Whether ``h <= 0, -h <= 0`` is a documented route
+        to an equality for this method (I2). False for ``PBM``, and structurally so:
+        the two-sided form has no strictly feasible interior, since at any ``x`` one
+        of each pair is violated. PBM's multiplicative update
+        ``y <- gamma*y + (1-gamma)*y*phi'(c/p)`` then grows whichever side is
+        violated and alternates — measured ping-ponging between its 1e-4 floor and
+        its 100 ceiling. Its documented route is the threshold ``|h| <= tau``, which
+        keeps an interior but poses a *different* problem with different
+        multipliers, so it is not comparable here and is not attempted.
     """
 
     label: str
-    build: Callable[[Problem, dict], DualOptimizer]
+    build: Callable[[Problem], DualOptimizer]
     penalty_coefficient: float
-    sweep: list[dict]
+    has_curvature: bool          # a quadratic term in the surrogate
+    has_damping: bool            # a proportional/derivative term in the dual rule
+    seed_buffer: bool = False
+    equality_via_two_sided: bool = True
     style: dict = field(default_factory=dict)
 
-
-def _config_label(config: dict) -> str:
-    return ", ".join(f"{key}={value:g}" for key, value in config.items())
+    def dual_step(self, problem: Problem) -> float:
+        """``1/||J||^2`` — dimensionally correct and identical for every method."""
+        return 1.0 / problem.jac_norm_sq
 
 
 def _methods() -> list[Method]:
-    alm_shades = {0.0: ("#7FB2D0", "--", "o"), 1.0: ("#2E86AB", "-", "s"),
-                  10.0: ("#1B4965", "-.", "*")}
-    methods = [
-        Method(
-            # rho=10 is here for qp_nonconvex: a Lagrangian method keeps the
-            # iterates bounded on an indefinite problem only once its quadratic
-            # term dominates the negative curvature, and lambda_min(Q) = -2.2
-            # there, so rho = 1 provably cannot. Run on every problem for
-            # consistency.
+    """One configuration per method. No sweep: nothing here is tuned."""
+    def alm(rho, color, ls, marker):
+        return Method(
             f"ALM (rho={rho:g})",
-            lambda p, cfg, rho=rho: ALM(
-                m=p.m, penalty=rho, init_duals=0.0, is_ineq=True, **cfg
-            ),
-            penalty_coefficient=rho,
-            sweep=[{"lr": lr} for lr in DUAL_STEPS],
+            lambda p, rho=rho: ALM(m=p.m, lr=1.0 / p.jac_norm_sq, penalty=rho,
+                                   init_duals=0.0, is_ineq=True),
+            penalty_coefficient=rho, has_curvature=rho > 0, has_damping=False,
             style={"color": color, "ls": ls, "marker": marker},
         )
-        for rho, (color, ls, marker) in alm_shades.items()
-    ]
-    # rho=0 is the published method (the nuPI paper defines a multiplier update,
-    # not an augmented surrogate, and 0 is the shipped default). rho=1 is here to
-    # separate two candidate explanations of P1's failure: is the obstruction on
-    # svm_iris the *dual rule*, or the missing curvature in the bias? If a
-    # quadratic term fixes nuPI exactly as it fixes ALM, it is the latter. See P8.
-    methods += [
-        Method(
+
+    def pi(rho, color, ls):
+        # kp = ki keeps one knob; nu stays at the reference default.
+        return Method(
             f"nuPI (rho={rho:g})",
-            lambda p, cfg, rho=rho: nuPI(
-                m=p.m, nu=0.01, penalty=rho, init_duals=0.0, is_ineq=True, **cfg
-            ),
-            penalty_coefficient=rho,
-            sweep=[{"ki": ki, "kp": ratio * ki}
-                   for ki in DUAL_STEPS for ratio in NUPI_GAIN_RATIOS],
+            lambda p, rho=rho: nuPI(m=p.m, ki=1.0 / p.jac_norm_sq,
+                                    kp=1.0 / p.jac_norm_sq, nu=0.01, penalty=rho,
+                                    init_duals=0.0, is_ineq=True),
+            penalty_coefficient=rho, has_curvature=rho > 0, has_damping=True,
+            seed_buffer=True,
             style={"color": color, "ls": ls, "marker": "v"},
         )
-        for rho, color, ls in [(0.0, "#E0A458", "--"), (1.0, "#A8621B", "-")]
-    ]
-    methods.append(
+
+    return [
+        alm(0.0, "#7FB2D0", "--", "o"),
+        alm(1.0, "#2E86AB", "-", "s"),
+        pi(0.0, "#E0A458", "--"),
+        pi(1.0, "#A8621B", "-"),
+        Method(
+            "iALM",
+            # beta is simultaneously the quadratic coefficient and the dual step,
+            # so it takes the same 1/||J||^2 value; gamma is left at its default so
+            # the published safeguard stays active.
+            lambda p: iALM(m=p.m, beta=1.0 / p.jac_norm_sq, sigma=1.0, gamma=1.0,
+                           init_duals=0.0, is_ineq=True),
+            penalty_coefficient=1.0, has_curvature=True, has_damping=False,
+            style={"color": "#5BC0BE", "ls": ":", "marker": "^"},
+        ),
         Method(
             "PBM",
-            lambda p, cfg: PBM(
-                m=p.m,
-                penalty_mult=0.1,
-                delta=1.0,
-                penalty_update="dimin_adapt",
-                gamma_annealing=False,
-                penalty_annealing=False,
-                **cfg,
-            ),
-            # phi'' <= 1 for the quadratic-logarithmic barrier, so the surrogate's
-            # curvature is bounded by max_i (y_i / p_i) ||J||^2; 1.0 is the value
-            # that holds at the solutions here (y* = O(1), p in [0.1, 1]).
-            penalty_coefficient=1.0,
-            sweep=[{"gamma": gamma} for gamma in PBM_GAMMAS],
+            lambda p: PBM(m=p.m, gamma=0.5, penalty_mult=0.1, delta=1.0,
+                          penalty_update="dimin_adapt", gamma_annealing=False,
+                          penalty_annealing=False),
+            # phi'' <= 1 for the quadratic-logarithmic barrier, so the curvature is
+            # bounded by max_i (y_i/p_i)*||J||^2; 1.0 holds at these solutions.
+            penalty_coefficient=1.0, has_curvature=True, has_damping=False,
+            equality_via_two_sided=False,      # see the field's docstring
             style={"color": "#D1495B", "ls": "-", "marker": "D"},
-        )
-    )
-    # beta is simultaneously the quadratic coefficient and the dual step, so it
-    # cannot be tuned away: each value gets its own line.
-    methods += [
-        Method(
-            f"iALM (beta={beta:g})",
-            lambda p, cfg: iALM(
-                m=p.m, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True, **cfg
-            ),
-            penalty_coefficient=beta,
-            sweep=[{"beta": beta}],
-            style={"color": shade, "ls": ":", "marker": "^"},
-        )
-        for beta, shade in zip([0.1, 1.0, 10.0], ["#9BD1C4", "#5BC0BE", "#347B7A"])
+        ),
     ]
-    return methods
 
 
-def _problems() -> list[Problem]:
-    return [qp_active(), qp_inactive(), svm_iris(), qp_nonconvex()]
+def _reference_problems() -> list[Problem]:
+    """Problems with an exact ``(x*, y*)``, so F and C can both run."""
+    return [qp_active(), qp_inactive(), svm_iris()]
+
+
+def _all_problems() -> list[Problem]:
+    return _reference_problems() + [qp_nonconvex()]
 
 
 # --------------------------------------------------------------------------- #
-# one run
+# shared machinery
 # --------------------------------------------------------------------------- #
+
+
+def _seed_buffer(optimizer: DualOptimizer, c: torch.Tensor) -> None:
+    """Put nuPI's error buffer at ``c``, which is where a fixed point needs it.
+
+    The PI recursion is ``y += (ki + kp(1-nu))c - kp(1-nu)xi``; only once
+    ``xi == c`` does that collapse to ``y += ki*c``, so a fixed-point test run from
+    a zero buffer would report a spurious deviation of ``kp(1-nu)*c``.
+    """
+    for group in optimizer.param_groups:
+        buffer = group.get("momentum_buffer")
+        if buffer is not None:
+            buffer.copy_(c.detach())
 
 
 def _metrics(problem: Problem, x: torch.Tensor, duals: torch.Tensor) -> dict:
-    """KKT diagnostics at ``(x, y)``, computed exactly (no minibatch noise)."""
+    """KKT diagnostics at ``(x, y)``, exact — no minibatch noise anywhere in E0a."""
     f = problem.objective([x])
     c = problem.constraints([x])
-    # grad_x (f + y'c) = grad f + J'y, in one backward pass and without ever
-    # forming the m-by-n Jacobian.
+    # grad_x (f + y'c) = grad f + J'y in one backward pass, never forming J.
     (gradient,) = torch.autograd.grad(f + duals @ c, x)
     f, c = f.detach(), c.detach()
 
@@ -295,42 +288,428 @@ def _metrics(problem: Problem, x: torch.Tensor, duals: torch.Tensor) -> dict:
         y_star = torch.as_tensor(problem.y_star, dtype=duals.dtype)
         error = duals - y_star
         row["y_inf"] = float(error.abs().max())
-        row["y_rel"] = float(error.norm() / y_star.norm())
+        row["y_rel"] = float(error.norm() / max(1e-30, float(y_star.norm())))
     return row
 
 
-def run(
-    problem: Problem,
-    method: Method,
-    config: dict,
-    iterations: int,
-    record_at: set[int] | None = None,
-) -> tuple[list[dict], dict]:
-    """Run one (problem, method, dual-configuration) triple.
+def _relative_kkt(problem: Problem, row: dict) -> float:
+    """A single scale-free residual, so one tolerance suffices for every problem."""
+    scale = 1.0 + (0.0 if problem.y_star is None
+                   else float(np.abs(problem.y_star).max()))
+    parts = [row["stationarity"] / scale, row["violation"]]
+    if "y_inf" in row:
+        parts.append(row["y_inf"] / scale)
+    return max(parts)
 
-    :param record_at: Iterations at which to store a trajectory row. ``None``
-        records only the last iterate, which is all the sweep needs.
-    :return: ``(rows, final)``.
+
+def _status(final: dict) -> str:
+    """``diverged`` / ``bounded`` / ``solved``, on the same residual the gates use.
+
+    ``bounded`` needs its own name: on ``qp_nonconvex`` a method can stay finite at
+    violation 36, which a two-way diverged/ok split would call "ok".
+
+    This must read the *relative KKT* residual, not ``max(stationarity, violation)``.
+    On ``svm_iris`` ``m = 100`` and ``n = 5``, so ``J'`` has a 95-dimensional null
+    space and stationarity alone does not determine ``y`` — only stationarity plus
+    complementarity does. A method can therefore be feasible and stationary while its
+    multipliers are wrong by 0.25, and the narrower residual would call that "solved".
+    """
+    if final.get("diverged"):
+        return "diverged"
+    residual = final.get("relative KKT", float("inf"))
+    return "solved" if residual <= KKT_TOLERANCE else "bounded"
+
+
+# --------------------------------------------------------------------------- #
+# F — fixed-point consistency
+# --------------------------------------------------------------------------- #
+
+
+def fixed_point(problem: Problem, method: Method) -> dict:
+    """One ``forward_update`` from ``(x*, y*)``.
+
+    :return: The surrogate's ``grad_x`` norm, the multiplier drift, and the
+        deviation the method's own declared ``lower_bound`` makes unavoidable.
     """
     set_seed(0)
+    x = torch.nn.Parameter(torch.as_tensor(problem.x_star,
+                                           dtype=torch.get_default_dtype()))
+    y_star = torch.as_tensor(problem.y_star, dtype=torch.get_default_dtype())
+    c_star = problem.constraints([x]).detach()
+
+    optimizer = method.build(problem)
+    lower = optimizer.param_groups[0].get("lower_bound")
+    # A method whose multipliers must stay strictly positive cannot be started at
+    # an exact zero, so it is started as close as its own bound allows -- and that
+    # distance is the deviation we then expect to see, rather than a failure.
+    start = y_star if lower is None else y_star.clamp(min=lower)
+    expected = float((start - y_star).abs().max())
+    for group in optimizer.param_groups:
+        group["params"][0].data.copy_(start)
+    if method.seed_buffer:
+        _seed_buffer(optimizer, c_star)
+
+    surrogate = optimizer.forward_update(problem.objective([x]),
+                                         problem.constraints([x]))
+    (gradient,) = torch.autograd.grad(surrogate, x)
+    drift = float((optimizer.duals.detach() - y_star).abs().max())
+
+    scale = 1.0 + float(np.abs(problem.y_star).max())
+    # A method that cannot start at y* also cannot have a vanishing surrogate
+    # gradient there: the offset enters grad_x through the Jacobian, to first
+    # order as ||J|| * ||y - y*||. Derive that allowance rather than loosening a
+    # tolerance until PBM fits under it.
+    transmitted = expected * float(np.sqrt(problem.jac_norm_sq))
+    return {
+        "problem": problem.name,
+        "method": method.label,
+        "grad_x": float(gradient.abs().max()),
+        "dual drift": drift,
+        "lower_bound": lower,
+        "unavoidable deviation": expected,
+        # What the method is answerable for, once its own declared bound is allowed.
+        "excess drift": max(0.0, drift - expected),
+        "tolerance": ALGEBRAIC * scale,
+        # ALGEBRAIC*1e3 because grad_x accumulates the problem's data scale through
+        # J; 10x the transmitted offset because that estimate is first-order.
+        "grad_x tolerance": max(ALGEBRAIC * 1e3, 10.0 * transmitted),
+    }
+
+
+def register_fixed_point(checks: Checks, rows: list[dict]) -> None:
+    for row in rows:
+        tol, grad_tol = row["tolerance"], row["grad_x tolerance"]
+        checks.expect(
+            row["grad_x"] <= grad_tol and row["excess drift"] <= tol,
+            f"F: {row['method']} is a fixed point at (x*, y*) on {row['problem']}",
+            f"grad_x {row['grad_x']:.3e} (tol {grad_tol:.1e}); excess drift "
+            f"{row['excess drift']:.3e} (tol {tol:.1e}); unavoidable "
+            f"{row['unavoidable deviation']:.3e} from lower_bound="
+            f"{row['lower_bound']}",
+        )
+
+
+def register_fixed_point_is_sharp(checks: Checks, problem: Problem) -> None:
+    """F must FAIL when the quadratic term is put back on raw ``c``.
+
+    Without this the whole category could be passing vacuously. ``is_ineq=False``
+    is how the pre-B.1 behaviour is reachable through the public API; note it also
+    drops the non-negativity clamp, so this shows F detects the loss of either
+    required ingredient, not that it isolates the penalty.
+    """
+    set_seed(0)
+    x = torch.nn.Parameter(torch.as_tensor(problem.x_star,
+                                           dtype=torch.get_default_dtype()))
+    y_star = torch.as_tensor(problem.y_star, dtype=torch.get_default_dtype())
+    optimizer = ALM(m=problem.m, lr=1.0 / problem.jac_norm_sq, penalty=1.0,
+                    init_duals=y_star.clone(), is_ineq=False)
+    surrogate = optimizer.forward_update(problem.objective([x]),
+                                         problem.constraints([x]))
+    (gradient,) = torch.autograd.grad(surrogate, x)
+    broken = float(gradient.abs().max())
+    drift = float((optimizer.duals.detach() - y_star).abs().max())
+    checks.expect(
+        broken > 1e-3 and drift > 1e-3,
+        "F is sharp: with the quadratic term on raw c and no non-negativity clamp, "
+        f"the fixed point breaks on {problem.name} (regression guard for the [c]+ fix)",
+        f"grad_x {broken:.3e}, dual drift {drift:.3e} — both must be large",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# R — exact reductions to ALM
+# --------------------------------------------------------------------------- #
+
+
+def _reduction_pairs(problem: Problem):
+    """``(name, build_reduced, build_alm, alm_split, precondition, bitwise, note)``.
+
+    ``precondition(reduced, c)`` reports whether the algebra that makes the
+    reduction exact still applies at the current iterate. A reduction is only
+    asserted over the steps where its preconditions hold; the step at which one
+    first breaks is reported, since that boundary is the useful information.
+    """
+    g = 1.0 / problem.jac_norm_sq          # the shared dual step
+    m = problem.m
+    gamma_p = 0.4
+    y0 = 0.75                              # strictly positive: PBM needs it
+    span = (1e-10, 1e10)
+
+    # R3 lives on quad_log's quadratic branch, which needs c/p >= -0.5. Since
+    # p_0 = y0*rho_p, pick rho_p so that holds at the starting iterate with margin
+    # -- otherwise the reduction is being tested where it is not claimed to apply.
+    x0 = problem.make_params()[0]
+    c0 = float(problem.constraints([x0]).detach().abs().max())
+    rho_p = max(3.0, 4.0 * c0 / y0)
+
+    def r2_ok(reduced, c):
+        # min(beta, gamma/||c||) must select beta for the step to equal ALM's lr.
+        beta = float(reduced.param_groups[0]["beta"])
+        return 1e12 >= beta * float(c.norm())
+
+    def r3_ok(reduced, c):
+        # quad_log is the quadratic branch only for t >= -0.5, and neither the
+        # duals nor the penalties may be sitting on a safeguarding clamp.
+        t = (c.detach() / reduced.penalties).min()
+        duals, pens = reduced.duals.detach(), reduced.penalties
+        inside = (duals.min() > span[0]) and (duals.max() < span[1]) \
+            and (pens.min() > span[0]) and (pens.max() < span[1])
+        return bool(t >= -0.5) and bool(inside)
+
+    return [
+        (
+            "R1  nuPI(kp=0) == ALM(rho=0)",
+            lambda: nuPI(m=m, ki=g, kp=0.0, nu=0.01, penalty=0.0,
+                         init_duals=y0, is_ineq=True),
+            lambda: ALM(m=m, lr=g, penalty=0.0, init_duals=y0, is_ineq=True),
+            False,
+            lambda reduced, c: True,
+            True,      # duals.add_(c, alpha=ki) vs add_(c, alpha=lr): same op
+            "unconditional",
+        ),
+        (
+            "R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta)",
+            lambda: iALM(m=m, beta=g, sigma=1.0, gamma=1e12,
+                         init_duals=y0, is_ineq=True),
+            lambda: ALM(m=m, lr=g, penalty=g, init_duals=y0, is_ineq=True),
+            False,
+            r2_ok,
+            True,      # both reduce to a single add_(c, alpha=beta)
+            "requires gamma >= beta*||c||, i.e. the safeguard does not bind",
+        ),
+        (
+            "R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r)",
+            lambda: PBM(m=m, gamma=gamma_p, penalty_update="alm", rho=rho_p,
+                        init_duals=y0, init_penalties=y0 * rho_p,
+                        dual_range=span, penalty_range=span,
+                        gamma_annealing=False, penalty_annealing=False),
+            lambda: ALM(m=m, lr=(1.0 - gamma_p) / rho_p, penalty=1.0 / rho_p,
+                        init_duals=y0, is_ineq=False, dual_range=span),
+            # PBM snapshots pre-update, ALM post-update, so ALM must be driven
+            # split (forward, then update) for the surrogates to line up.
+            True,
+            r3_ok,
+            # y*(gamma + (1-gamma)(1 + c/p)) and y + lr*c are the same number by a
+            # different route, so this one is held to rounding, not to bits.
+            False,
+            "requires c/p >= -0.5 (the quad_log branch) and no range clamps",
+        ),
+    ]
+
+
+def reduction_trajectory(problem: Problem, build_a, build_b, b_split: bool,
+                         precondition, steps: int = 200) -> dict:
+    """Run two configurations in lockstep for as long as the algebra applies.
+
+    Stops at the first iterate where ``precondition`` fails, so the assertion is
+    made only where the reduction is claimed to hold.
+    """
+    set_seed(0)
+    xa = problem.make_params()[0]
+    set_seed(0)
+    xb = problem.make_params()[0]
+    a, b = build_a(), build_b()
+    lr = problem.primal_step(1.0)
+    opt_a = torch.optim.SGD([xa], lr=lr)
+    opt_b = torch.optim.SGD([xb], lr=lr)
+
+    worst_surrogate = worst_dual = 0.0
+    ran = 0
+    breach = None
+    for step in range(steps):
+        ca = problem.constraints([xa])
+        if not precondition(a, ca):
+            breach = step
+            break
+        sa = a.forward_update(problem.objective([xa]), ca)
+        opt_a.zero_grad(); sa.backward(); opt_a.step()
+
+        loss_b, c_b = problem.objective([xb]), problem.constraints([xb])
+        if b_split:
+            sb = b.forward(loss_b, c_b)
+            opt_b.zero_grad(); sb.backward(); opt_b.step(); b.update(c_b)
+        else:
+            sb = b.forward_update(loss_b, c_b)
+            opt_b.zero_grad(); sb.backward(); opt_b.step()
+
+        worst_surrogate = max(worst_surrogate, abs(float(sa) - float(sb)))
+        worst_dual = max(worst_dual,
+                         float((a.duals.detach() - b.duals.detach()).abs().max()))
+        ran = step + 1
+    return {
+        "steps requested": steps,
+        "steps with preconditions holding": ran,
+        "precondition first broke at step": breach,
+        "max |surrogate difference|": worst_surrogate,
+        "max |dual difference|": worst_dual,
+    }
+
+
+def register_reductions(checks: Checks, problems: list[Problem]) -> list[dict]:
+    rows = []
+    for problem in problems:
+        for name, build_a, build_b, b_split, pre, bitwise, note in _reduction_pairs(
+                problem):
+            # single step from a common state
+            set_seed(0)
+            x = problem.make_params()[0]
+            a, b = build_a(), build_b()
+            sa = a.forward_update(problem.objective([x]), problem.constraints([x]))
+            loss, c = problem.objective([x]), problem.constraints([x])
+            if b_split:
+                sb = b.forward(loss, c); b.update(c)
+            else:
+                sb = b.forward_update(loss, c)
+            dual_gap = float((a.duals.detach() - b.duals.detach()).abs().max())
+            one_step = {
+                "surrogate difference": abs(float(sa) - float(sb)),
+                "dual difference": dual_gap,
+                "duals bitwise identical": torch.equal(a.duals.detach(),
+                                                       b.duals.detach()),
+                # Bitwise is only the right bar when the two updates execute the
+                # *same* floating-point operations; R3 reaches the same number by a
+                # different route, so it is held to rounding instead.
+                "bar": "bitwise" if bitwise else f"<= {ALGEBRAIC * 1e3:.1e}",
+            }
+            traj = reduction_trajectory(problem, build_a, build_b, b_split, pre)
+            rows.append({"problem": problem.name, "reduction": name,
+                         "note": note, **one_step, **traj})
+
+            duals_ok = (one_step["duals bitwise identical"] if bitwise
+                        else dual_gap <= ALGEBRAIC * 1e3)
+            checks.expect(
+                one_step["surrogate difference"] <= ALGEBRAIC * 1e3 and duals_ok,
+                f"{name} holds for one step on {problem.name} ({one_step['bar']})",
+                f"surrogate difference {one_step['surrogate difference']:.3e}, "
+                f"dual difference {dual_gap:.3e}, bitwise: "
+                f"{one_step['duals bitwise identical']}",
+            )
+            ran = traj["steps with preconditions holding"]
+            checks.expect(
+                traj["max |dual difference|"] <= ALGEBRAIC * 1e3 and ran > 0,
+                f"{name} holds for all {ran} steps on {problem.name} where its "
+                f"preconditions apply",
+                f"worst dual difference {traj['max |dual difference|']:.3e}; "
+                f"preconditions broke at step "
+                f"{traj['precondition first broke at step']} ({note})",
+            )
+    return rows
+
+
+# --------------------------------------------------------------------------- #
+# I — invariances
+# --------------------------------------------------------------------------- #
+
+
+def register_scaling_invariance(checks: Checks, methods: list[Method]) -> list[dict]:
+    """I1: scaling the constraints must scale the multipliers, not move the KKT point."""
+    rows = []
+    for base in _reference_problems():
+        scaled = base.scaled(SCALE_ALPHA)
+        for method in methods:
+            plain = fixed_point(base, method)
+            lifted = fixed_point(scaled, method)
+            rows.append({"problem": base.name, "method": method.label,
+                         "alpha": SCALE_ALPHA,
+                         "excess drift (plain)": plain["excess drift"],
+                         "excess drift (scaled)": lifted["excess drift"]})
+            checks.expect(
+                lifted["excess drift"] <= lifted["tolerance"],
+                f"I1: {method.label} is a fixed point at (x*, y*/{SCALE_ALPHA:g}) "
+                f"for {base.name} with constraints scaled by {SCALE_ALPHA:g}",
+                f"excess drift {lifted['excess drift']:.3e} "
+                f"(unscaled {plain['excess drift']:.3e})",
+            )
+    return rows
+
+
+def register_equality_reduction(checks: Checks) -> list[dict]:
+    """I2: ``h = 0`` as ``h <= 0, -h <= 0`` recovers ``x*`` and ``y+ - y-``."""
+    equality = qp_equality()
+    reduced = qp_equality_reduced()
+    m_eq = reduced.meta["m_eq"]
+    y_eq = torch.as_tensor(reduced.meta["y_eq"], dtype=torch.get_default_dtype())
+
+    rows = []
+    for method in _methods():
+        set_seed(0)
+        x = reduced.make_params()[0]
+        optimizer = method.build(reduced)
+        primal = torch.optim.SGD(
+            [x], lr=reduced.primal_step(method.penalty_coefficient))
+        for _ in range(_iterations(reduced)):
+            if not torch.isfinite(x).all():
+                break
+            optimizer.forward_update(reduced.objective([x]),
+                                     reduced.constraints([x])).backward()
+            primal.step()
+            primal.zero_grad()
+
+        duals = optimizer.duals.detach()
+        difference = duals[:m_eq] - duals[m_eq:]
+        x_error = float((x.detach()
+                         - torch.as_tensor(reduced.x_star,
+                                           dtype=x.dtype)).abs().max())
+        y_error = float((difference - y_eq).abs().max())
+        # A dual floor perturbs both multipliers of a pair, and the two floors
+        # cancel in the difference, so it is not a reason to exclude a method.
+        applies = _two_sided_reduction_applies(method)
+        rows.append({"method": method.label,
+                     "reduction documented for this method": applies,
+                     "||x - x*||inf": x_error,
+                     "||(y+ - y-) - y_eq||inf": y_error,
+                     "y_eq": y_eq.numpy().round(4).tolist(),
+                     "y+ - y-": difference.numpy().round(4).tolist()})
+        if applies:
+            checks.expect(
+                y_error <= 1e-5 and x_error <= 1e-5,
+                f"I2: {method.label} recovers the equality problem through the "
+                f"h<=0,-h<=0 reduction",
+                f"||(y+ - y-) - y_eq||inf {y_error:.3e}, "
+                f"||x - x*||inf {x_error:.3e}",
+            )
+        else:
+            checks.expect(
+                True,
+                f"I2: {method.label} is exempt — its documented route for an "
+                f"equality is the threshold |h| <= tau, not the two-sided "
+                f"reduction, and a penalty-barrier surrogate has no interior to "
+                f"work in when both sides of a pair are active",
+                f"reported, not gated: ||(y+ - y-) - y_eq||inf {y_error:.3e}, "
+                f"||x - x*||inf {x_error:.3e}",
+            )
+    del equality
+    return rows
+
+
+def _two_sided_reduction_applies(method: Method) -> bool:
+    """Whether ``h <= 0, -h <= 0`` is a documented route for this method."""
+    return method.equality_via_two_sided
+
+
+# --------------------------------------------------------------------------- #
+# C — convergence, one untuned configuration per method
+# --------------------------------------------------------------------------- #
+
+
+def converge(problem: Problem, method: Method, iterations: int,
+             record_at: set[int] | None = None) -> tuple[list[dict], dict]:
+    set_seed(0)
     x = problem.make_params()[0]
-    dual = method.build(problem, config)
-    primal = torch.optim.SGD([x], lr=problem.primal_step(method.penalty_coefficient))
+    optimizer = method.build(problem)
+    primal = torch.optim.SGD(
+        [x], lr=problem.primal_step(method.penalty_coefficient))
 
     rows, final = [], {}
     diverged = False
     for k in range(iterations + 1):
-        # Cheap blow-up check: stop as soon as the iterate is beyond saving rather
-        # than spending the remaining iterations overflowing to inf, which also
-        # keeps the reported violation a finite (huge) number instead of nan.
         blown = k % 100 == 0 and not bool(
-            torch.isfinite(x).all() and x.abs().max() < 1e12
-        )
+            torch.isfinite(x).all() and x.abs().max() < 1e12)
         last = k == iterations or blown
         if last or (record_at is not None and k in record_at):
-            row = _metrics(problem, x, dual.duals.detach())
-            row.update(iteration=k, problem=problem.name, method=method.label,
-                       config=_config_label(config))
+            row = _metrics(problem, x, optimizer.duals.detach())
+            row.update(iteration=k, problem=problem.name, method=method.label)
+            row["relative KKT"] = _relative_kkt(problem, row)
             if not np.isfinite(row["stationarity"]) or row["violation"] > 1e8:
                 diverged = True
             if record_at is not None:
@@ -340,58 +719,97 @@ def run(
         if last or diverged:
             break
 
-        loss = problem.objective([x])
-        constraints = problem.constraints([x])
         primal.zero_grad()
-        # forward_update is the package's documented training-loop entry point, and
-        # it is also what the published recursions write: the multipliers advance
-        # first and the surrogate is formed with the *new* ones,
-        # L_{t+1} = f_t + y_{t+1}'c_t. (PBM is unaffected either way — it overrides
-        # _snapshot to take a pre-update copy, so both orderings coincide for it.)
-        #
-        # Using forward() and update() separately is also supported, with one
-        # constraint: .backward() must come before update(). forward() builds the
-        # surrogate from the live dual tensor, autograd keeps that tensor for the
-        # y'c backward, and update() mutates it in place. The primal step may go on
-        # either side of update() -- the constraint tensor already holds the values
-        # from this iterate, so that choice is bitwise immaterial.
-        dual.forward_update(loss, constraints).backward()
+        optimizer.forward_update(problem.objective([x]),
+                                 problem.constraints([x])).backward()
         primal.step()
 
     final["diverged"] = diverged
     final["primal_lr"] = primal.param_groups[0]["lr"]
+    final["dual_step"] = method.dual_step(problem)
     return rows, final
 
 
-def _record_at(iterations: int, points: int = 200) -> set[int]:
-    """Log-spaced recording points, so a 20k-iteration trajectory stays a small CSV."""
-    grid = np.unique(np.geomspace(1, iterations, points).astype(int))
-    return set(int(k) for k in grid) | {0, iterations}
+def register_convergence(checks: Checks, results: dict, methods: list[Method]) -> None:
+    """Per-problem expectations, each conditioned on a structural predicate."""
+    def residual(problem_name, method):
+        return _relative_kkt_of(results[(problem_name, method.label)])
 
+    def _relative_kkt_of(final):
+        return float("inf") if final.get("diverged") else final["relative KKT"]
 
-KKT_TOLERANCE = 1e-6
+    # qp_active — unique KKT point, so every method must converge.
+    for method in methods:
+        value = residual("qp_active", method)
+        checks.expect(
+            value <= KKT_TOLERANCE,
+            f"C/qp_active: {method.label} converges — the KKT point is unique "
+            f"(strongly convex, all active, LICQ, strict complementarity), so "
+            f"every method must",
+            f"relative KKT {value:.3e}",
+        )
 
+    # qp_inactive — exact zeros are reachable iff the dual lower bound is 0.
+    for method in methods:
+        final = results[("qp_inactive", method.label)]
+        bound = final.get("lower_bound") or 0.0
+        value = _relative_kkt_of(final)
+        if bound == 0.0:
+            checks.expect(
+                value <= KKT_TOLERANCE,
+                f"C/qp_inactive: {method.label} has lower_bound=0, so it can "
+                f"represent y*_i = 0 exactly and must converge",
+                f"relative KKT {value:.3e}, smallest dual "
+                f"{final['dual_min']:.3e}",
+            )
+        else:
+            checks.expect(
+                value >= 0.5 * bound,
+                f"C/qp_inactive: {method.label} has lower_bound={bound:g} > 0, so "
+                f"y*_i = 0 is unrepresentable and its error is bounded below by "
+                f"that bound",
+                f"relative KKT {value:.3e} against the bound {bound:g}",
+            )
 
-def _status(final: dict) -> str:
-    """``diverged`` / ``bounded`` / ``solved``.
-
-    ``bounded`` is a distinct outcome and needs its own name: on ``qp_nonconvex``
-    ``ALM(rho=1)`` stays finite while sitting at violation 36 and stationarity 98,
-    which a two-way diverged/ok split would report as "ok".
-    """
-    if final.get("diverged"):
-        return "diverged"
-    residual = max(final["stationarity"], final["violation"])
-    return "solved" if residual <= KKT_TOLERANCE else "bounded"
-
-
-def _score(final: dict) -> float:
-    """Sweep objective: final multiplier error, or the KKT residual without a reference."""
-    if final.get("diverged"):
-        return float("inf")
-    if "y_inf" in final:
-        return final["y_inf"]
-    return max(final["stationarity"], final["violation"])
+    # svm_iris — same structural rule as qp_inactive: an exact zero is reachable iff
+    # the dual lower bound is 0. The singular bias direction turns out NOT to be an
+    # obstruction to convergence, only to the *rate* -- which is why this problem
+    # needs 213k iterations at its derived step rather than 13k.
+    for method in methods:
+        final = results[("svm_iris", method.label)]
+        bound = final.get("lower_bound") or 0.0
+        value = residual("svm_iris", method)
+        if bound == 0.0:
+            checks.expect(
+                value <= KKT_TOLERANCE,
+                f"C/svm_iris: {method.label} has lower_bound=0, so it can represent "
+                f"the 96 zero multipliers exactly and must converge",
+                f"relative KKT {value:.3e}",
+                known_false=(
+                    "the PI proportional term is what fails here, and this "
+                    "experiment's original reasoning had it backwards. It predicted "
+                    "that the bias direction's missing curvature would obstruct "
+                    "plain dual ascent and that curvature *or* damping would rescue "
+                    "it. Both halves are false: ALM(rho=0), with neither, reaches "
+                    "9.1e-14, while nuPI(rho=0) at kp = ki stalls at 2.5e-01 -- "
+                    "adding the proportional term without a quadratic term makes "
+                    "this problem worse, not better. Note the failure is invisible "
+                    "in stationarity and feasibility alone: with m=100 and n=5, "
+                    "J' has a 95-dimensional null space, so only complementarity "
+                    "pins y, and this configuration is feasible and stationary with "
+                    "multipliers wrong by 0.25. Claimed only for kp = ki, the one "
+                    "gain ratio tested."
+                    if method.label == "nuPI (rho=0)" else None
+                ),
+            )
+        else:
+            checks.expect(
+                value >= 0.5 * bound,
+                f"C/svm_iris: {method.label} has lower_bound={bound:g} > 0, so the "
+                f"96 zero multipliers are unrepresentable and its error is bounded "
+                f"below by that bound",
+                f"relative KKT {value:.3e} against the bound {bound:g}",
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -402,252 +820,32 @@ def _score(final: dict) -> float:
 def make_figure(trajectories: dict, problems: list[Problem], methods: list[Method]):
     fig, axes, plt = figure(2, 2, row_height=2.1)
     for ax, problem in zip(axes, problems):
-        reference = problem.has_reference_multipliers
-        key = "y_inf" if reference else "stationarity"
         for method in methods:
             rows = trajectories.get((problem.name, method.label))
             if not rows:
                 continue
-            # Truncate at the last finite value: a diverged run's tail is inf/nan
-            # and would silently drop the whole line rather than showing where it
-            # left the plot.
-            finite = [r for r in rows if np.isfinite(r[key])]
-            iterations = [r["iteration"] for r in finite]
-            # 1e-16 floor so an exactly-zero error is still drawn on a log axis.
-            values = [max(r[key], 1e-16) for r in finite]
-            ax.plot(iterations, values, label=method.label, markevery=0.25,
-                    markersize=2.5, **method.style)
+            finite = [r for r in rows if np.isfinite(r["relative KKT"])]
+            ax.plot([r["iteration"] for r in finite],
+                    [max(r["relative KKT"], 1e-17) for r in finite],
+                    label=method.label, markevery=0.25, markersize=2.5,
+                    **method.style)
+        ax.axhline(KKT_TOLERANCE, color="0.6", lw=0.5, ls=(0, (1, 2)))
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_title(f"{problem.name} (m={problem.m})")
         ax.set_xlabel("primal iteration")
-        ax.set_ylabel(r"$\|y_k - y^\star\|_\infty$" if reference
-                      else r"$\|\nabla f + J^\top y\|_\infty$")
+        ax.set_ylabel("relative KKT residual")
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=5,
+    fig.legend(handles, labels, loc="upper center", ncol=3,
                bbox_to_anchor=(0.5, 1.10), frameon=False)
     fig.tight_layout(rect=[0, 0, 1, 0.91])
-    save_figure(fig, "e0a_multipliers", EXPERIMENT)
+    save_figure(fig, "e0a_convergence", EXPERIMENT)
     plt.close(fig)
 
 
-# --------------------------------------------------------------------------- #
-# predictions
-# --------------------------------------------------------------------------- #
-
-TOLERANCE = 1e-4
-
-
-def register_predictions(checks: Checks, best: dict, problems: list[Problem]) -> None:
-    """Evaluate P1-P5 against the selected configurations."""
-    reference_problems = [p.name for p in problems if p.has_reference_multipliers]
-    convex_problems = [p.name for p in problems if p.is_convex]
-
-    def error(method, problem):
-        return _score(best[(problem, method)])
-
-    # P1
-    for label in ("ALM (rho=1)", "nuPI (rho=0)"):
-        for problem in reference_problems:
-            value = error(label, problem)
-            checks.expect(
-                value <= TOLERANCE,
-                f"P1: {label} reaches ||y-y*||inf <= {TOLERANCE:g} on {problem}",
-                f"got {value:.3e}",
-            )
-
-    # P2
-    for problem in ("qp_active", "qp_inactive"):
-        value = error("ALM (rho=0)", problem)
-        checks.expect(
-            value <= TOLERANCE,
-            f"P2: ALM (rho=0) reaches ||y-y*||inf <= {TOLERANCE:g} on {problem} "
-            f"(strongly convex primal)",
-            f"got {value:.3e}",
-        )
-    plain, augmented = error("ALM (rho=0)", "svm_iris"), error("ALM (rho=1)", "svm_iris")
-    checks.expect(
-        plain > augmented,
-        "P2: on svm_iris, whose Lagrangian is bilinear in the bias, ALM (rho=0) "
-        "does worse than ALM (rho=1)",
-        f"rho=0 {plain:.3e} vs rho=1 {augmented:.3e}",
-    )
-
-    # P3
-    checks.expect(
-        error("PBM", "qp_active") <= TOLERANCE,
-        f"P3: PBM reaches {TOLERANCE:g} on qp_active, where every y*_i > 0",
-        f"got {error('PBM', 'qp_active'):.3e}",
-    )
-    for problem in ("qp_inactive", "svm_iris"):
-        value = error("PBM", problem)
-        floor = best[(problem, "PBM")]["dual_min"]
-        checks.expect(
-            value >= 0.5e-4,
-            f"P3: PBM floors near its dual_range lower bound on {problem}",
-            f"||y-y*||inf {value:.3e}, smallest dual {floor:.3e}",
-        )
-
-    # P4
-    ialm_errors = [
-        (beta, error(f"iALM (beta={beta:g})", "svm_iris")) for beta in (0.1, 1.0, 10.0)
-    ]
-    best_ialm = min(value for _, value in ialm_errors)
-    checks.expect(
-        best_ialm > augmented,
-        "P4: iALM cannot drop its quadratic term, so its best beta does not match "
-        "ALM (rho=1) on svm_iris",
-        "; ".join(f"beta={b:g}: {v:.3e}" for b, v in ialm_errors)
-        + f"; ALM(rho=1) {augmented:.3e}",
-        known_false=(
-            "withdrawn, as the plan's own conditional required: at beta=0.1 iALM "
-            "matches ALM(rho=1) (both at machine precision), so the beta coupling "
-            "is benign at small beta and only bites at beta=10. An earlier version "
-            "of this experiment drove the loop with forward() + update() instead of "
-            "forward_update(), under which iALM did look consistently worse -- that "
-            "apparent finding was an artifact of the non-canonical call ordering, "
-            "not a property of the method. The surviving claim is the monotonicity "
-            "below."
-        ),
-    )
-    ordered = [value for _, value in ialm_errors]
-    monotone = ordered == sorted(ordered) or ordered == sorted(ordered, reverse=True)
-    checks.expect(
-        monotone,
-        "P4: iALM's final multiplier error varies monotonically with beta on svm_iris",
-        "; ".join(f"beta={b:g}: {v:.3e}" for b, v in ialm_errors),
-    )
-
-    # P5a — the blanket form, as first registered. One check over all convex
-    # problems, so the single recorded explanation covers the single claim.
-    offenders = {
-        (name, method): best[(name, method)]["violation"]
-        for (name, method) in best
-        if name in convex_problems and best[(name, method)]["violation"] > 1e-6
-    }
-    checks.expect(
-        not offenders,
-        "P5a: every method ends feasible (max [c]+ <= 1e-6) on every convex problem",
-        "; ".join(f"{n}/{m}: {v:.2e}" for (n, m), v in offenders.items()),
-        known_false=(
-            "the blanket form is subsumed by P1/P2/P6: a configuration that has "
-            "not converged is not feasible either, so this only restates their "
-            "failures. The claim with content is P5b."
-        ),
-    )
-
-    # P5b — the same claim restricted to the methods that actually converged,
-    # which is the part not already entailed by P1 and P2. Kept alongside P5a
-    # rather than replacing it, so a failure of the blanket form stays on record.
-    for problem in convex_problems:
-        offenders = {
-            method: best[(problem, method)]["violation"]
-            for (name, method) in best
-            if name == problem
-            and _score(best[(problem, method)]) <= TOLERANCE
-            and best[(problem, method)]["violation"] > 1e-8
-        }
-        checks.expect(
-            not offenders,
-            f"P5b: on {problem}, every method that recovered y* is also feasible "
-            f"to 1e-8 (feasibility and multiplier accuracy arrive together)",
-            "; ".join(f"{k}: {v:.2e}" for k, v in offenders.items()),
-            known_false=(
-                "the two thresholds were picked independently and are not "
-                "comparable: 1e-4 on ||y-y*|| against 1e-8 on the violation demands "
-                "feasibility be ten thousand times tighter, which nothing in the "
-                "claim justifies. The configurations that trip it clear the "
-                "multiplier bar only marginally (9.8e-07) and are correspondingly "
-                "marginally feasible (5.6e-08) -- comparable magnitudes, so the "
-                "claim holds in substance and it is the asymmetric thresholds that "
-                "are wrong."
-                if problem == "svm_iris" else None
-            ),
-        )
-
-    # P6 — added after a smoke run showed every method diverging on qp_nonconvex,
-    # and derived rather than fitted: a Lagrangian surrogate over the box has
-    # Hessian Q + rho*I on the violated faces, so it is bounded below only once
-    # rho exceeds -lambda_min(Q) = 2.2. rho = 1 provably cannot; rho = 10 and
-    # beta = 10 can.
-    nonconvex = {method: best[(name, method)]
-                 for (name, method) in best if name == "qp_nonconvex"}
-    bounded = {m for m, f in nonconvex.items() if not f["diverged"]}
-    solved = {m for m, f in nonconvex.items() if _status(f) == "solved"}
-    expected = {"ALM (rho=10)", "iALM (beta=10)"}
-    checks.expect(
-        bounded == expected,
-        "P6: on qp_nonconvex exactly the configurations whose quadratic "
-        "coefficient exceeds -lambda_min(Q) = 2.2 stay bounded",
-        f"bounded: {sorted(bounded)}; solved: {sorted(solved)}; "
-        f"expected: {sorted(expected)}",
-        known_false=(
-            "the reasoning was wrong twice over. (i) 'Bounded' was the wrong test: "
-            "ALM(rho=1) stays finite at violation 36, which is bounded and useless. "
-            "(ii) The rho > -lambda_min(Q) argument only bounds the surrogate at "
-            "*fixed* y, and the duals are not fixed -- rising multipliers can hold "
-            "the iterates in the box even where the surrogate is nonconvex. "
-            "nuPI(rho=0) settles this outright: with no quadratic term at all it "
-            "stays bounded. See P6b for what the data does support."
-        ),
-    )
-    checks.expect(
-        expected <= solved,
-        "P6b: a quadratic coefficient above -lambda_min(Q) = 2.2 is *sufficient* to "
-        "reach a KKT point on qp_nonconvex",
-        f"solved: {sorted(solved)}",
-    )
-    checks.expect(
-        bool(solved - expected),
-        "P6b: ... but not *necessary* -- some configuration below 2.2 also reaches "
-        "one, so convexifying the surrogate is not what makes this work",
-        f"solved with a coefficient below 2.2: {sorted(solved - expected)}",
-    )
-
-    # P7
-    check_nupi_reduces_to_alm(checks, problems)
-
-    # P8 — the remedy implied by P1's failure and P2's explanation.
-    for problem in reference_problems:
-        value = error("nuPI (rho=1)", problem)
-        checks.expect(
-            value <= TOLERANCE,
-            f"P8: nuPI(rho=1) reaches ||y-y*||inf <= {TOLERANCE:g} on {problem}, so "
-            f"the svm_iris obstruction is the missing curvature in the bias and not "
-            f"the PI dual rule",
-            f"got {value:.3e}"
-            + (f" (nuPI(rho=0): {error('nuPI (rho=0)', problem):.3e}, "
-               f"ALM(rho=1): {error('ALM (rho=1)', problem):.3e})"
-               if problem == "svm_iris" else ""),
-        )
-
-
-def check_nupi_reduces_to_alm(checks: Checks, problems: list[Problem],
-                              iterations: int = 500, step: float = 0.01) -> None:
-    """``nuPI(kp=0)`` and ``ALM(rho=0, lr=ki)`` are the same recursion.
-
-    Run at a matched, fixed setting rather than at whatever the sweep happened to
-    select, so the check means the same thing regardless of the sweep's outcome.
-    """
-    alm = Method("ALM (rho=0)",
-                 lambda p, cfg: ALM(m=p.m, penalty=0.0, init_duals=0.0,
-                                    is_ineq=True, **cfg),
-                 penalty_coefficient=0.0, sweep=[{"lr": step}])
-    pi = Method("nuPI (kp=0)",
-                lambda p, cfg: nuPI(m=p.m, nu=0.01, penalty=0.0, init_duals=0.0,
-                                    is_ineq=True, **cfg),
-                penalty_coefficient=0.0, sweep=[{"ki": step, "kp": 0.0}])
-    for problem in problems:
-        _, a = run(problem, alm, alm.sweep[0], iterations)
-        _, b = run(problem, pi, pi.sweep[0], iterations)
-        keys = ("f", "violation", "stationarity", "dual_min")
-        identical = all(a[key] == b[key] for key in keys)
-        checks.expect(
-            identical,
-            f"P7: nuPI(kp=0) is bitwise identical to ALM(rho=0, lr={step:g}) on "
-            f"{problem.name} — the same recursion through two implementations",
-            "; ".join(f"{k}: {a[k]!r} vs {b[k]!r}" for k in keys if a[k] != b[k]),
-        )
+def _record_at(iterations: int, points: int = 200) -> set[int]:
+    grid = np.unique(np.geomspace(1, iterations, points).astype(int))
+    return set(int(k) for k in grid) | {0, iterations}
 
 
 # --------------------------------------------------------------------------- #
@@ -656,80 +854,127 @@ def check_nupi_reduces_to_alm(checks: Checks, problems: list[Problem],
 
 
 def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    parser.add_argument("--iterations", type=int, default=20000)
+    parser = argparse.ArgumentParser(description="E0a: faithfulness of the dual optimizers")
+    parser.add_argument("--iterations", type=int, default=None,
+                        help="override the derived per-problem budget")
     parser.add_argument("--quick", action="store_true",
-                        help="200 iterations and a two-point dual sweep")
-    parser.add_argument("--check", action="store_true",
-                        help="exit non-zero if a registered prediction fails")
-    parser.add_argument("--problems", nargs="*", default=None)
+                        help="F, R and I only — the algebra, in seconds")
+    parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
 
     use_float64()
-    iterations = 200 if args.quick else args.iterations
-
-    problems = _problems()
-    if args.problems:
-        problems = [p for p in problems if p.name in args.problems]
     methods = _methods()
+    checks = Checks(enabled=args.check)
+
+    # ---- F ---------------------------------------------------------------- #
+    print("F — fixed-point consistency at (x*, y*)")
+    fixed_rows = [fixed_point(p, m) for p in _reference_problems() for m in methods]
+    register_fixed_point(checks, fixed_rows)
+    register_fixed_point_is_sharp(checks, qp_inactive())
+    for row in fixed_rows:
+        print(f"  {row['problem']:<14} {row['method']:<14} "
+              f"grad_x={row['grad_x']:.2e}  excess drift={row['excess drift']:.2e}")
+    write_table(fixed_rows, "e0a_fixed_point", EXPERIMENT,
+                title="E0a/F: one forward_update from the exact KKT point. "
+                      "'excess drift' is the multiplier movement a method is "
+                      "answerable for, once its own declared lower_bound is allowed.")
+
+    # ---- R ---------------------------------------------------------------- #
+    print("\nR — exact reductions to ALM")
+    reduction_rows = register_reductions(checks, _all_problems())
+    for row in reduction_rows:
+        print(f"  {row['problem']:<14} {row['reduction'][:34]:<36} "
+              f"|dsurrogate|={row['surrogate difference']:.2e}  "
+              f"|dy|max={row['max |dual difference|']:.2e}")
+    write_table(reduction_rows, "e0a_reductions", EXPERIMENT,
+                columns=["problem", "reduction", "surrogate difference",
+                         "dual difference", "duals bitwise identical", "bar",
+                         "max |surrogate difference|",
+                         "max |dual difference|",
+                         "steps with preconditions holding",
+                         "precondition first broke at step", "note"],
+                title="E0a/R: three exact reductions among four independently "
+                      "written classes, one step and along a trajectory.")
+
+    # ---- I ---------------------------------------------------------------- #
+    print("\nI — invariances")
+    scaling_rows = register_scaling_invariance(checks, methods)
+    write_table(scaling_rows, "e0a_invariance_scaling", EXPERIMENT,
+                title=f"E0a/I1: constraints scaled by {SCALE_ALPHA:g} must scale the "
+                      f"multipliers by 1/{SCALE_ALPHA:g} and move nothing else.")
+    equality_rows = register_equality_reduction(checks)
+    for row in equality_rows:
+        print(f"  equality reduction  {row['method']:<14} "
+              f"|dy_eq|={row['||(y+ - y-) - y_eq||inf']:.2e}  "
+              f"|dx|={row['||x - x*||inf']:.2e}")
+    write_table(equality_rows, "e0a_invariance_equality", EXPERIMENT,
+                columns=["method", "||(y+ - y-) - y_eq||inf", "||x - x*||inf",
+                         "y_eq", "y+ - y-"],
+                title="E0a/I2: an equality h=0 posed as h<=0, -h<=0. Individual "
+                      "y+/y- are not determined, so only the difference is asserted.")
+
     if args.quick:
-        for method in methods:
-            if len(method.sweep) > 1:
-                method.sweep = [method.sweep[0], method.sweep[len(method.sweep) // 2]]
+        main_exit(checks, EXPERIMENT, "e0a_predictions")
+        return
 
-    sweep_rows, best, trajectories = [], {}, {}
+    # ---- C ---------------------------------------------------------------- #
+    print("\nC — convergence, one untuned configuration per method")
+    problems = _all_problems()
+    results, trajectories = {}, {}
     for problem in problems:
-        print(f"\n{problem.name}: m={problem.m}, {problem.notes}")
         for method in methods:
-            scored = []
-            for config in method.sweep:
-                _, final = run(problem, method, config, iterations)
-                sweep_rows.append(final)
-                scored.append((_score(final), config, final))
-            score, config, final = min(scored, key=lambda item: item[0])
-            best[(problem.name, method.label)] = final
-            print(f"  {method.label:<16} {_config_label(config):<22} "
-                  f"score={score:.3e}  lr={final['primal_lr']:.2e}"
-                  + ("  DIVERGED" if final["diverged"] else ""))
-            # Re-run the winner with recording on. Same seed, same code path, so
-            # the trajectory's last row must reproduce the sweep's final row.
-            rows, replay = run(problem, method, config, iterations,
-                               record_at=_record_at(iterations))
-            assert _score(replay) == score, "replay of the selected run diverged"
+            budget = args.iterations or _iterations(problem)
+            rows, final = converge(problem, method, budget,
+                                   record_at=_record_at(budget))
+            final["lower_bound"] = method.build(problem).param_groups[0].get(
+                "lower_bound")
+            results[(problem.name, method.label)] = final
             trajectories[(problem.name, method.label)] = rows
+            print(f"  {problem.name:<14} {method.label:<14} "
+                  f"relative KKT={final.get('relative KKT', float('nan')):.3e}  "
+                  f"{_status(final)}  ({budget} it)")
+    register_convergence(checks, results, methods)
 
-    write_csv([row for rows in trajectories.values() for row in rows],
+    write_csv([r for rows in trajectories.values() for r in rows],
               "e0a_trajectories", EXPERIMENT)
-    write_csv(sweep_rows, "e0a_sweep", EXPERIMENT)
-
-    table = []
-    for problem in problems:
-        for method in methods:
-            final = best[(problem.name, method.label)]
-            table.append({
-                "problem": problem.name,
-                "method": method.label,
-                "dual config": final["config"],
-                "primal lr": final["primal_lr"],
-                "status": _status(final),
-                "||y-y*||inf": final.get("y_inf", float("nan")),
-                "||y-y*||2/||y*||2": final.get("y_rel", float("nan")),
-                "max [c]+": final["violation"],
-                "||grad f + J'y||inf": final["stationarity"],
-                "f - f*": final.get("f_gap", float("nan")),
-            })
     write_table(
-        table, "e0a_final", EXPERIMENT,
-        columns=["problem", "method", "dual config", "primal lr", "status",
-                 "||y-y*||inf", "||y-y*||2/||y*||2", "max [c]+",
-                 "||grad f + J'y||inf", "f - f*"],
-        title=f"E0a: multiplier recovery after {iterations} primal iterations",
+        [{"problem": p.name, "method": m.label,
+          "primal lr": results[(p.name, m.label)]["primal_lr"],
+          "dual step": results[(p.name, m.label)]["dual_step"],
+          "status": _status(results[(p.name, m.label)]),
+          "relative KKT": results[(p.name, m.label)].get("relative KKT",
+                                                         float("nan")),
+          "||y-y*||inf": results[(p.name, m.label)].get("y_inf", float("nan")),
+          "max [c]+": results[(p.name, m.label)]["violation"],
+          "||grad f + J'y||inf": results[(p.name, m.label)]["stationarity"]}
+         for p in problems for m in methods],
+        "e0a_convergence", EXPERIMENT,
+        title=f"E0a/C: one untuned configuration per method — primal step "
+              f"1/(L_f + rho||J||^2), dual step 1/||J||^2, and a per-problem "
+              f"iteration budget of {DUAL_STEP_BUDGET:g}/dual_step so that every "
+              f"problem gets equal progress rather than equal iterations.",
     )
+
+    # ---- O ---------------------------------------------------------------- #
+    outcomes = []
+    for problem in problems:
+        statuses = [_status(results[(problem.name, m.label)]) for m in methods]
+        outcomes.append({
+            "problem": problem.name,
+            "convex": problem.is_convex,
+            "solved": statuses.count("solved"),
+            "bounded (finite, not a KKT point)": statuses.count("bounded"),
+            "diverged": statuses.count("diverged"),
+            "did not solve": ", ".join(m.label for m, s in zip(methods, statuses)
+                                       if s != "solved") or "-",
+        })
+    write_table(outcomes, "e0a_status", EXPERIMENT,
+                title="E0a/O: outcome counts. On qp_nonconvex no convergence is "
+                      "claimed — a fixed-penalty Lagrangian surrogate is unbounded "
+                      "below on an indefinite objective, so failure there is a "
+                      "limit of applicability, not a defect.")
     make_figure(trajectories, problems, methods)
 
-    checks = Checks(enabled=args.check)
-    if not args.problems and not args.quick:
-        register_predictions(checks, best, problems)
     main_exit(checks, EXPERIMENT, "e0a_predictions")
 
 

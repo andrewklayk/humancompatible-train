@@ -1,6 +1,6 @@
 """Test problems shared by the paper experiments."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 import numpy as np
@@ -45,6 +45,30 @@ class Problem:
     @property
     def has_reference_multipliers(self) -> bool:
         return self.y_star is not None
+
+    def scaled(self, alpha: float) -> "Problem":
+        """The same problem with its constraints scaled by ``alpha > 0``.
+
+        Scaling ``c`` by ``alpha`` leaves the feasible set and ``x*`` untouched and
+        divides the multipliers by ``alpha``, since stationarity reads
+        ``grad f + (alpha J)' (y*/alpha) = grad f + J' y*``. A faithful dual rule
+        must therefore land on ``y*/alpha`` — anything else means an absolute
+        constraint scale leaked into the update.
+        """
+        if alpha <= 0:
+            raise ValueError(f"alpha must be positive; got {alpha}")
+        base = self.constraints
+        return replace(
+            self,
+            name=f"{self.name}_x{alpha:g}",
+            constraints=lambda params: alpha * base(params),
+            y_star=None if self.y_star is None else self.y_star / alpha,
+            # A quadratic penalty on the scaled constraints has alpha^2 the
+            # curvature, so the derived primal step has to see it.
+            jac_norm_sq=None if self.jac_norm_sq is None
+                        else self.jac_norm_sq * alpha**2,
+            notes=f"{self.notes}; constraints scaled by {alpha:g}",
+        )
 
     def primal_step(self, penalty_coefficient: float = 0.0) -> float:
         """A step size that is ``1/L`` for the surrogate's smooth part.
