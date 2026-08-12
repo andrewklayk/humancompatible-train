@@ -11,7 +11,9 @@ script's module docstring lists numbered predictions; `register_predictions`
 evaluates them and `--check` makes the process exit non-zero if one fails. A
 prediction that turns out to be wrong is reported as wrong rather than quietly
 edited — where that happened, the docstring says so and both the original and the
-corrected claim are kept.
+corrected claim are kept. **E3 is the deliberate exception**: it is a measurement of
+throughput and achieved sparsity on hardware, with no thresholds worth asserting in
+advance, so it registers nothing and its `--check` exits 0.
 
 **Artifacts are committed.** Figures are PDF (the repo's `.gitignore` excludes
 `*.png`/`*.svg`, and LaTeX wants PDF anyway), tables are Markdown plus a JSON
@@ -24,6 +26,8 @@ re-included in `.gitignore` so all of it can go into the reproducibility artifac
 bash paper/e0/run_all.sh                 # everything, writes paper/results/e0*/
 bash paper/e0/run_all.sh --quick         # seconds; artifacts to a temp dir
 bash paper/e0/run_all.sh --check         # non-zero exit on a violated prediction
+bash paper/e2/run_all.sh --check         # likewise for E2
+bash paper/e3/run_all.sh --quick         # E3 on the CPU stub model, no downloads
 python paper/e0/a_multipliers.py --help  # per-script options
 ```
 
@@ -219,6 +223,157 @@ equivalence is **conditional**, and the conditions are worth stating in the pape
   surrogate. The gap is measured against per-rank batch size, which is what bounds
   how small a per-rank batch those experiments may use.
 
+## E2 — fairness-constrained learning on real data
+
+E2 is where the constraint is a statistic of *data* rather than of parameters, which
+buys two things no synthetic problem can give: the constraint's **generalization**
+behaviour, and a setting in which the cross-rank reduction actually has work to do.
+
+| script | claim | runtime |
+|---|---|---|
+| [e2/a_fairness.py](e2/a_fairness.py) | the methods deliver the constraint on real data, and the violation they deliver on *train* is not the violation you get on *test* | ~35 min (`--quick`: ~1 min) |
+| [e2/b_parallel.py](e2/b_parallel.py) | `G x B` = `1 x (G*B)` exactly — but only under balanced sharding, and only for a surrogate linear in `c` | ~2 min |
+
+Datasets: **ACSIncome** (folktables, 2018 1-Year) with the sensitive attribute the
+*cross product* of marital status and sex (6 groups), and the **Dutch census 2001**
+with sex x age (18 groups). Two constraint shapes, both from
+[new_bench/constraints.py](../benchmark/new_bench/constraints.py) rather than
+reimplemented: `pairwise`, the positive-rate gap over every ordered pair of groups
+(`m = G(G-1)`, so 30 and 306), and `agg`, one aggregated fairret norm-loss (`m = 1`).
+
+**Data is loaded offline.** Only the ACS states whose `psam_p*.csv` is already under
+`benchmark/new_bench/data/` can be used — currently **FL and VA**, not the five the
+plan once assumed; `fairness.available_states()` reports what is present. The Dutch
+loader is pointed at the parquet in `benchmark/cache/datasets/`, because
+`fairml_datasets` hardcodes a *cwd-relative* `Path("cache")` with no environment
+override and its `dataset` module binds that path by from-import — so without the
+redirect, running from anywhere but `benchmark/` silently re-downloads the ARFF.
+
+**`SEX x RAC1P` is available but not the default.** Crossed with sex, RAC1P's tail
+groups have as few as 5 rows in one state, and `BalancedBatchSampler` would then put
+one row of such a group in every batch — a per-group rate estimated from one sample
+is noise, not a constraint. `min_group` drops groups below a threshold and says so in
+the problem's `notes`.
+
+**Batch size is derived, not fixed.** `BalancedBatchSampler` puts
+`batch_size // n_groups` of each group in every batch, so a batch size that gives 8
+samples per group at 6 groups gives 2 at 18. E2 fixes the *per-group* count
+(`PER_GROUP = 8`) and derives the batch size from it.
+
+### E2a — do the methods deliver the constraint, and does it generalize?
+
+Configurations are deliberately **untuned and identical across methods** — one primal
+step, one dual step, everywhere — following E0a's convergence panel: the comparison is
+then about the update rule rather than about who was tuned harder. This is not a
+leaderboard and the script does not claim one. Tuning burden needs its own sweep and is
+not answered here.
+
+Metrics are evaluated **full-batch at the frozen end-of-epoch iterate**, never as an
+epoch-mean of minibatch values, because the minibatch gradient norm has a noise floor
+that never reaches zero — the methodological point inherited from `new_bench`.
+
+Two design choices worth stating because they were arrived at by getting them wrong
+first:
+
+- **The timing control.** Plain Adam never evaluates the constraint, so timing dual
+  methods against it measures the *fairret statistic* — a property of the problem —
+  and not the dual layer at all. `Adam (c in graph)` pays the identical constraint
+  forward and backward through a zero-weighted term, so its gradient is
+  mathematically Adam's and the gap to a dual method isolates the multiplier update.
+  That it lands on the same iterate as plain Adam is asserted, not assumed.
+- **Wall-clock is reported in absolute time per step, not as a ratio.** At this model
+  size a ratio is dominated by per-step interpreter overhead, and thresholding it
+  would be arbitrary. The dual update is a fixed handful of small tensor ops, so the
+  bound comes from that operation count. The honest reading: on an 808-64-32-1 MLP a
+  few hundred microseconds *is* a visible fraction of a step, so the dual layer is not
+  invisible here — the claim is that the cost is fixed in the model size, which is why
+  E3 measures the same thing at 0.5 B parameters.
+
+### E2b — data-parallel correctness, on a constraint the reduction changes
+
+This is the claim **E3 cannot make**. E3's sparsity constraint is a closed form in the
+gate parameters, so every rank computes the same value and `all_reduce(c, AVG)`
+averages identical numbers — it cannot be caught being wrong. Here the per-rank values
+genuinely differ and the reduction has to turn G per-shard estimates into the pooled
+one.
+
+The pivot is a fact about `fairret`'s `PositiveRate` that is easy to miss. It is a
+`LinearFractionalStatistic` with `denom_slope = 0`, so per group it is a *ratio of
+sums* — which E0d found never reproduces a pooled run exactly. But under **balanced**
+batching the denominator is exactly `PER_GROUP` on every rank, a constant, so the
+statistic collapses to a plain mean and becomes linear in the sample. **The
+`BalancedBatchSampler` that per-group constraints already require for statistical
+reasons is the same thing that makes data-parallel equivalence exact.** Those two facts
+were previously unconnected, and the negative control (random sharding, where the
+per-group counts differ and exactness is lost) is what shows the reduction is
+load-bearing rather than decorative.
+
+Batches are built explicitly rather than drawn from a sampler, because everything here
+rests on one invariant — the union of the ranks' batches is the single-process batch —
+and constructing it by hand makes that obvious instead of a property to be trusted
+about a shuffler. It also means E2b does not need the distributed-aware sampler the
+library still lacks; what it shows is *why* that sampler has to shard per group.
+
+## E3 — sparsity-constrained LM fine-tuning, at scale
+
+E3 is the one experiment run at a size that needs several GPUs, and that is why it exists:
+E2's model is an 808-64-32-1 MLP, where a few hundred microseconds of multiplier update is
+a visible share of a step. The question here is what the same layer costs when the model
+is 0.5 B parameters and the step is real work.
+
+| script | question | runtime |
+|---|---|---|
+| [e3/sweep.py](e3/sweep.py) | does each method land on a requested density, what is the model worth there, and what did it cost | hours (`--quick`: ~1 min) |
+| [e3/scaling.py](e3/scaling.py) | how throughput and the dual layer's share move over 1 → 2 → 4 GPUs | ~20 min (`--quick`: ~1 min) |
+
+The formulation is Eq. (3) of Gallego-Posada, Ramirez, Erraqabi, Bengio &
+Lacoste-Julien, *Controlled Sparsity via Constrained Optimization* (NeurIPS 2022,
+arXiv:2208.04425): structured hard-concrete L0 gates, one per MLP intermediate channel and
+one per query head, with the expected parameter density constrained per layer. Their Eq. (5)
+projected gradient descent-ascent **is** `ALM(penalty=0, is_ineq=True)` and their Eq. (6)
+dual restart **is** `restart=True`, so the package already ships their method and it appears
+in the sweep as `alm_gda` / `alm_gda_restart`. What is extended: their experiments are
+vision (CIFAR, TinyImageNet, ImageNet), they assert *"negligible computational overhead"*
+without measuring it, and their "Choice of optimizers" names the multiplier update as open
+future work — which is exactly the axis `iALM`, `nuPI` and `PBM` sit on.
+
+Three choices worth stating because they change the numbers:
+
+- **The density denominator runs over gated groups only.** Qwen2.5-0.5B's tied
+  151936 x 896 embedding is 27.5 % of the model and cannot be gated, so a whole-model
+  denominator would make every target below 0.275 infeasible by construction. Their Fig. 1
+  reports whole-model parameter percentage in a separate panel for the same reason. This is
+  the choice that makes density numbers incomparable between papers, so it is stated rather
+  than assumed.
+- **Gate parameters get their own learning rate** (`--gate-lr`, default 1e-2 against the
+  model's 1e-4). Adam moves a parameter by roughly its learning rate per step whatever the
+  gradient scale, and carrying `log_alpha` from a 95 %-open initialisation to a 30 %-density
+  solution is a move of about 3.8 — at the model's step size that is ~38k steps, so a shared
+  step size would turn this into a measurement of the learning rate. The reference uses
+  separate optimizers for weights and gates too.
+- **Timing is against the *gated* model, not the plain one.** `scaling.py`'s control is
+  `adam` with gates attached and no constraint, so the difference is the dual layer; the
+  gates are a property of the sparsity formulation, not of any optimizer. Same control
+  design as E2a. Phases are timed with `torch.cuda.Event` around an explicit
+  `synchronize()` — the per-epoch `time` columns elsewhere in this repo wrap asynchronous
+  launches and so measure launch time.
+
+**What E3 does not show: correctness under data parallelism.** The density constraint is a
+closed form in the gate parameters with no data in it, and DDP keeps those parameters
+identical on every rank, so `all_reduce(c, AVG)` averages identical values and cannot be
+caught being wrong. The collective still costs bytes and still synchronises; it just is not
+load-bearing here. That claim belongs to [e2/b_parallel.py](e2/b_parallel.py), whose
+constraints are sample averages over a shard. The deciding property is whether the
+constraint is a function of the *data*.
+
+Running it needs two things this repository does not carry: a token shard from
+[e3/prepare_data.py](e3/prepare_data.py) (login node — compute nodes have no network) and
+`transformers` in a venv layered on the cluster's PyTorch module, since no EasyBuild module
+provides it. [e3/sbatch_e3.sh](e3/sbatch_e3.sh) does both. Everything below the model runs
+without either: `--model stub` uses [problems/tiny_lm.py](problems/tiny_lm.py), a Llama/Qwen-shaped
+fixture, so the gates, constraints, duals, distributed path and artifact writing are all
+exercisable on CPU.
+
 ## Layout
 
 ```
@@ -230,9 +385,21 @@ paper/
     qp.py                   convex and nonconvex QPs with exact (x*, y*)
     svm.py                  hard-margin SVM on separable Iris, exact active-set reference
     nonsmooth.py            the ten Karmitsa problems + transcription verification
+    fairness.py             ACSIncome + Dutch census, pairwise / aggregate fairret constraints
+    sparse_lm.py            hard-concrete L0 gates + the parameter-counted density constraints
+    tiny_lm.py              a Llama/Qwen-shaped decoder, so E3 runs without `transformers`
+    tokens.py               uint16/uint32 token shards + a rank-sharded block sampler
   e0/
     a_multipliers.py  b_nonopt.py  d_distributed.py  run_all.sh
+  e2/
+    a_fairness.py  b_parallel.py  run_all.sh
+  e3/
+    run_llm.py              one configuration, end to end, under torchrun
+    sweep.py  scaling.py    the two drivers
+    prepare_data.py         login-node one-off: FineWeb-Edu -> tokens.bin
+    sbatch_e3.sh  run_all.sh
   results/e0a/ e0b/ e0d/    *.csv (raw), *.md + *.json (tables), *.pdf (figures)
+  results/e2a/ e2b/ e3/
 ```
 
 Figure style comes from [benchmark/new_bench/plotting/plot_style.py](../benchmark/new_bench/plotting/plot_style.py),
@@ -242,6 +409,11 @@ the two drift.
 
 ## Not here yet
 
-E1 (noisy CUTEst via S2MPJ), E2 (fairness-constrained learning on folktables), E3
-(sparsity-constrained LLM fine-tuning on multiple GPUs) and E4 (nonsmooth
-reformulations). `problems/` is shared with them by design.
+**E1** (synthetic benchmark) is blocked on choosing a problem source. S2MPJ was
+rejected after probing all 1104 of its Python problems: no PyTorch/autograd API
+(numpy `fgx`/`cJx`, so every oracle call needs a hand-plumbed
+`torch.autograd.Function`), not on PyPI, **no LICENSE file** so it cannot be vendored
+into a reproducibility artifact, finite variable bounds and range constraints against
+this package's bounds-free template, and >20 s constructors on several problems.
+
+**E4** (nonsmooth reformulations) is not started. `problems/` is shared by design.

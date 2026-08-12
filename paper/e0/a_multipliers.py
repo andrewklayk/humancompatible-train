@@ -53,10 +53,16 @@ first breaks — that boundary is informative in itself.
   nothing else tests it. Individual ``y+``/``y-`` are not determined, so only the
   difference is asserted.
 
-**C — convergence, one configuration per method.** The primal step is derived as
-``1/(L_f + rho*||J||^2)`` and the dual step is ``1/||J||^2`` for every method on
-every problem, so nothing here is tuned. Expectations are stated per problem and
-conditioned on a *structural predicate* of the method rather than on its name:
+**C — convergence certificates, one configuration per method.** The aim is to
+certify that convergence *happens* under a reasonable fixed configuration, **not**
+to compare rates. So every step size is a plain constant: primal SGD at 1e-3 for
+every method on every problem, ``ALM`` at its shipped ``lr=0.01``, and the other
+three at their published values. Nothing is derived from the problem and nothing is
+tuned. Each run stops as soon as the relative KKT residual clears the tolerance, or
+at a hard cap, and reports which happened. Iteration counts appear in the table as
+context; they are not a ranking, since the configurations were never matched for
+comparability. Expectations are stated per problem and conditioned on a *structural
+predicate* of the method rather than on its name:
 
 * ``qp_active`` — strongly convex, all constraints active, ``y* > 0``, LICQ and
   strict complementarity, so the KKT point is unique. **Every** method must
@@ -66,8 +72,8 @@ conditioned on a *structural predicate* of the method rather than on its name:
   cannot, and its error is bounded below by that bound.
 * ``svm_iris`` — 96 of 100 multipliers are zero, so the same ``lower_bound`` rule as
   ``qp_inactive`` applies. The objective Hessian is **singular** in the bias, which
-  turns out to slow convergence rather than prevent it: ``ALM(rho=0)`` reaches 9.1e-14
-  given the derived budget. With ``m = 100`` and ``n = 5``, ``J'`` has a
+  turns out to slow convergence rather than prevent it. With ``m = 100`` and
+  ``n = 5``, ``J'`` has a
   95-dimensional null space, so stationarity alone does not pin ``y`` — only
   complementarity does, which is why the residual includes ``||y - y*||``.
 * ``qp_nonconvex`` — no convergence theory exists for a fixed-penalty Lagrangian on
@@ -132,19 +138,14 @@ ALGEBRAIC = 64 * float(np.finfo(np.float64).eps)
 KKT_TOLERANCE = 1e-6
 SCALE_ALPHA = 7.0          # for I1; not a round number, so a missing factor shows
 
-# Iteration budget for C, in units of "iterations x dual step". A *fixed* iteration
-# count is not comparable across problems: with the dual step derived as
-# 1/||J||^2, the number of dual updates needed to carry y from 0 to y* scales like
-# ||y*||*||J||^2, so a count that converges on qp_active (||J||^2 = 19) is 16x too
-# small for svm_iris (||J||^2 = 305). Measured on svm_iris at its derived step:
-# 1.6e-03 relative KKT after 20k iterations, 4.7e-06 after 50k, 2.8e-10 after 100k,
-# 4.6e-14 after 200k. 700 puts every problem comfortably past convergence.
-DUAL_STEP_BUDGET = 700.0
-
-
-def _iterations(problem: Problem) -> int:
-    """``budget / dual_step``, i.e. equal progress rather than equal iterations."""
-    return int(np.ceil(DUAL_STEP_BUDGET * problem.jac_norm_sq))
+# C certifies that convergence *happens* under a reasonable fixed configuration; it
+# is not a comparison of rates. So every step size is a plain constant -- no
+# problem-dependent derivation, nothing tuned, nothing to explain in a caption --
+# and each run simply stops once the KKT residual clears the tolerance.
+PRIMAL_LR = 5e-3
+ALM_DUAL_LR = 0.01        # ALM's shipped default, as the other three now use theirs
+MAX_ITERATIONS = 25_000  # hard cap; reaching it is reported as non-convergence
+CHECK_EVERY = 100         # how often the stopping test is evaluated
 
 
 # --------------------------------------------------------------------------- #
@@ -158,8 +159,6 @@ class Method:
 
     :param build: ``build(problem) -> DualOptimizer``, already carrying this
         configuration's dual step.
-    :param penalty_coefficient: The quadratic coefficient, used only to derive the
-        primal step size.
     :param seed_buffer: True when the method carries an error buffer that must be
         initialised to ``c(x*)`` for the fixed-point test to be meaningful (nuPI's
         PI recursion is stationary only once its buffer has converged).
@@ -176,16 +175,11 @@ class Method:
 
     label: str
     build: Callable[[Problem], DualOptimizer]
-    penalty_coefficient: float
     has_curvature: bool          # a quadratic term in the surrogate
     has_damping: bool            # a proportional/derivative term in the dual rule
     seed_buffer: bool = False
     equality_via_two_sided: bool = True
     style: dict = field(default_factory=dict)
-
-    def dual_step(self, problem: Problem) -> float:
-        """``1/||J||^2`` — dimensionally correct and identical for every method."""
-        return 1.0 / problem.jac_norm_sq
 
 
 def _methods() -> list[Method]:
@@ -193,9 +187,9 @@ def _methods() -> list[Method]:
     def alm(rho, color, ls, marker):
         return Method(
             f"ALM (rho={rho:g})",
-            lambda p, rho=rho: ALM(m=p.m, lr=1.0 / p.jac_norm_sq, penalty=rho,
+            lambda p, rho=rho: ALM(m=p.m, lr=ALM_DUAL_LR, penalty=rho,
                                    init_duals=0.0, is_ineq=True),
-            penalty_coefficient=rho, has_curvature=rho > 0, has_damping=False,
+            has_curvature=rho > 0, has_damping=False,
             style={"color": color, "ls": ls, "marker": marker},
         )
 
@@ -203,10 +197,10 @@ def _methods() -> list[Method]:
         # kp = ki keeps one knob; nu stays at the reference default.
         return Method(
             f"nuPI (rho={rho:g})",
-            lambda p, rho=rho: nuPI(m=p.m, ki=1.0 / p.jac_norm_sq,
-                                    kp=1.0 / p.jac_norm_sq, nu=0.01, penalty=rho,
+            lambda p, rho=rho: nuPI(m=p.m, ki=1.0,
+                                    kp=10.0, nu=0.0, penalty=rho,
                                     init_duals=0.0, is_ineq=True),
-            penalty_coefficient=rho, has_curvature=rho > 0, has_damping=True,
+            has_curvature=rho > 0, has_damping=True,
             seed_buffer=True,
             style={"color": color, "ls": ls, "marker": "v"},
         )
@@ -219,21 +213,19 @@ def _methods() -> list[Method]:
         Method(
             "iALM",
             # beta is simultaneously the quadratic coefficient and the dual step,
-            # so it takes the same 1/||J||^2 value; gamma is left at its default so
-            # the published safeguard stays active.
-            lambda p: iALM(m=p.m, beta=1.0 / p.jac_norm_sq, sigma=1.0, gamma=1.0,
+            # so it cannot be set independently; gamma stays at its default so the
+            # published safeguard remains active.
+            lambda p: iALM(m=p.m, beta=1.0, sigma=1.0, gamma=1.0,
                            init_duals=0.0, is_ineq=True),
-            penalty_coefficient=1.0, has_curvature=True, has_damping=False,
+            has_curvature=True, has_damping=False,
             style={"color": "#5BC0BE", "ls": ":", "marker": "^"},
         ),
         Method(
             "PBM",
-            lambda p: PBM(m=p.m, gamma=0.5, penalty_mult=0.1, delta=1.0,
+            lambda p: PBM(m=p.m, gamma=0.5, penalty_mult=0.999,
                           penalty_update="dimin_adapt", gamma_annealing=False,
                           penalty_annealing=False),
-            # phi'' <= 1 for the quadratic-logarithmic barrier, so the curvature is
-            # bounded by max_i (y_i/p_i)*||J||^2; 1.0 holds at these solutions.
-            penalty_coefficient=1.0, has_curvature=True, has_damping=False,
+            has_curvature=True, has_damping=False,
             equality_via_two_sided=False,      # see the field's docstring
             style={"color": "#D1495B", "ls": "-", "marker": "D"},
         ),
@@ -509,7 +501,8 @@ def reduction_trajectory(problem: Problem, build_a, build_b, b_split: bool,
     set_seed(0)
     xb = problem.make_params()[0]
     a, b = build_a(), build_b()
-    lr = problem.primal_step(1.0)
+    lr = PRIMAL_LR
+    # lr = 1e-3
     opt_a = torch.optim.SGD([xa], lr=lr)
     opt_b = torch.optim.SGD([xb], lr=lr)
 
@@ -635,9 +628,8 @@ def register_equality_reduction(checks: Checks) -> list[dict]:
         set_seed(0)
         x = reduced.make_params()[0]
         optimizer = method.build(reduced)
-        primal = torch.optim.SGD(
-            [x], lr=reduced.primal_step(method.penalty_coefficient))
-        for _ in range(_iterations(reduced)):
+        primal = torch.optim.SGD([x], lr=PRIMAL_LR)
+        for _ in range(MAX_ITERATIONS):
             if not torch.isfinite(x).all():
                 break
             optimizer.forward_update(reduced.objective([x]),
@@ -692,32 +684,44 @@ def _two_sided_reduction_applies(method: Method) -> bool:
 # --------------------------------------------------------------------------- #
 
 
-def converge(problem: Problem, method: Method, iterations: int,
-             record_at: set[int] | None = None) -> tuple[list[dict], dict]:
+def converge(problem: Problem, method: Method,
+             record_at: set[int] | None = None,
+             cap: int = MAX_ITERATIONS) -> tuple[list[dict], dict]:
+    """Run until the relative KKT residual clears the tolerance, or until ``cap``.
+
+    Stopping on the criterion rather than at a fixed count is what makes this a
+    *certificate* of convergence instead of a rate comparison: a run either reaches
+    the tolerance and reports where, or reaches the cap and is reported as not
+    converging. Nothing here is derived from the problem.
+    """
     set_seed(0)
     x = problem.make_params()[0]
     optimizer = method.build(problem)
-    primal = torch.optim.SGD(
-        [x], lr=problem.primal_step(method.penalty_coefficient))
+    primal = torch.optim.SGD([x], lr=PRIMAL_LR)
 
     rows, final = [], {}
-    diverged = False
-    for k in range(iterations + 1):
-        blown = k % 100 == 0 and not bool(
-            torch.isfinite(x).all() and x.abs().max() < 1e12)
-        last = k == iterations or blown
-        if last or (record_at is not None and k in record_at):
+    diverged = converged = False
+    used = 0
+
+    for k in range(cap + 1):
+        due = k % CHECK_EVERY == 0 or k == cap
+        if due or (record_at is not None and k in record_at):
             row = _metrics(problem, x, optimizer.duals.detach())
             row.update(iteration=k, problem=problem.name, method=method.label)
             row["relative KKT"] = _relative_kkt(problem, row)
-            if not np.isfinite(row["stationarity"]) or row["violation"] > 1e8:
-                diverged = True
-            if record_at is not None:
+            if record_at is not None and k in record_at:
                 rows.append(row)
-            if last or diverged:
+            if not np.isfinite(row["stationarity"]) or row["violation"] > 1e8 \
+                    or not bool(torch.isfinite(x).all()) \
+                    or float(x.abs().max()) > 1e12:
+                diverged = True
+            converged = row["relative KKT"] <= KKT_TOLERANCE
+            used = k
+            if diverged or converged or k == cap:
                 final = dict(row)
-        if last or diverged:
-            break
+                if record_at is not None and (not rows or rows[-1] is not final):
+                    rows.append(dict(row))
+                break
 
         primal.zero_grad()
         optimizer.forward_update(problem.objective([x]),
@@ -725,8 +729,10 @@ def converge(problem: Problem, method: Method, iterations: int,
         primal.step()
 
     final["diverged"] = diverged
-    final["primal_lr"] = primal.param_groups[0]["lr"]
-    final["dual_step"] = method.dual_step(problem)
+    final["converged"] = converged
+    final["iterations"] = used
+    final["hit cap"] = (used >= cap) and not converged
+    final["primal_lr"] = PRIMAL_LR
     return rows, final
 
 
@@ -855,8 +861,8 @@ def _record_at(iterations: int, points: int = 200) -> set[int]:
 
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="E0a: faithfulness of the dual optimizers")
-    parser.add_argument("--iterations", type=int, default=None,
-                        help="override the derived per-problem budget")
+    parser.add_argument("--cap", type=int, default=MAX_ITERATIONS,
+                        help="hard iteration cap for the convergence certificates")
     parser.add_argument("--quick", action="store_true",
                         help="F, R and I only — the algebra, in seconds")
     parser.add_argument("--check", action="store_true")
@@ -923,16 +929,16 @@ def main(argv=None) -> None:
     results, trajectories = {}, {}
     for problem in problems:
         for method in methods:
-            budget = args.iterations or _iterations(problem)
-            rows, final = converge(problem, method, budget,
-                                   record_at=_record_at(budget))
+            rows, final = converge(problem, method,
+                                   record_at=_record_at(args.cap), cap=args.cap)
             final["lower_bound"] = method.build(problem).param_groups[0].get(
                 "lower_bound")
             results[(problem.name, method.label)] = final
             trajectories[(problem.name, method.label)] = rows
             print(f"  {problem.name:<14} {method.label:<14} "
                   f"relative KKT={final.get('relative KKT', float('nan')):.3e}  "
-                  f"{_status(final)}  ({budget} it)")
+                  f"{_status(final):<9} after {final['iterations']:>7d} it"
+                  + ("  (hit cap)" if final["hit cap"] else ""))
     register_convergence(checks, results, methods)
 
     write_csv([r for rows in trajectories.values() for r in rows],
@@ -940,7 +946,8 @@ def main(argv=None) -> None:
     write_table(
         [{"problem": p.name, "method": m.label,
           "primal lr": results[(p.name, m.label)]["primal_lr"],
-          "dual step": results[(p.name, m.label)]["dual_step"],
+          "iterations": results[(p.name, m.label)]["iterations"],
+          "hit cap": results[(p.name, m.label)]["hit cap"],
           "status": _status(results[(p.name, m.label)]),
           "relative KKT": results[(p.name, m.label)].get("relative KKT",
                                                          float("nan")),
@@ -949,10 +956,13 @@ def main(argv=None) -> None:
           "||grad f + J'y||inf": results[(p.name, m.label)]["stationarity"]}
          for p in problems for m in methods],
         "e0a_convergence", EXPERIMENT,
-        title=f"E0a/C: one untuned configuration per method — primal step "
-              f"1/(L_f + rho||J||^2), dual step 1/||J||^2, and a per-problem "
-              f"iteration budget of {DUAL_STEP_BUDGET:g}/dual_step so that every "
-              f"problem gets equal progress rather than equal iterations.",
+        title=f"E0a/C: convergence certificates. Every step size is a fixed "
+              f"constant — primal SGD at {PRIMAL_LR:g}, ALM at its shipped "
+              f"lr={ALM_DUAL_LR:g}, the others at their published values — and each "
+              f"run stops when the relative KKT residual clears "
+              f"{KKT_TOLERANCE:g} or at {args.cap} iterations. The question is "
+              f"whether convergence happens under a reasonable configuration, not "
+              f"how fast; the iteration counts are context, not a ranking.",
     )
 
     # ---- O ---------------------------------------------------------------- #

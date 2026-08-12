@@ -62,19 +62,36 @@ def use_float64() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _load_plot_style():
-    """Import ``benchmark/new_bench/plotting/plot_style.py`` by path.
+def load_by_path(path, name: str = None):
+    """Import a module from a file path.
 
-    That tree is not a package, so it cannot be imported normally. It is still
-    the right place to take the style from: it is the repo's declared "single
-    style source for all paper figures", and duplicating its rcParams here
-    would let the two drift.
+    ``benchmark/new_bench/`` is not a package, so its modules cannot be imported
+    normally -- but a few of them hold logic the paper experiments should not
+    duplicate (the figure style, the fairness constraint definitions). Importing
+    by path reuses that logic instead of letting two copies drift.
     """
-    path = REPO_ROOT / "benchmark" / "new_bench" / "plotting" / "plot_style.py"
-    spec = importlib.util.spec_from_file_location("_paper_plot_style", path)
+    path = Path(path)
+    name = name or f"_paper_{path.stem}"
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
+    # Register before executing so a module that imports itself by name (or is
+    # imported twice) does not get two distinct copies.
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_benchmark_module(stem: str):
+    """Import ``benchmark/new_bench/<stem>.py`` by path."""
+    return load_by_path(REPO_ROOT / "benchmark" / "new_bench" / f"{stem}.py")
+
+
+def _load_plot_style():
+    """The repo's declared single style source for all paper figures."""
+    return load_by_path(
+        REPO_ROOT / "benchmark" / "new_bench" / "plotting" / "plot_style.py",
+        "_paper_plot_style",
+    )
 
 
 def figure(nrows=1, ncols=1, width=None, row_height=None, **kwargs):
