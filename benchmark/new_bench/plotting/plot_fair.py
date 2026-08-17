@@ -350,7 +350,8 @@ if __name__ == "__main__":
 
 
     # methods = ["adam","alm_proj", "ssg", "pbm"]
-    methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
+    # methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
+    methods = ["adam","alm_proj", "ssg", "pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
 
     # plot each experiment separately
     for i, experiment in enumerate(experiments):

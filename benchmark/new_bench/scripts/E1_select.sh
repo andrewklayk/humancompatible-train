@@ -18,4 +18,4 @@ fi
 # Two stages: aggregate (raw runs -> selection/aggregated/) then select (-> best_*.json).
 # --approach ml keeps the CV/val-selected runs separate from opt (E1_opt_select.sh).
 python3 aggregate.py   --runs multirun/ --out selection/ --approach opt
-python3 select_best.py --agg selection/aggregated --out selection/ --tols "${TOLS}"
+python3 select_best.py --agg selection/opt/aggregated --out selection/opt/ --tols "${TOLS}"
