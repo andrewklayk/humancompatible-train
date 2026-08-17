@@ -51,7 +51,7 @@ done
 
 # Final aggregate + select_best, after the last sweep (no GPU, quick).
 if [ "${SELECT}" = "1" ] && [ -n "${jid}" ]; then
-  sel_sb=(--parsable --cpus-per-task=1 --mem=4G --time=00:20:00
+  sel_sb=(--parsable --cpus-per-task=1 --mem=4G --time=02:00:00
           --job-name=E1_opt_select --dependency="${DEP}:${jid}")
   [ -n "${PARTITION}" ] && sel_sb+=(--partition="${PARTITION}")
   sel=$(sbatch "${sel_sb[@]}" --wrap="cd '${PWD}' && bash scripts/E1_opt_select.sh")
