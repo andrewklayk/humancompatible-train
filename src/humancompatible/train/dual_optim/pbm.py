@@ -22,7 +22,7 @@ class PBM(DualOptimizer):
         pbf: str = "quadratic_logarithmic",
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
-        dual_range: Tuple[float, float] = (0.0001, 100.0),
+        dual_range: Tuple[float, float] = (1e-9, 100.0),
         penalty_range: Tuple[float, float] = (0.1, 1.0),
         device=None,
         primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm,
