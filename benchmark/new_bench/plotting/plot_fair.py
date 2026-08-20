@@ -27,7 +27,10 @@ from plotting import plot_losses_and_constraints_stochastic  # noqa: E402
 
 METHOD_LABELS = {
     "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
-    "alm_max": "SSL-ALM (max)", "ssg": "SSw",
+    "alm_max": "SSL-ALM (max)", "ssg": "SSw",  
+    "pbm_gamma0": r"SPBM ($\gamma_0$)", 
+    "pbm_kappa0": r"SPBM ($\kappa_0$)", 
+    "pbm_mu0": r"SPBM ($\mu_0$)"
 }
 plot_train_only = True
 tail = 5
@@ -326,7 +329,7 @@ if __name__ == "__main__":
 
     # define output folder
     out = "../../results/plots/"
-    agg = "../selection/aggregated/"
+    agg = "../selection/opt/aggregated/"
     
     os.makedirs(out, exist_ok=True)
 
@@ -347,7 +350,8 @@ if __name__ == "__main__":
 
 
     # methods = ["adam","alm_proj", "ssg", "pbm"]
-    methods = ["pbm"]
+    # methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
+    methods = ["adam","alm_proj", "ssg", "pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
 
     # plot each experiment separately
     for i, experiment in enumerate(experiments):
