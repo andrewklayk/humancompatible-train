@@ -8,7 +8,7 @@ defaults:
   - submitit_slurm
 
 # --- resources (edit for your cluster) ---
-mem_per_cpu: 16G
+mem_per_cpu: 4G
 cpus_per_task: 4
 partition: amd
 timeout_min: 1440          # 24h wall clock per job

@@ -12,4 +12,4 @@ FOLD_CSV=$(seq -s, 0 $((N_FOLDS - 1)))
 INIT_CSV=$(echo "${INIT_SEEDS}" | tr ' ' ',')
 python3 -u run.py -m ${LAUNCHER_ARG} \
   +sweep=adam data=${DATA} task=${TASK} \
-  n_folds=${N_FOLDS} cv_seed=${CV_SEED} fold=${FOLD_CSV} init_seed=${INIT_CSV}
+  n_folds=${N_FOLDS} cv_seed=${CV_SEED} fold=${FOLD_CSV} init_seed=${INIT_CSV} n_epochs=${N_EPOCHS}
