@@ -4,7 +4,7 @@ Stage 1 of 2 (stage 2 = select_best.py). Scans ``--runs`` for run_meta.json, gro
 runs into (task, data, algorithm) cells, matches runs sharing the same
 hyperparameters, and seed-averages their per-epoch curves over the (fold, init_seed)
 grid -- for every split (train/val/test/opt) and every numeric metric, with the
-``_std_fold`` / ``_std_init`` variance decomposition. Writes ONE tidy CSV (all
+``_std_fold`` / ``_std_init`` variance decomposition. Writes ONE tidy parquet (all
 curves) + ONE JSON (metadata + hyperparameters) per cell under ``--out/aggregated/``.
 
 These aggregated files are the single source of truth for BOTH selection
@@ -34,6 +34,22 @@ def _c_cols(df):
                   key=lambda s: int(s.split("_")[1]))
 
 
+_IDX = re.compile(r"(?:c|lambda|acc)_\d+")
+
+
+def _suffixes(col):
+    """Aggregate suffixes to emit for one metric column.
+
+    Scalar metrics (loss, max_viol, L, grad_norm, compl, ...) get the full set. The
+    indexed families (c_j, lambda_j, acc_j) get no fold/init decomposition -- no
+    consumer reads it -- and lambda_j needs no spread at all: plot_kkt averages the
+    per-config means and computes its own across-config band.
+    """
+    if not _IDX.fullmatch(col):
+        return ("mean", "std", "std_fold", "std_init")
+    return ("mean",) if col.startswith("lambda_") else ("mean", "std")
+
+
 _NUM_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
 
 
@@ -44,17 +60,15 @@ def _expand_acc(df):
     ``"[0.45 0.31 ...]"``, possibly wrapped over several lines). That column is
     non-numeric, so the generic aggregation below skips it. Expanding it into one
     numeric column per class lets ``acc_j`` be seed-averaged like any other metric
-    (-> ``acc_j_mean`` / ``acc_j_std`` in the aggregated CSV). No-op if absent or
+    (-> ``acc_j_mean`` / ``acc_j_std`` in the aggregated curves). No-op if absent or
     already numeric (e.g. a scalar-accuracy task)."""
     if "acc" not in df.columns or pd.api.types.is_numeric_dtype(df["acc"]):
         return df
-    parsed = df["acc"].apply(lambda s: [float(x) for x in _NUM_RE.findall(str(s))])
-    K = max((len(v) for v in parsed), default=0)
-    if K == 0:
-        return df.drop(columns=["acc"])
-    acc_cols = {f"acc_{j}": [v[j] if j < len(v) else float("nan") for v in parsed]
-                for j in range(K)}
-    return df.drop(columns=["acc"]).assign(**acc_cols)
+    parsed = [[float(x) for x in _NUM_RE.findall(str(s))] for s in df["acc"]]
+    # DataFrame() pads short rows with NaN and yields no columns at all if no row
+    # parsed; concat inserts the K columns in one go (assign() would insert K times).
+    acc = pd.DataFrame(parsed, index=df.index, dtype=float).add_prefix("acc_")
+    return pd.concat([df.drop(columns="acc"), acc], axis=1)
 
 
 def _row_max_viol(df, cc, filt):
@@ -66,27 +80,21 @@ def _cell_name(cell):
     return "_".join(str(x) for x in cell)
 
 
-def _decompose(df, col):
-    """Variance of ``col`` split across the (fold, init_seed) grid, per epoch.
-
-    Returns (std_fold, std_init): std over folds of the per-fold means (DATA
-    variance) and mean over folds of the per-fold init-std (OPTIMIZATION variance).
-    ddof=0 so a single fold / init collapses to 0.0.
-    """
-    per_fold = df.groupby(["epoch", "fold"])[col]
-    g = pd.DataFrame({"m": per_fold.mean(), "s": per_fold.std(ddof=0)}).reset_index()
-    by_epoch = g.groupby("epoch")
-    return by_epoch["m"].std(ddof=0), by_epoch["s"].mean()
-
-
 def _aggregate_split(runs, split, filt, expand_acc=False):
     """Seed-average one split's per-epoch curve over the (fold, init_seed) grid.
 
     Metric-agnostic: every numeric column (loss, max_viol, each c_i, and the opt-split
-    KKT metrics grad_norm/L/compl/max_viol/lambda_i) gets ``_mean``, ``_std``, and
-    the ``_std_fold`` / ``_std_init`` variance components. Returns (DataFrame,
-    constraint_cols) or (None, []). ``expand_acc`` (CIFAR only) turns the per-class
-    ``acc`` array-string column into numeric acc_j columns so accuracy aggregates too.
+    KKT metrics grad_norm/L/compl/max_viol/lambda_i) gets the aggregates ``_suffixes``
+    asks for -- ``_mean``, ``_std``, and for the scalar metrics the ``_std_fold`` /
+    ``_std_init`` variance components (std over folds of the per-fold means = DATA
+    variance; mean over folds of the per-fold init-std = OPTIMIZATION variance; ddof=0
+    so a single fold / init collapses to 0.0). Returns (DataFrame, constraint_cols) or
+    (None, []). ``expand_acc`` (CIFAR only) turns the per-class ``acc`` array-string
+    column into numeric acc_j columns so accuracy aggregates too.
+
+    Aggregation is whole-frame: a handful of groupby passes over all metric columns at
+    once, not one pass per column (these curves are wide -- m=306 constraints means
+    ~600 numeric columns).
     """
     frames, cc = [], []
     for r in runs:
@@ -96,22 +104,31 @@ def _aggregate_split(runs, split, filt, expand_acc=False):
         df = pd.read_csv(p)
         if expand_acc:
             df = _expand_acc(df)
-        cc = _c_cols(df) or cc
+        cc = cc or _c_cols(df)
         if cc:
             df = df.assign(max_viol=_row_max_viol(df, cc, filt))
         frames.append(df.assign(fold=r["fold"], init_seed=r["init_seed"]))
     if not frames:
         return None, []
     allruns = pd.concat(frames, ignore_index=True)
-    g = allruns.groupby("epoch")
-    out = {"n_seeds": g.size()}
-    for col in allruns.columns:
-        if col in _NON_METRIC or not pd.api.types.is_numeric_dtype(allruns[col]):
-            continue
-        sf, si = _decompose(allruns, col)
-        out[f"{col}_mean"], out[f"{col}_std"] = g[col].mean(), g[col].std(ddof=0)
-        out[f"{col}_std_fold"], out[f"{col}_std_init"] = sf, si
-    return pd.DataFrame(out).reset_index(), cc
+
+    num = [c for c in allruns.columns
+           if c not in _NON_METRIC and pd.api.types.is_numeric_dtype(allruns[c])]
+    sfx = {c: _suffixes(c) for c in num}
+    std_cols = [c for c in num if "std" in sfx[c]]
+    dec_cols = [c for c in num if "std_fold" in sfx[c]]
+
+    g = allruns.groupby("epoch", sort=True)
+    parts = {"mean": g[num].mean(), "std": g[std_cols].std(ddof=0)}
+    if dec_cols:
+        per_fold = allruns.groupby(["epoch", "fold"], sort=True)[dec_cols]
+        parts["std_fold"] = per_fold.mean().groupby(level="epoch").std(ddof=0)
+        parts["std_init"] = per_fold.std(ddof=0).groupby(level="epoch").mean()
+
+    wide = pd.concat([g.size().rename("n_seeds")]
+                     + [f.add_suffix(f"_{s}") for s, f in parts.items()], axis=1)
+    order = ["n_seeds"] + [f"{c}_{s}" for c in num for s in sfx[c]]
+    return wide[order].reset_index(), cc
 
 
 def _aggregate_cell(configs, filt, expand_acc=False):
@@ -137,12 +154,26 @@ def _aggregate_cell(configs, filt, expand_acc=False):
     return items
 
 
-def _write_aggregated(items, cell, agg_dir):
-    """One tidy CSV + one metadata JSON per cell (no duplication between them):
+def read_curves(base):
+    """The curves of one cell, as written by ``_write_aggregated``.
 
-      <cell>.csv   all curves, long: one row per (config, split, epoch); columns
+    ``base`` is the path without extension (e.g. ``.../aggregated/<cell>``). Prefers
+    the parquet; falls back to the CSV so pre-parquet aggregated dirs still load.
+    Shared with select_best.py and plotting/prepare_results_plotting.py.
+    """
+    p = base + ".parquet"
+    return pd.read_parquet(p) if os.path.exists(p) else pd.read_csv(base + ".csv")
+
+
+def _write_aggregated(items, cell, agg_dir, also_csv=False):
+    """One tidy parquet + one metadata JSON per cell (no duplication between them):
+
+      <cell>.parquet  all curves, long: one row per (config, split, epoch); columns
                    config, split, epoch, n_seeds, <metric>_mean/std/std_fold/std_init
                    (union over splits -- NaN where a metric doesn't apply to a split).
+                   Parquet because these frames are wide: for m=306 constraints a cell
+                   is ~10^4 x 10^3, which as CSV costs ~25x the write time and ~2.5x
+                   the bytes. ``also_csv`` additionally writes <cell>.csv for eyeballing.
       <cell>.json  {task, data, algorithm, bound, select_filter, configs:[{config_index,
                    sel_split, m, n_seeds, signature, hyperparameters}, ...]}
     """
@@ -153,7 +184,9 @@ def _write_aggregated(items, cell, agg_dir):
     long = pd.concat(frames, ignore_index=True)
     id_cols = ["config", "split", "epoch", "n_seeds"]
     long = long[id_cols + [c for c in long.columns if c not in id_cols]]
-    long.to_csv(base + ".csv", index=False)
+    long.to_parquet(base + ".parquet", index=False)
+    if also_csv:
+        long.to_csv(base + ".csv", index=False)
 
     meta = {
         "task": cell[0], "data": cell[1], "algorithm": cell[2],
@@ -177,6 +210,9 @@ def main():
     ap.add_argument("--approach", default="opt", choices=["ml", "opt"],
                     help="only aggregate runs of this approach; required if the tree mixes "
                          "approaches (ml and opt must not share a cell -- use a separate --out).")
+    ap.add_argument("--csv", action="store_true",
+                    help="also write <cell>.csv next to the parquet (slow for wide cells; "
+                         "only useful for eyeballing the curves)")
     args = ap.parse_args()
     agg_dir = os.path.join(args.out, "aggregated")
     os.makedirs(agg_dir, exist_ok=True)
@@ -212,6 +248,7 @@ def main():
     n_cfg = 0
     # start aggregating: actual trajectory CSVs are read inside helper f-ns
     for cell, configs in sorted(cells.items(), key=lambda kv: tuple(map(str, kv[0]))):
+        # print(_cell_name(cell))
         filt = next(iter(configs.values()))["meta"]["select_filter"]
         # Per-class accuracy curves are only wanted for the image tasks.
         expand_acc = cell[1] in ("cifar10", "cifar100")
@@ -219,7 +256,7 @@ def main():
         if not items:
             print(f"[skip] {_cell_name(cell)}: no csv")
             continue
-        _write_aggregated(items, cell, agg_dir)
+        _write_aggregated(items, cell, agg_dir, also_csv=args.csv)
         n_cfg += len(items)
         print(f"[agg]  {_cell_name(cell)}: {len(items)} configs")
 

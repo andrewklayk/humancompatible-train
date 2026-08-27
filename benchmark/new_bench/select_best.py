@@ -23,6 +23,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from aggregate import read_curves
+
 
 
 def _cell_name(cell, cond=None):
@@ -132,15 +134,15 @@ def _select(items, filt, tol, tail, last_epoch, split=None, tolerance_decimal=No
 def _load_cells(agg_dir):
     """Read aggregate.py's per-cell CSV+JSON into {(task, data, algo): [item, ...]}.
 
-    Each ``<cell>.json`` holds per-config metadata; the sibling ``<cell>.csv`` holds
-    all curves (long: one row per config/split/epoch). Each item carries its split
-    curves as DataFrames plus the fields selection needs.
+    Each ``<cell>.json`` holds per-config metadata; the sibling ``<cell>.parquet``
+    holds all curves (long: one row per config/split/epoch). Each item carries its
+    split curves as DataFrames plus the fields selection needs.
     """
     cells = {}
     for jpath in sorted(glob.glob(os.path.join(agg_dir, "*.json"))):
         with open(jpath) as f:
             meta = json.load(f)
-        long = pd.read_csv(jpath[:-5] + ".csv")
+        long = read_curves(jpath[:-5])
         items = []
         for cfg in meta["configs"]:
             idx = int(cfg["config_index"])

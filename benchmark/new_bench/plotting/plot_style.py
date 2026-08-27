@@ -19,7 +19,8 @@ METHOD_COLORS = {
 }
 METHOD_LABELS = {
     "adam": "Adam", "pbm": "SPBM",
-    "alm_proj": "SSL-ALM (proj.)", # make it work in maths
+    # "alm_proj": "SSL-ALM (proj.)", # make it work in maths
+    "alm_proj": "ALM",
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
 }
 _MARKERS = {"adam": "o", "pbm": "s",

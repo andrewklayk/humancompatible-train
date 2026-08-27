@@ -26,8 +26,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from plotting import plot_losses_and_constraints_stochastic  # noqa: E402
 
 METHOD_LABELS = {
-    "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
-    "alm_max": "SSL-ALM (max)", "ssg": "SSw",  
+    "adam": "Adam",
+    "pbm": "SPBM",
+    "ssg": "SSw",
+    "alm_proj": "ALM",
+    "nupi": r"$\nu PI", 
     "pbm_gamma0": r"SPBM ($\gamma_0$)", 
     "pbm_kappa0": r"SPBM ($\kappa_0$)", 
     "pbm_mu0": r"SPBM ($\mu_0$)"
@@ -43,6 +46,7 @@ def read_best_configs(spec, methods, tol_mult=1.0):
     filter='none' pick (adam) or an untagged file. Methods with no winner at this
     slack (e.g. infeasible) are skipped."""
     sel_dir = os.path.dirname(os.path.abspath(spec.agg_root).rstrip("/"))  # selection/
+    print(f"looking for best_*.json in {sel_dir} for {spec.name} (tol={tol_mult:g})")
     cell = f"{spec.task}_{spec.data}"
     best = {}
     for method in methods:
@@ -69,7 +73,7 @@ def _load_config_trajectory(spec, method, config_idx, companion="test"):
     the comp_* / cons_co_* are None when the companion split is not stored (e.g.
     image tasks have no per-epoch val curve in some setups). Train and companion
     arrays are truncated to a common length."""
-    tr = config_trajectory(spec, method, config_idx, "train")
+    tr = config_trajectory(spec, method, config_idx, "opt")
     if tr is None:
         return None
     loss_m, loss_s, cons_tr_m, cons_tr_s = tr
@@ -132,7 +136,7 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test", with_acc=Fa
 def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=None,
          companion="test"):
     if methods is None:
-        methods = ["adam","alm_proj", "ssg", "pbm"]
+        methods = ["adam","alm_proj", "pbm", "ssg"]
     # Per-class accuracy row only for the image tasks (they store per-class acc).
     with_acc = spec.data in ("cifar10", "cifar100")
     inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult,
@@ -298,20 +302,21 @@ def print_table(specs, methods):
 if __name__ == "__main__":
     
     # all possible experiments
-    experiments = [ 'weight_norm',
-                    'folktables_positive_rate_vec',
-                    'folktables_positive_rate_pair', 
-                    'dutch_positive_rate_pair']
-
-
-    experiments = [ 'dutch_positive_rate_pair']
+    experiments = [ 
+        # 'weight_norm',
+        # 'folktables_positive_rate_vec',
+        # 'folktables_positive_rate_pair', 
+        # 'dutch_positive_rate_pair',
+        'cifar10_loss'
+        # "cifar100_loss"
+    ]
 
 
     data_map = {    "weight_norm": "income_norm",
                     "folktables_positive_rate_vec": "income", 
                     "folktables_positive_rate_pair": "income",
                     "dutch_positive_rate_pair": "dutch",
-                     'cifar10_loss': "cifar10"
+                    "cifar10_loss": "cifar10"
     }
     bounds_map = {  "weight_norm": 2.0,
                     "folktables_positive_rate_vec": 0.2, 
@@ -328,8 +333,9 @@ if __name__ == "__main__":
                      'cifar10_loss': "E5"}
 
     # define output folder
-    out = "../../results/plots/"
-    agg = "../selection/opt/aggregated/"
+    # out = "../../results/plots/"
+    out = "./plots/"
+    agg = "../selection/aggregated/"
     
     os.makedirs(out, exist_ok=True)
 
@@ -349,8 +355,8 @@ if __name__ == "__main__":
         specs.append(spec)
 
 
-    # methods = ["adam","alm_proj", "ssg", "pbm"]
-    methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
+    methods = ["adam","alm_proj", "pbm", "ssg"]
+    # methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
 
     # plot each experiment separately
     for i, experiment in enumerate(experiments):

@@ -35,8 +35,9 @@ import pandas as pd
 # import it so selection and plots use identical windowing semantics.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from select_best import collapse as _collapse  # noqa: E402
+from aggregate import read_curves  # noqa: E402
 
-DEFAULT_METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
+DEFAULT_METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg", "nupi"]
 
 
 @dataclass
@@ -51,14 +52,14 @@ class ExperimentSpec:
 @lru_cache(maxsize=None)
 def _load(agg_root, task, data):
     """(task, data) -> {method: {config_index: curves DataFrame}}. Reads every
-    <cell>.json matching (task, data) and its sibling <cell>.csv, split by config."""
+    <cell>.json matching (task, data) and its sibling <cell>.parquet, split by config."""
     out = {}
     for json_path in sorted(glob.glob(os.path.join(agg_root, "*.json"))):
         with open(json_path) as f:
             meta = json.load(f)
         if meta.get("task") != task or meta.get("data") != data:
             continue
-        curves = pd.read_csv(json_path[:-5] + ".csv")
+        curves = read_curves(json_path[:-5])
         out[meta["algorithm"]] = {int(i): g for i, g in curves.groupby("config")}
     return out
 
@@ -135,7 +136,7 @@ def list_configs(spec, method, where=None):
     return [ci for ci in idx if match(ci)]
 
 
-def aggregate_method(spec, method, split="val", tail=10, last_epoch=True):
+def aggregate_method(spec, method, split="opt", tail=10, last_epoch=True):
     """Per-config scalar table for one method: each config's curve collapsed to a
     representative (loss, violation). None if the method has no such configs."""
     records = []
@@ -156,7 +157,7 @@ def aggregate_method(spec, method, split="val", tail=10, last_epoch=True):
     return table
 
 
-def aggregate_experiment(spec, methods=DEFAULT_METHODS, split="val", tail=10, last_epoch=True):
+def aggregate_experiment(spec, methods=DEFAULT_METHODS, split="opt", tail=10, last_epoch=True):
     """{method: per-config DataFrame}; methods with no aggregated configs are skipped."""
     per_method = {}
     for method in methods:
@@ -179,7 +180,7 @@ def _load_config_trajectory(spec, method, config_idx, companion="test"):
     the comp_* / cons_co_* are None when the companion split is not stored (e.g.
     image tasks have no per-epoch val curve in some setups). Train and companion
     arrays are truncated to a common length."""
-    tr = config_trajectory(spec, method, config_idx, "train")
+    tr = config_trajectory(spec, method, config_idx, "opt")
     if tr is None:
         return None
     loss_m, loss_s, cons_tr_m, cons_tr_s = tr
@@ -251,9 +252,11 @@ def metric_trajectory(spec, method, config_index, split, metric):
 
 def dual_trajectory(spec, method, config_index, split="opt"):
     """Seed-averaged per-epoch dual variables for one config/split:
-    (lambda_mean[m,L], lambda_std[m,L], epochs[L]), or None if the split has no
+    (lambda_mean[m,L], lambda_std[m,L]|None, epochs[L]), or None if the split has no
     lambda_j columns (unconstrained methods / SSG store no duals). m = number of
-    constraints, rows ordered lambda_0..lambda_{m-1}."""
+    constraints, rows ordered lambda_0..lambda_{m-1}. lambda_std is None because
+    aggregate.py stores no across-seed spread for the duals -- plot_kkt bands them by
+    the spread ACROSS configs instead."""
     curve = _curve(spec, method, config_index, split)
     if curve is None:
         return None
@@ -263,7 +266,10 @@ def dual_trajectory(spec, method, config_index, split="opt"):
         return None
 
     def stack(suffix):
-        return np.vstack([curve[f"{c}_{suffix}"].to_numpy() for c in lam])
+        cols = [f"{c}_{suffix}" for c in lam]
+        if not all(c in curve.columns for c in cols):
+            return None
+        return np.vstack([curve[c].to_numpy() for c in cols])
 
     return stack("mean"), stack("std"), curve["epoch"].to_numpy()
 

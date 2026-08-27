@@ -19,10 +19,12 @@ from plot_style import set_neurips_style, style_for, COL_WIDTH, top_legend
 from plot_style import TEXT_WIDTH
 
 
-_PANELS = [("objective", "Loss"),
-           ("max_viol", r"Feasibility $\max_j(c_j-b)_+$"),
-           ("grad_norm", r"Stationarity $\|\nabla_x L\|$"),
-           ("compl", r"Complementarity $\sum_j|\lambda_j g_j|$")]
+_PANELS = [
+    ("objective", "Loss"),
+    ("max_viol", r"Feasibility $\max_j(c_j-b)_+$"),
+    ("grad_norm", r"Stationarity $\|\nabla_x L\|$"),
+    ("compl", r"Complementarity $\sum_j|\lambda_j g_j|$")
+]
 
 
 def _base(method):
@@ -33,7 +35,6 @@ def _base(method):
 
 def _tol(spec, cutoff):
     """Relative feasibility slack off the bound (cutoff=1 loose, 2 tight)."""
-
     if 'weight' in spec.task:
         return 0.1 if cutoff == 1 else 0.001 # 1 decimal vs 3 decimals
     else: 
@@ -69,10 +70,14 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
         feas_only = metric == "objective"
         # only the loss panel splits by tolerance; others use base methods once
         panel_methods = methods if feas_only else list(dict.fromkeys(_base(m)[0] for m in methods))
+        if "adam" in panel_methods and metric != "objective":  # adam is not a constrained method
+            panel_methods.remove("adam")
+        if "ssg" in panel_methods and metric in ["grad_norm", "compl"]:  # ssg is not a Lagrangian method
+            panel_methods.remove("ssg")
         scores = {m: [] for m in panel_methods}
 
         for spec in specs:
-            per_method = {m: _pairs(spec, m, metric, tail, feas_only) for m in panel_methods}
+            per_method = {m: _pairs(spec, m, metric, tail, feas_only and m != "adam") for m in panel_methods}
             # f_L over BASE methods only (no __k duplicates)
             base_finals = {}
             for m, rows in per_method.items():
@@ -86,8 +91,11 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
                     if metric == "max_viol":
                         scores[m].append(f / spec.bound)
                     else:
-                        gap = f0 - f_L
-                        scores[m].append(0.0 if gap <= 0 else max(f - f_L, 0.0) / gap)
+                        # gap = f0 - f_L
+                        # scores[m].append(0.0 if gap <= 0 else max(f - f_L, 0.0) / gap)
+                        max_gap = f0 - f_L
+                        actual_gap = f0 - f
+                        scores[m].append(0.0 if max_gap <= 0 else 1 - max(actual_gap, 0.0) / max_gap)
 
         for m in panel_methods:
             s = np.sort(scores[m]); 
@@ -100,11 +108,12 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
             print(f"  [{title}] {m}: {len(s)} pairs, "
                   f"frac(tau=1e-1)={np.mean(s <= 1e-1):.2f}")
 
-        ax.set_xscale("log")
-        ax.set_xlabel(r"accuracy $\tau$")
+        # ax.set_xscale("log")
         ax.set_ylim(-0.02, 1.02)
-    axes[0].set_ylabel("fraction of configs")
-    axes[1].set_ylabel("fraction of configs")
+    axes[0].set_ylabel("Fraction of configs")
+    axes[2].set_ylabel("Fraction of configs")
+    axes[2].set_xlabel("Relative threshold")
+    axes[3].set_xlabel("Relative threshold")
     top_legend(fig, axes[0])
     fig.tight_layout()
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
@@ -115,29 +124,40 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
 
 if __name__ == "__main__":
     
-    experiments = [ 'weight_norm',
-                    'folktables_positive_rate_vec',
-                    'folktables_positive_rate_pair', 
-                    'dutch_positive_rate_pair']
+    experiments = [
+        # 'weight_norm',
+        # 'folktables_positive_rate_vec',
+        # 'folktables_positive_rate_pair', 
+        # 'dutch_positive_rate_pair'
+        "cifar10_loss"
+    ]
 
     data_map = {    "weight_norm": "income_norm",
                     "folktables_positive_rate_vec": "income", 
                     "folktables_positive_rate_pair": "income",
-                    "dutch_positive_rate_pair": "dutch"
+                    "dutch_positive_rate_pair": "dutch",
+                    "cifar10_loss": "cifar10"
     }
     bounds_map = {  "weight_norm": 2.0,
                     "folktables_positive_rate_vec": 0.2, 
                     "folktables_positive_rate_pair": 0.1,
-                    "dutch_positive_rate_pair": 0.1
+                    "dutch_positive_rate_pair": 0.1,
+                    "cifar10_loss": 0.1
     }
 
     agg = "../selection/aggregated/"
     specs = [ExperimentSpec(name=e, task=e, data=data_map[e],
                             bound=bounds_map[e], agg_root=agg)
              for e in experiments]
-    methods = ["adam", "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"]
+    methods = [
+        "adam",
+        "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"
+        # , "nupi__1", "nupi__2"
+        ]
 
+    # out = "../../results/plots/profiles_fair_all.pdf"
+    out = "plots/profiles_fair_all.pdf"
     plot_profiles_fair(specs, methods, configs="all",
-                       out="../../results/plots/profiles_fair_all.pdf")
+                       out=out, tail=5)
     
     # plot the trade off
