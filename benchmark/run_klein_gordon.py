@@ -38,12 +38,12 @@ pbm_grid = [
     "dual__rho": rho}
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
     in product(
-        [0.001, 0.005, 0.01, 0.02], [0.1, 0.9, 0.99, 1.0], ["dimin_adapt"],
-        ["quadratic_logarithmic"], [[1e-2, 1.]], [0.0, 0.1, 0.9, 0.999], [0., 2.], 
-        [1], [True], [True], [0.0])
+        [0.001, 0.005, 0.01, 0.02], [0.1, 0.9, 0.99], ["dimin_adapt"],
+        ["quadratic_logarithmic", "quadratic_reciprocal"], [[1e-2, 1.]], [0.1, 0.9, 0.999], [0., 2.], 
+        [1], [False], [False], [0.0])
 ]
 
-pbm_grid_2 = [
+pbm_grid_alm = [
     {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
      "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
      "dual__delta": 1., "moreau__mu": mu,
@@ -53,23 +53,20 @@ pbm_grid_2 = [
     for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
     in product(
         [0.001, 0.005, 0.01, 0.02], [0.0], ["alm"],
-        ["quadratic_logarithmic"], [[1e-2, 100.]], [0.0, 0.1, 0.9, 0.999], [0., 2.], 
-        [1], [True], [True], [0.1, 1.0, 2.0, 3.0])
+        ["quadratic_logarithmic", "quadratic_reciprocal"], [[1e-2, 100.]], [0.1, 0.9, 0.999], [0., 2.], 
+        [1], [False], [False], [0.1, 1.0, 2.0])
 ]
 
 # IMPORTANT: we add the second pbm grid to the first one
 # IMPORTANT: WE DO NOT COUNT 0.0 GAMMA AS PART OF THE GRID - only for ablation study
-pbm_grid += pbm_grid_2
-
-# ensure the primal update process length is the same for both moreau and dual
-for arr_dict in pbm_grid:
-    arr_dict["moreau__primal_update_process_length"] = arr_dict["dual__primal_update_process_length"]
+pbm_grid += pbm_grid_alm
 
 alm_proj_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
             "dual__is_ineq": True}
     for (lr, dlr, pen, mu) in product(
-        [0.001, 0.005, 0.01, 0.02, 0.05], [0.008, 0.0005, 0.001, 0.005, 0.01, 0.05], [0., 1.], [0., 1., 2.])
+        [0.001, 0.005, 0.01, 0.02, 0.05], [0.008, 0.0005, 0.001, 0.005, 0.01, 0.05],
+         [0.0, 0.1, 1.0, 2.0], [0., 1., 2.])
 ]
 
 ssg_grid = [{"primal__lr": lr, "dual__lr": dlr, "moreau__mu": mu}  # ADDED: SSw grid (matches fairness)
@@ -80,6 +77,76 @@ adam_grid = [{"primal__lr": lr, "beta": beta}
              for (lr, beta) in product([0.001, 0.005, 0.01, 0.02, 0.05], [0.5, 1., 2., 5., 10.])]
 
 
+# ---- ablation study grids
+pbm_grid_kappa0 = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
+    in product(
+        [0.001, 0.005, 0.01, 0.02], [0.0], ["dimin_adapt"],
+        ["quadratic_logarithmic", "quadratic_reciprocal"], [[1e-2, 1.]], [0.1, 0.9, 0.999], [0., 2.], 
+        [1], [False], [False], [0.0])
+]
+
+pbm_grid_gamma0 = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
+    in product(
+        [0.001, 0.005, 0.01, 0.02], [0.1, 0.9, 0.99], ["dimin_adapt"],
+        ["quadratic_logarithmic", "quadratic_reciprocal"], [[1e-2, 1.]], [0.0], [0., 2.], 
+        [1], [False], [False], [0.0])
+]
+pbm_grid_alm_gamma0 = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
+    in product(
+        [0.001, 0.005, 0.01, 0.02], [0.0], ["alm"],
+        ["quadratic_logarithmic", "quadratic_reciprocal"], [[1e-2, 100.]], [0.0], [0., 2.], 
+        [1], [False], [False], [0.1, 1.0, 2.0])
+]
+pbm_grid_gamma0 += pbm_grid_alm_gamma0
+
+pbm_grid_mu0 = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
+    in product(
+        [0.001, 0.005, 0.01, 0.02], [0.1, 0.9, 0.99], ["dimin_adapt"],
+        ["quadratic_logarithmic", "quadratic_reciprocal"], [[1e-2, 1.]], [0.1, 0.9, 0.999], [0.], 
+        [1], [False], [False], [0.0])
+]
+pbm_grid_alm_mu0 = [
+    {"primal__lr": lr, "dual__penalty_mult": pm, "dual__penalty_update": pu,
+     "dual__pbf": pbf, "dual__penalty_range": pr, "dual__gamma": g,
+     "dual__delta": 1., "moreau__mu": mu,
+    "dual__primal_update_process_length": primal_update_process_length,
+    "dual__gamma_annealing": gamma_annealing, "dual__penalty_annealing": penalty_annealing,
+    "dual__rho": rho}
+    for (lr, pm, pu, pbf, pr, g, mu, primal_update_process_length, gamma_annealing, penalty_annealing, rho) 
+    in product(
+        [0.001, 0.005, 0.01, 0.02], [0.0], ["alm"],
+        ["quadratic_logarithmic", "quadratic_reciprocal"], [[1e-2, 100.]], [0.1, 0.9, 0.999], [0.], 
+        [1], [False], [False], [0.1, 1.0, 2.0])
+]
+pbm_grid_mu0 += pbm_grid_alm_mu0
 
 # ── PDE helpers ───────────────────────────────────────────────────────────────
 def analytic(bdry):
@@ -350,15 +417,31 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
         histories = [run_config(p, make_alm, clamp=False) for p in tqdm(alm_proj_grid, desc="alm_proj")]
         save_method(result_dir, "alm_proj", histories, alm_proj_grid)
 
-    # ===== ALM max (clamped constraints) =====
-    if 'alm_max' in cfg.algorithms:
-        histories = [run_config(p, make_alm, clamp=True) for p in tqdm(alm_max_grid, desc="alm_max")]
-        save_method(result_dir, "alm_max", histories, alm_max_grid)
-
     # ===== SSw (switching subgradient) =====
     if 'ssg' in cfg.algorithms:
         histories = [run_config(p, None, mode='sw') for p in tqdm(ssg_grid, desc="ssg")]
         save_method(result_dir, "ssg", histories, ssg_grid)
+
+    # ===== SPBM (PBM) =====
+    if 'pbm_kappa0' in cfg.algorithms:
+        # for arr_dict in pbm_grid:   
+            # arr_dict["dual__epoch_length"] = 60
+        histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid_kappa0, desc="pbm_kappa0")]
+        save_method(result_dir, "pbm_kappa0", histories, pbm_grid_kappa0)
+
+    # ===== SPBM (PBM) =====
+    if 'pbm_mu0' in cfg.algorithms:
+        # for arr_dict in pbm_grid:   
+            # arr_dict["dual__epoch_length"] = 60
+        histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid_mu0, desc="pbm_mu0")]
+        save_method(result_dir, "pbm_mu0", histories, pbm_grid_mu0)
+    
+    # ===== SPBM (PBM) =====
+    if 'pbm_gamma0' in cfg.algorithms:
+        # for arr_dict in pbm_grid:   
+            # arr_dict["dual__epoch_length"] = 60
+        histories = [run_config(p, make_pbm) for p in tqdm(pbm_grid_gamma0, desc="pbm_gamma0")]
+        save_method(result_dir, "pbm_gamma0", histories, pbm_grid_gamma0)
 
 
 @hydra.main(version_base=None, config_path="conf/task/", config_name="klein_gordon")

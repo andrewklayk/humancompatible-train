@@ -51,6 +51,7 @@ python3 -m pip install -q hydra-submitit-launcher
 # each driver must pass it as a Hydra override on its run.py -m line
 # (n_epochs=${N_EPOCHS}). A bare env var is NOT auto-applied by Hydra.
 : "${N_EPOCHS:=40}"
+# : "${LAUNCHER:=slurm_gpu_slow}"    # set LAUNCHER=local to drop the launcher (local run)
 : "${LAUNCHER:=slurm_gpu_slow}"    # set LAUNCHER=local to drop the launcher (local run)
 
 # Optional launcher override (omitted when LAUNCHER=local / empty).

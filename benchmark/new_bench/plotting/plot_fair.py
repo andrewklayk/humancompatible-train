@@ -304,7 +304,10 @@ if __name__ == "__main__":
                     'dutch_positive_rate_pair']
 
 
-    experiments = [ 'dutch_positive_rate_pair']
+    # experiments = [ 'dutch_positive_rate_pair']
+    # experiments = [ 'folktables_positive_rate_vec']
+    # experiments = [ 'folktables_positive_rate_pair'
+    experiments = [ 'cifar10_loss']
 
 
     data_map = {    "weight_norm": "income_norm",
@@ -349,9 +352,10 @@ if __name__ == "__main__":
         specs.append(spec)
 
 
-    # methods = ["adam","alm_proj", "ssg", "pbm"]
+    methods = ["adam","alm_proj", "ssg", "pbm"]
+    # methods = ["adam","alm_proj", "ssg"]
     # methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
-    methods = ["adam","alm_proj", "ssg", "pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
+    # methods = ["adam","alm_proj", "ssg", "pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
 
     # plot each experiment separately
     for i, experiment in enumerate(experiments):
