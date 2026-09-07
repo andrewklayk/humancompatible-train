@@ -1,0 +1,7 @@
+# Base experiment config for single-run multirun sweeps
+# Extend this with algorithm-specific configs
+n_epochs: 6500
+seed: 0
+model: deep_narrow
+algorithms: ["adam", "pbm"]
+task: klein_gordon
