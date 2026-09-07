@@ -4,4 +4,4 @@ n_epochs: 6500
 seed: 0
 model: deep_narrow
 algorithms: ["adam", "pbm"]
-task: helmholtz
+task: burgers

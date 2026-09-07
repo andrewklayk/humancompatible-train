@@ -431,10 +431,11 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg) :     # +seed
         save_method(result_dir, "pbm_gamma0", histories, pbm_grid_gamma0)
 
 
-@hydra.main(version_base=None, config_path="conf/task/", config_name="burgers")   # CHANGED: argparse -> Hydra
+@hydra.main(version_base=None, config_path="conf", config_name="burgers")   # CHANGED: argparse -> Hydra
 def main(cfg: DictConfig):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     torch.set_default_device(device)
+    print(cfg)
     seed = cfg.get("seed", 0)
     torch.manual_seed(seed)
     main_function(cfg.get("model", "deep_narrow"), cfg.get("beta", 1.0),

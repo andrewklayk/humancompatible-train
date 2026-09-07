@@ -417,7 +417,7 @@ def main_function(model_name, beta, lr, EPOCH, device, seed, cfg):
         save_method(result_dir, "pbm_gamma0", histories, pbm_grid_gamma0)
 
 
-@hydra.main(version_base=None, config_path="conf/task/", config_name="helmholtz")
+@hydra.main(version_base=None, config_path="conf", config_name="helmholtz")
 def main(cfg: DictConfig):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     torch.set_default_device(device)
