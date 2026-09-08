@@ -2,14 +2,6 @@ humancompatible-train documentation
 ===================================
 
 Welcome to the **humancompatible-train** documentation.
-<<<<<<< HEAD
-=======
-
-What is **humancompatible-train**?
-
-**humancompatible-train** is a PyTorch-based package for constrained optimization, aimed at constrained deep learning tasks.
-We implement several first-order Lagrangian-based methods for constrained optimization with a PyTorch-based API that allow seamless integration of constraints into the training loop.
->>>>>>> b54b13db327489065b3ec3c95872c84428cb2883
 
 What is **humancompatible-train**?
 
@@ -35,12 +27,6 @@ We implement several first-order Lagrangian-based methods for constrained optimi
 
 .. toctree::
    :maxdepth: 2
-<<<<<<< HEAD
-   :caption: Additional Resources
-
-   troubleshooting
-   support
-=======
    :caption: Getting Started
    :titlesonly:
 
@@ -55,6 +41,7 @@ We implement several first-order Lagrangian-based methods for constrained optimi
    Constrained Optimization Overview <tutorials/copt_overview>
    Basic usage: Fairness <tutorials/basic_usage>
    Handling inequality constraints <tutorials/inequality_constraints>
+   Nonsmooth objectives with NonOpt <tutorials/nonopt_nonsmooth>
    Tips and Tricks <tutorials/tips>
 
 .. toctree::
@@ -63,4 +50,3 @@ We implement several first-order Lagrangian-based methods for constrained optimi
 
    Dual Optimizers <api_reference/dual_optimizers>
    Utils <api_reference/utils>
->>>>>>> b54b13db327489065b3ec3c95872c84428cb2883

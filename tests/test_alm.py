@@ -167,6 +167,216 @@ class TestALMFixes(unittest.TestCase):
         self.assertTrue(torch.allclose(alm.param_groups[1]["params"][0], 0.2 * c[2:]))
 
 
+class TestALMHPR(unittest.TestCase):
+    """The ``augmentation="hpr"`` option.
+
+    Constraints are ``c <= 0``; ``rho`` is the penalty and ``sigma = y + rho*c`` the
+    trial multiplier. HPR differs from the default only on inequality groups, and there
+    only in that the surrogate's weight on ``dc/dtheta`` is ``max(0, sigma)`` rather
+    than ``max(y, sigma)``.
+    """
+
+    def setUp(self):
+        self.loss = torch.tensor(5.0)
+
+    @staticmethod
+    def _hpr(m=3, **kwargs):
+        kwargs.setdefault("lr", 0.1)
+        kwargs.setdefault("penalty", 1.0)
+        return ALM(m=m, augmentation="hpr", **kwargs)
+
+    # --- equality groups: HPR must be a no-op ---
+
+    def test_equality_groups_match_quadratic(self):
+        c = torch.tensor([1.0, -2.0, 0.5])
+        quad = ALM(m=3, lr=0.1, penalty=2.0, init_duals=0.7)
+        hpr = self._hpr(m=3, penalty=2.0, init_duals=0.7)
+
+        for _ in range(5):
+            lag_q = quad.forward_update(self.loss, c)
+            lag_h = hpr.forward_update(self.loss, c)
+            self.assertTrue(torch.equal(lag_q, lag_h))
+            self.assertTrue(torch.equal(quad.duals, hpr.duals))
+
+    # --- the two branches, in closed form ---
+
+    def test_active_branch(self):
+        # sigma = y + rho*c > 0: surrogate is y'c + (rho/2)|c|^2 and the dual step is
+        # lr*c, exactly as in the default mode.
+        rho, lr, y0 = 2.0, 0.1, 1.0
+        c = torch.tensor([1.0, 0.5, -0.25])  # sigma = 3.0, 2.0, 0.5 > 0
+        hpr = self._hpr(m=3, lr=lr, penalty=rho, init_duals=y0, is_ineq=True)
+
+        lag = hpr.forward_update(self.loss, c)
+
+        y1 = torch.full((3,), y0) + lr * c
+        self.assertTrue(torch.allclose(hpr.duals, y1))
+        expected = self.loss + y1 @ c + 0.5 * rho * torch.dot(c, c)
+        self.assertTrue(torch.allclose(lag, expected))
+
+    def test_inactive_branch(self):
+        # sigma = y + rho*c < 0: the surrogate is the constant -|y|^2/(2 rho) and the
+        # dual decays geometrically by (1 - lr/rho).
+        rho, lr, y0 = 2.0, 0.5, 1.0
+        c = torch.tensor([-3.0, -1.0, -2.0])  # sigma = -5, -1, -3 < 0
+        hpr = self._hpr(m=3, lr=lr, penalty=rho, init_duals=y0, is_ineq=True)
+
+        lag = hpr.forward_update(self.loss, c)
+
+        y1 = torch.full((3,), (1 - lr / rho) * y0)
+        self.assertTrue(torch.allclose(hpr.duals, y1))
+        expected = self.loss - torch.dot(y1, y1) / (2 * rho)
+        self.assertTrue(torch.allclose(lag, expected))
+
+    def test_general_case_matches_formula(self):
+        # A mix of both branches, checked against the formula as written in the paper.
+        rho, lr = 1.5, 0.3
+        c = torch.tensor([2.0, -0.4, -1.0, 0.0])
+        init = torch.tensor([0.2, 0.9, 0.5, 1.3])
+        hpr = self._hpr(m=4, lr=lr, penalty=rho, init_duals=init.clone(), is_ineq=True)
+
+        lag = hpr.forward_update(self.loss, c)
+
+        y1 = (1 - lr / rho) * init + (lr / rho) * torch.clamp(init + rho * c, min=0.0)
+        self.assertTrue(torch.allclose(hpr.duals, y1))
+        shifted = torch.clamp(y1 + rho * c, min=0.0)
+        expected = self.loss + (shifted @ shifted - y1 @ y1) / (2 * rho)
+        self.assertTrue(torch.allclose(lag, expected))
+
+    # --- the behavioural point: no pull on a comfortably feasible constraint ---
+
+    def test_inactive_constraint_contributes_no_primal_gradient(self):
+        # theta is scalar, c(theta) = theta - 1, so dc/dtheta = 1. At theta = -3 the
+        # constraint is feasible with sigma = y + rho*c < 0, so HPR must leave the
+        # primal gradient at df/dtheta alone while the default adds y * dc/dtheta.
+        rho, y0 = 1.0, 0.8
+
+        def grad_of(augmentation):
+            theta = torch.tensor(-3.0, requires_grad=True)
+            opt = ALM(
+                m=1, lr=0.0, penalty=rho, init_duals=y0, is_ineq=True,
+                augmentation=augmentation,
+            )
+            # lr=0 freezes the duals, isolating the surrogate's primal gradient.
+            opt.forward_update(torch.zeros(()), (theta - 1.0).reshape(1)).backward()
+            return theta.grad.item()
+
+        self.assertEqual(grad_of("hpr"), 0.0)
+        self.assertAlmostEqual(grad_of("quadratic"), y0, places=6)
+
+    def test_lr_equal_penalty_gives_same_duals_as_quadratic(self):
+        # At lr == penalty both modes perform y <- [y + rho*c]_+, the default via its
+        # non-negativity clamp; only the surrogate differs.
+        rho = 1.0
+        c = torch.tensor([0.5, -0.3, -2.0])
+        quad = ALM(m=3, lr=rho, penalty=rho, init_duals=0.6, is_ineq=True)
+        hpr = self._hpr(m=3, lr=rho, penalty=rho, init_duals=0.6, is_ineq=True)
+
+        lag_q = quad.forward_update(self.loss, c)
+        lag_h = hpr.forward_update(self.loss, c)
+
+        self.assertTrue(torch.allclose(quad.duals, torch.clamp(0.6 + rho * c, min=0.0)))
+        self.assertTrue(torch.allclose(quad.duals, hpr.duals))
+        self.assertFalse(torch.allclose(lag_q, lag_h))
+
+    # --- momentum smooths the HPR ascent direction ---
+
+    def test_momentum_smooths_ascent_direction(self):
+        rho, lr, y0 = 2.0, 0.1, 1.0
+        momentum, dampening = 0.9, 0.5
+        c = torch.tensor([1.0, -3.0, -0.5])
+        hpr = self._hpr(
+            m=3, lr=lr, penalty=rho, init_duals=y0, is_ineq=True,
+            momentum=momentum, dampening=dampening,
+        )
+
+        duals = torch.full((3,), y0)
+        buffer = torch.zeros(3)
+        for _ in range(3):
+            d = (torch.clamp(duals + rho * c, min=0.0) - duals) / rho
+            buffer = momentum * buffer + (1 - dampening) * d
+            duals = duals + lr * buffer
+
+            hpr.update(c)
+            self.assertTrue(torch.allclose(hpr.duals, duals))
+            self.assertTrue(
+                torch.allclose(hpr.param_groups[0]["momentum_buffer"], buffer)
+            )
+
+    def test_forward_does_not_corrupt_momentum_buffer(self):
+        c = torch.tensor([1.0, -3.0, -0.5])
+        direct = self._hpr(m=3, init_duals=1.0, is_ineq=True, momentum=0.9)
+        via_forward = self._hpr(m=3, init_duals=1.0, is_ineq=True, momentum=0.9)
+
+        direct.update(c)
+        via_forward.forward(self.loss, c)
+        via_forward.update(c)
+
+        self.assertTrue(torch.equal(direct.duals, via_forward.duals))
+
+    def test_forward_update_and_separate_forward_update_agree(self):
+        c = torch.tensor([1.0, -3.0, -0.5])
+        combined = self._hpr(m=3, init_duals=1.0, is_ineq=True, momentum=0.9)
+        separate = self._hpr(m=3, init_duals=1.0, is_ineq=True, momentum=0.9)
+
+        combined.forward_update(self.loss, c)
+        separate.forward(self.loss, c)
+        separate.update(c)
+
+        self.assertTrue(torch.equal(combined.duals, separate.duals))
+
+    # --- multiple groups: the global quadratic must not be double counted ---
+
+    def test_mixed_groups(self):
+        rho = 1.0
+        hpr = self._hpr(m=2, lr=0.1, penalty=rho, init_duals=0.5, is_ineq=True)
+        hpr.add_constraint_group(m=2, lr=0.1, init_duals=torch.full((2,), 0.5))
+
+        c = torch.tensor([0.5, -2.0, 1.0, -1.0])
+        lag = hpr.forward(self.loss, c)
+
+        y = torch.full((2,), 0.5)
+        shifted = torch.clamp(y + rho * c[:2], min=0.0)
+        expected = (
+            self.loss
+            + (shifted @ shifted - y @ y) / (2 * rho)     # inequality group
+            + y @ c[2:] + 0.5 * rho * torch.dot(c[2:], c[2:])  # equality group
+        )
+        self.assertTrue(torch.allclose(lag, expected))
+
+    # --- validation and checkpointing ---
+
+    def test_rejects_nonpositive_penalty(self):
+        with self.assertRaises(ValueError):
+            ALM(m=3, lr=0.1, penalty=0.0, augmentation="hpr")
+        with self.assertRaises(ValueError):
+            ALM(m=3, lr=0.1, penalty=-1.0, augmentation="hpr")
+        # zero penalty stays valid in the default mode (Cooper parity relies on it)
+        ALM(m=3, lr=0.1, penalty=0.0)
+
+    def test_rejects_unknown_augmentation(self):
+        with self.assertRaises(ValueError):
+            ALM(m=3, lr=0.1, penalty=1.0, augmentation="quadatric")
+
+    def test_state_dict_round_trip(self):
+        hpr = self._hpr(m=3, penalty=2.0, is_ineq=True)
+        state_dict = hpr.state_dict()
+        self.assertEqual(state_dict["state"]["augmentation"], "hpr")
+
+        restored = ALM(m=3, lr=0.1, penalty=1.0)
+        restored.load_state_dict(state_dict)
+        self.assertEqual(restored.augmentation, "hpr")
+        self.assertEqual(restored.penalty, 2.0)
+
+    def test_legacy_state_dict_defaults_to_quadratic(self):
+        hpr = self._hpr(m=3, penalty=2.0, is_ineq=True)
+        state_dict = hpr.state_dict()
+        del state_dict["state"]["augmentation"]
+
+        hpr.load_state_dict(state_dict)
+        self.assertEqual(hpr.augmentation, "quadratic")
+
+
 class TestALMDDP(unittest.TestCase):
     def setUp(self):
         self.loss = torch.tensor(5.0)

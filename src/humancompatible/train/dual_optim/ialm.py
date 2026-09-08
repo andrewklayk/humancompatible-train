@@ -149,7 +149,7 @@ class iALM(DualOptimizer):
             buffer if momentum > 0 else c,
         )
 
-    def _add_surrogate_terms(
+    def _add_constraint_contributions(
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
         # The quadratic term uses this group's current beta, i.e. the value

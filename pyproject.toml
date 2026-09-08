@@ -25,5 +25,15 @@ readme = "README.md"
 
 [project.optional-dependencies]
 examples = ["ipykernel", "ipympl", "fairret", "folktables", "scikit-learn", "matplotlib"]
-benchmark = ["fairret", "matplotlib", "pandas", "folktables", "pot", "hydra", "omegaconf"]
+# `hydra-core` is the distribution this repo imports. `hydra` on PyPI is an unrelated 2016
+# project, which is what the lockfile had been resolving to (uv.lock pinned Hydra 2.5).
+benchmark = ["fairret", "matplotlib", "pandas", "folktables", "pot", "hydra-core", "omegaconf"]
+# The hyperparameter sweeps in paper/tune.py. The submitit launcher is what `-m
+# hydra/launcher=slurm` needs; the basic sweeper covers the local case with no plugin.
+# hydra-optuna-sweeper is deliberately absent: its 1.2.0 release requires optuna<3.0.0.
+paper = ["hydra-core", "omegaconf", "hydra-submitit-launcher"]
 ghost = ["qpsolvers", "scipy"]
+# Cross-validation against another library (paper/e0/e_cooper.py,
+# tests/test_cooper_parity.py). Pinned to a floor because E0e's claims are about
+# specific update orderings in Cooper's optimizer classes.
+compare = ["cooper-optim>=1.0.1"]

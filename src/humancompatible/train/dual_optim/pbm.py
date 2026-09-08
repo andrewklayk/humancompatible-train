@@ -296,7 +296,7 @@ class PBM(DualOptimizer):
         )
         clamp_(penalties, min=self.penalty_range[0], max=self.penalty_range[1])
 
-    def _add_surrogate_terms(
+    def _add_constraint_contributions(
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
         lam, pen = snapshot

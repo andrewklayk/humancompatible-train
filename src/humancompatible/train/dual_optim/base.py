@@ -28,13 +28,13 @@ Required:
     Advance this group's auxiliary variables in place, given the group's slice of
     the constraint vector. The base clamps the duals to the group's range
     immediately afterwards.
-``_add_surrogate_terms(lagrangian, group, snapshot, c)``
+``_add_constraint_contributions(lagrangian, group, snapshot, c)``
     Add this group's constraint-dependent terms to the surrogate, in place.
 
 Optional:
 
 ``_snapshot(group)``
-    What :meth:`_add_surrogate_terms` is entitled to use. Defaults to the live
+    What :meth:`_add_constraint_contributions` is entitled to use. Defaults to the live
     dual tensor, i.e. the surrogate sees the *post*-update multipliers, which is
     what the augmented-Lagrangian recursions prescribe. :class:`~.pbm.PBM`
     overrides it to take a pre-update copy instead, so that the surrogate and the
@@ -272,11 +272,6 @@ class DualOptimizer(Optimizer, abc.ABC):
         to groups registered with ``is_ineq=True`` are clamped to
         :math:`[c]_+ = \\max(c, 0)`. Equality groups pass through unchanged.
 
-        Only the *quadratic* term uses this. The linear term :math:`y^T c` and the
-        dual update keep the raw values: that is what drives :math:`y_i \\to 0` for
-        inactive constraints, since dual ascent decreases :math:`y_i` while
-        :math:`c_i < 0` until the non-negativity clamp binds.
-
         Returns the argument itself when no group is an inequality group, so the
         all-equality path is unchanged down to the last bit.
         """
@@ -304,7 +299,7 @@ class DualOptimizer(Optimizer, abc.ABC):
     # ------------------------------------------------------------------ #
 
     def _walk(self, loss: Optional[Tensor], constraints, *, update: bool):
-        """Single pass over the constraint groups; see the module docstring."""
+        """Single pass over the constraint groups: either build the Lagrangian function ('surrogate') or update the duals, or both."""
         constraints = self._gather_constraints(constraints)
 
         # Reduced values drive the dual update so replicas stay consistent; the
@@ -346,7 +341,7 @@ class DualOptimizer(Optimizer, abc.ABC):
                     self._post_update(group, c_update)
 
             if lagrangian is not None:
-                self._add_surrogate_terms(lagrangian, group, snapshot, c_local)
+                self._add_constraint_contributions(lagrangian, group, snapshot, c_local)
 
             offset += n
 
@@ -366,7 +361,7 @@ class DualOptimizer(Optimizer, abc.ABC):
         """Build the surrogate at the current multipliers, changing no state.
 
         :param loss: Objective value.
-        :param constraints: Constraint values; flat tensor, per-group sequence,
+        :param constraints: Constraint values; flat tensor,
             or name-keyed mapping.
         :return: The surrogate (Lagrangian) to call ``.backward()`` on.
 
@@ -466,7 +461,7 @@ class DualOptimizer(Optimizer, abc.ABC):
         """Advance this group's auxiliary variables in place."""
 
     @abc.abstractmethod
-    def _add_surrogate_terms(
+    def _add_constraint_contributions(
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
         """Add this group's constraint-dependent surrogate terms, in place."""
@@ -501,7 +496,7 @@ class DualOptimizer(Optimizer, abc.ABC):
         """Side effects to run after the duals are updated and clamped."""
 
     def _add_global_terms(self, lagrangian: Tensor, constraints: Tensor) -> None:
-        """Add surrogate terms defined over the whole constraint vector."""
+        """Add surrogate terms defined over the whole constraint vector, such as the flat quadratic penalty."""
 
     def _end_of_step(self) -> None:
         """Once-per-step bookkeeping, after all groups, on updating steps only."""

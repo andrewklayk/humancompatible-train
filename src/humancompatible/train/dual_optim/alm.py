@@ -173,15 +173,13 @@ class ALM(DualOptimizer):
             raw_constraints=c,
         )
 
-    def _add_surrogate_terms(
+    def _add_constraint_contributions(
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
-        # naive augmentation
         if self.augmentation == "quadratic":
             lagrangian.add_(snapshot @ c)
             return
-        
-        # HPR augmentation
+
         rho = self.penalty
         if group.get("is_ineq"):
             with torch.no_grad():
@@ -189,7 +187,7 @@ class ALM(DualOptimizer):
                 step = lam_star - snapshot
             lagrangian.add_(lam_star @ c)
             lagrangian.add_(step.dot(step), alpha=-1.0 / (2 * rho))
-        else:
+        else:   
             lagrangian.add_(snapshot @ c)
             lagrangian.add_(0.5 * rho * torch.dot(c, c))
 
@@ -241,7 +239,7 @@ ALM.__doc__ = (
         # \textbf{input}: \gamma \text{ (lr) }, \pmb{\lambda}_t \text{ (dual variables, created by method) }, \\
         # \mathbf{c}(\theta) \text{ (constraints) }, f(\theta) \text{ (objective) }, \rho \text{ (penalty coefficient) } \\
     r"""
-    A Dual Optimizer that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2504.07607
+    A Dual Optimizer that works on the dual maximization tasks according to the (Augmented) Lagrangian rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2504.07607
 
     .. math::
 

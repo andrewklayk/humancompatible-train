@@ -209,3 +209,9 @@ cython_debug/
 # Paper experiment artifacts: re-included despite the *.csv / *.png rules above,
 # so the reproducibility artifact can be committed alongside the scripts.
 !paper/results/**
+
+# paper/tune.py sweep output. Not committed: a sweep is a search for a setting, and the
+# setting is what belongs in the repo -- as a conf/ default or a number in the paper --
+# not the hundreds of runs it took to find. (paper/outputs/ is already covered by the
+# bare `outputs/` rule above.)
+paper/multirun/

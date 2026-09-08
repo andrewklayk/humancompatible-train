@@ -191,7 +191,7 @@ class nuPI(DualOptimizer):
         # the buffer update must follow the dual step (and its clamp).
         _update_c_buffers(c, group["nu"], group["momentum_buffer"])
 
-    def _add_surrogate_terms(
+    def _add_constraint_contributions(
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
         lagrangian.add_(snapshot @ c)
