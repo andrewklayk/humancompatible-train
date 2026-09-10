@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 from torch.utils.data import Sampler
-from math import ceil
 from typing import Iterable, Optional
 
 
@@ -9,6 +8,15 @@ class BalancedBatchSampler(Sampler):
     """
     A Sampler that yields an equal number of samples from each groups specified with either one-hot encoding or indices.
     Specifically, if given`S`groups and batch size of`N`, yields a batch consisting of`N//S`samples of each group, sorted by group, but shuffled within each group.
+
+    Groups listed in`extend_groups`are oversampled: their samples are reused across batches so that the epoch is
+    as long as the largest group allows, instead of ending when the smallest group is exhausted. A group that is not
+    extended still binds the epoch length. With`n = batch_size // S`samples per group per batch, the number of
+    batches is`min_g(target_g) // n`, where`target_g`is the size of the largest group if group`g`is extended and
+    the size of group`g`itself otherwise.
+
+    Oversampling reuses a group's samples evenly: over one epoch, each sample of an extended group is drawn either
+    `floor`or`ceil`of the per-sample average, and no sample is ever repeated within a single batch.
 
     :param group_indices: List of indices for each group. Defaults to`None`.
     :type group_indices: Iterable[Iterable[int]]
@@ -18,22 +26,28 @@ class BalancedBatchSampler(Sampler):
     :type batch_size: int
     :param drop_last: If`True`, drop the last incomplete batch. Supports only`True`for now. Defaults to`True`.
     :type drop_last: bool
-    :param extend_groups: Indices of groups which should be extended (shuffled with replacement). Defaults to`None`.
-    :type extend_groups: Iterable[int]
+    :param extend_groups: Groups which should be extended (oversampled). Either the indices of those groups, or`True`for all of them. Defaults to`None`.
+    :type extend_groups: bool | Iterable[int]
+    :param generator: Optional ``torch.Generator`` for reproducible sampling. Its device is the one the shuffles are drawn on; a CPU generator is used when none is given.
+    :type generator: torch.Generator
     """
     def __init__(
         self,
-        group_onehot: Optional[Iterable[Iterable[int]]] | torch.Tensor = None,
+        group_onehot: Optional[torch.Tensor] = None,
         group_indices: Optional[Iterable[Iterable[int]]] = None,
         batch_size: int = 1,
         drop_last: bool = True,
-        extend_groups: Optional[Iterable[int]] = None,
+        extend_groups: Optional[bool | Iterable[int]] = None,
         generator: Optional[torch.Generator]=None
     ):
 
         if group_indices is None and group_onehot is None:
             raise ValueError(
                 f"Exactly one of`group_indices`,`group_onehot`must be`None`"
+            )
+        if group_indices is not None and group_onehot is not None:
+            raise ValueError(
+                f"Exactly one of`group_indices`,`group_onehot`must be`None`, got both"
             )
 
         # convert one-hot group masks (fairret style) to group indices
@@ -64,67 +78,65 @@ class BalancedBatchSampler(Sampler):
 
         self._group_indices = group_indices
         self._group_sizes = [len(indices) for indices in group_indices]
-        self._extend_groups = extend_groups
+        # `True` extends every group; an iterable names the groups to extend
+        if extend_groups is True:
+            self._extend_groups = frozenset(range(self._n_groups))
+        elif extend_groups is None or extend_groups is False:
+            self._extend_groups = frozenset()
+        else:
+            self._extend_groups = frozenset(extend_groups)
 
         self.generator = generator
+        # randperm is drawn on the generator's device, otherwise the default one
+        self._device = generator.device if generator is not None else None
+
+    def _stream(self, size, length):
+        """Stream of`length`group-local indices, in tiles of`_n_samples_per_group`.
+
+        A tile never repeats an index, and each index is used`floor`or`ceil`of
+        `length / size`times: every drawn permutation contributes each of its entries
+        to the stream exactly once, either as`fill`or later off the deck.
+        """
+        n = self._n_samples_per_group
+        out, deck = [], []
+        while len(out) < length:
+            tile, deck = deck[:n], deck[n:]
+            if len(tile) < n:  # deck ran out mid-tile
+                perm = torch.randperm(
+                    size, generator=self.generator, device=self._device
+                ).tolist()
+                held = set(tile)
+                fill = [i for i in perm if i not in held][: n - len(tile)]
+                tile += fill
+                deck = [i for i in perm if i not in fill]
+            out.extend(tile)
+        return out[:length]
 
     def __iter__(self):
-        shuffled_group_indices = []
-        for group_id, group_indices in enumerate(self._group_indices):
-            group_indices_tiled_shuffled = []
-            # determine number of tiles
-            if not self._extend_groups or group_id not in self._extend_groups:
-                num_tiles = 1
-                tile_size = len(group_indices)
-            else:
-                num_tiles = ceil(max(self._group_sizes) / self._n_samples_per_group)
-                tile_size = self._n_samples_per_group
-                # num_tiles = ceil(max(self._group_sizes) / self._group_sizes[group_id])
-            # tile with random n_samples_per_group-sized reorderings of list of indices of the group
-            for _ in range(num_tiles):
-                # shuffle within tile
-                indices_shuffled = torch.randperm(len(group_indices), generator=self.generator).tolist()[: tile_size]
-                # add new shuffled tile to the indices
-                group_indices_tiled_shuffled.extend(indices_shuffled)
-            # cutoff at the length of max group
-            group_indices_tiled_shuffled = group_indices_tiled_shuffled[
-                : max(self._group_sizes)
+        n = self._n_samples_per_group
+        n_batches = len(self)
+        # extended groups are streamed past their size, the rest get a permutation prefix
+        streams = [
+            self._stream(size, n_batches * n) for size in self._group_sizes
+        ]
+        for batch_idx in range(n_batches):
+            start = batch_idx * n
+            end = start + n
+            batch = [
+                self._group_indices[group_idx][i]
+                for group_idx in range(self._n_groups)
+                for i in streams[group_idx][start:end]
             ]
-            shuffled_group_indices.append(group_indices_tiled_shuffled)
-
-        # Calculate the maximum number of batches per group
-        max_batches = min(
-            len(indices) // self._n_samples_per_group
-            for indices in shuffled_group_indices
-        )
-        if not self.drop_last and any(
-            len(indices) % self._n_samples_per_group != 0
-            for indices in self._group_indices
-        ):
-            max_batches += 1  # Include partial batches if drop_last is False
-        # Yield balanced batches
-        for batch_idx in range(max_batches):
-            batch = []
-            for group_idx in range(self._n_groups):
-                start = batch_idx * self._n_samples_per_group
-                end = start + self._n_samples_per_group
-                group_batch_indices = shuffled_group_indices[group_idx][start:end]
-                batch.extend(
-                    [self._group_indices[group_idx][i] for i in group_batch_indices]
-                )
             # Yield the global indices for the batch, shuffled within the batch
-            shuffled_batch_indices = torch.randperm(len(batch), dtype=int, generator=self.generator)
-            yield [batch[i] for i in shuffled_batch_indices]
+            shuffled_batch_indices = torch.randperm(
+                len(batch), generator=self.generator, device=self._device
+            )
+            yield [batch[i] for i in shuffled_batch_indices.tolist()]
 
     def __len__(self):
-        if self.drop_last:
-            return min(
-                len(indices) // self._n_samples_per_group
-                for indices in self._group_indices
-            )
-        else:
-            return max(
-                (len(indices) + self._n_samples_per_group - 1)
-                // self._n_samples_per_group
-                for indices in self._group_indices
-            )
+        # an extended group is streamed up to the largest group; the rest bind as they are
+        return min(
+            max(self._group_sizes) if group_idx in self._extend_groups
+            else self._group_sizes[group_idx]
+            for group_idx in range(self._n_groups)
+        ) // self._n_samples_per_group
