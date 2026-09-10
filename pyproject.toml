@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "humancompatible-train"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
     "torch",
     "numpy",
@@ -12,8 +12,8 @@ dependencies = [
 requires-python = ">= 3.11"
 authors = [
     {name = "Andrii Kliachkin", email = "kliacand@fel.cvut.cz"},
-    {name = "Gilles Bareilles"},
     {name = "Adam Bosak"},
+    {name = "Gilles Bareilles"},
     {name = "Jana Lepsova"},
     {name = "Jakub Marecek"},
 ]
@@ -22,6 +22,23 @@ maintainers = [
 ]
 description = "PyTorch-based package for constrained training of neural networks"
 readme = "README.md"
+license = "Apache-2.0"
+keywords = ["constrained-optimization", "pytorch", "fairness", "lagrangian", "machine-learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/humancompatible/train"
+Repository = "https://github.com/humancompatible/train"
+Issues = "https://github.com/humancompatible/train/issues"
+Documentation = "https://humancompatible-train.readthedocs.io"
 
 [project.optional-dependencies]
 examples = ["ipykernel", "ipympl", "fairret", "folktables", "scikit-learn", "matplotlib"]
