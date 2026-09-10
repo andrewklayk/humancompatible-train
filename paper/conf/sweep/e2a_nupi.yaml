@@ -1,0 +1,16 @@
+# @package _global_
+# E2a x nuPI grid. 4 * 4 * 3 * 2 = 96 configs.
+#
+# penalty=0 is the published nuPI, penalty=1 is what E0a recommends; both are in the grid
+# because that difference is an E0a finding worth re-testing on real data.
+defaults:
+  - override /experiment: e2a
+  - override /algorithm: nupi
+
+hydra:
+  sweeper:
+    params:
+      algorithm.dual.ki: choice(0.005, 0.01, 0.05, 0.1)
+      algorithm.dual.kp: choice(0.005, 0.01, 0.05, 0.1)
+      algorithm.dual.nu: choice(0.0, 0.01, 0.1)
+      algorithm.dual.penalty: choice(0.0, 1.0)

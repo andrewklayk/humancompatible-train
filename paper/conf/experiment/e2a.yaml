@@ -1,0 +1,24 @@
+# E2a -- fairness-constrained learning. What is FIXED for one run; the algorithm group
+# carries what is swept.
+#
+# `problem` is passed straight to paper.problems.fairness.build(), whose `states`,
+# `sens_attrs`, `min_group`, `split_seed` and `balanced` arguments a_fairness.py never
+# passes -- they are reachable only from Python, so they are exposed here.
+
+target: e2a
+
+epochs: 20
+# Epochs averaged for the headline number, matching a_fairness.TAIL. The last iterate of
+# a stochastic primal-dual method oscillates around the constraint boundary, so a single
+# final value would rank configurations by which side of it the last step landed on.
+tail: 5
+
+problem:
+  dataset: income          # income | dutch
+  shape: pairwise          # pairwise | agg
+  bound: 0.05              # 0.05 for pairwise; agg is a norm over groups -> use 0.20
+  states: ["FL"]           # only FL and VA are on disk; fairness.available_states()
+  sens_attrs: ["MAR", "SEX"]
+  min_group: 500
+  split_seed: 0            # fixes the train/test partition, separately from `seed`
+  balanced: true

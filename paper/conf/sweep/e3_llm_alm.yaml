@@ -1,0 +1,16 @@
+# @package _global_
+# E3 (LM) x ALM-GDA grid. 3 * 3 * 3 = 27 configs.
+#
+# The dual step is `experiment.dual_lr`, NOT `algorithm.dual.lr`: this adapter drives
+# run_llm through argv (a DictConfig cannot cross its torchrun re-exec), so only
+# `algorithm.method` is read from the algorithm group. See conf/experiment/e3_llm.yaml.
+defaults:
+  - override /experiment: e3_llm
+  - override /algorithm: alm_gda_restart
+
+hydra:
+  sweeper:
+    params:
+      experiment.lr: choice(0.00003, 0.0001, 0.0003)
+      experiment.gate_lr: choice(0.003, 0.01, 0.03)
+      experiment.dual_lr: choice(0.003, 0.01, 0.03)

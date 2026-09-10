@@ -1,45 +1,3 @@
-"""
-Structured L0 gates and the density constraints of arXiv:2208.04425.
-
-Implements Eq. (3) of Gallego-Posada, Ramirez, Erraqabi, Bengio & Lacoste-Julien,
-*Controlled Sparsity via Constrained Optimization* (NeurIPS 2022):
-
-    min_{theta,phi}  E_{z|phi}[ L_D(theta * z) ]
-    s.t.             E_{z_g|phi_g}[ ||z_g||_0 ] / #(theta_g)  <=  eps_g,   g in [1:G]
-
-with the hard-concrete gates of Louizos, Welling & Kingma (2018). Three things here are
-easy to get subtly wrong, so each is stated once and then enforced by code.
-
-**Gates are structured, not per-weight.** Their section 2 ("Parameter grouping") puts one
-gate per *input neuron* of a fully connected layer. For a decoder LM that is one gate per
-MLP intermediate channel and one per attention head — order 1e5 gate parameters, against
-the 1e9 a per-weight variant would need, which their section 2 notes would double the
-trainable parameter count.
-
-**The density denominator counts parameters, not gates.** ``#(theta_g)`` is a parameter
-count, so a gate must be weighted by how many parameters it controls: an MLP-channel gate
-covers its rows of ``gate_proj``/``up_proj`` and its column of ``down_proj``
-(``3 * hidden``), an attention-head gate covers its rows of ``q_proj`` and its columns of
-``o_proj`` (``2 * head_dim * hidden``). Only weight matrices are counted; the per-head
-slice of an attention bias is ``head_dim`` parameters and is ignored. For equally sized
-gates the weighting collapses to the mean open probability, which is the degenerate case
-:meth:`GateSet.densities` is unit-tested against.
-
-**The constraint is a closed form in the gate parameters — no data enters it.**
-``P(z_j != 0) = sigmoid(log_alpha_j - beta*log(-gamma/zeta))`` exactly, so the constraint
-vector needs no sampling and carries no minibatch noise. That is a real property of this
-problem rather than an approximation, but it also means a data-parallel reduction over
-this constraint has nothing to pool — see the E3 section of ``paper/README.md``.
-
-The sampled gates *are* used in the objective, so :meth:`GateSet.resample` must be called
-before every forward pass whose gradient will be taken. Reusing one sample across two
-backward passes raises from autograd, which is the intended failure mode rather than a
-silent wrong answer.
-
-Gate parameters are kept in float32 even when the model runs in bfloat16: there are only
-about 1e5 of them, and ``sigmoid``/``logit`` round badly in bf16. The cast to the
-activation dtype happens where the gate is applied.
-"""
 
 from __future__ import annotations
 
@@ -108,12 +66,12 @@ class HardConcreteGate(nn.Module):
     def __len__(self) -> int:
         return self.log_alpha.numel()
 
-    def open_prob(self) -> Tensor:
+    def open_proba(self) -> Tensor:
         """``P(z != 0)``, in closed form. This is what the constraint is built from."""
         return torch.sigmoid(self.log_alpha + _OPEN_SHIFT)
 
     def sample(self, generator: Optional[torch.Generator] = None) -> Tensor:
-        """One reparameterised draw of ``z``, differentiable in ``log_alpha``.
+        """One draw of ``z``.
 
         ``generator`` must live on the same device as ``log_alpha`` (use
         ``torch.Generator(device=...)``); ``None`` uses the global RNG.
@@ -148,25 +106,29 @@ class HardConcreteGate(nn.Module):
 
 
 @dataclass
-class GateGroup:
-    """One gate vector, and the bookkeeping the density constraint needs.
+class GateParamGroup:
+    """One gate vector, the module it gates, and the bookkeeping the density needs.
 
+    :param module: The module whose *input* this group scales. :class:`GateSet` registers
+        :meth:`pre_hook` on it; nothing else reads it.
     :param params_per_gate: ``n_j``, how many model parameters a single gate in this
         group controls. This is the weight in the parameter-counted density.
-    :param repeat: How many consecutive input features of the hooked ``nn.Linear`` a
-        single gate covers — 1 for an MLP channel, ``head_dim`` for an attention head.
+    :param repeat: How many consecutive input features of the hooked module a single gate
+        covers — 1 for an MLP or convolution channel, ``head_dim`` for an attention head.
+    :param dim: The activation axis the gates index: ``-1`` for a channels-last ``Linear``
+        input, ``1`` for an ``NCHW`` convolution input.
     :param z: The gate values the forward hook will apply. Owned by :class:`GateSet`,
-        which rewrites it on every ``resample`` / mode switch. Lives on the group rather
-        than in a side table so the hook is a plain closure over the object it belongs
-        to.
+        which rewrites it on every ``resample`` / mode switch.
     """
 
     name: str
     layer: int
-    kind: str  # "mlp" | "attn"
+    kind: str  # "mlp" | "attn" | "conv<n>"
     gate: HardConcreteGate
+    module: nn.Module = field(repr=False)
     params_per_gate: int
-    repeat: int
+    repeat: int = 1
+    dim: int = -1
     z: Optional[Tensor] = field(default=None, repr=False)
 
     @property
@@ -178,7 +140,7 @@ class GateGroup:
         return self.n_gates * self.params_per_gate
 
     def expanded_z(self) -> Tensor:
-        """``z`` broadcast to the hooked layer's input width."""
+        """``z`` broadcast to the hooked module's input width."""
         if self.z is None:
             raise RuntimeError(
                 f"gate group {self.name!r} has no current sample; call "
@@ -186,9 +148,17 @@ class GateGroup:
             )
         return self.z.repeat_interleave(self.repeat) if self.repeat > 1 else self.z
 
+    def pre_hook(self, module: nn.Module, args):
+        """Scale the hooked module's input by the current gates.
+        """
+        x = args[0]
+        shape = [1] * x.ndim
+        shape[self.dim] = -1
+        return (x * self.expanded_z().to(x.dtype).view(shape),) + tuple(args[1:])
 
-def _partition(groups: Sequence[GateGroup], granularity: str):
-    """Group the gate groups into constraint cells; returns ``[(name, [group, ...])]``.
+
+def _partition(groups: Sequence[GateParamGroup], granularity: str):
+    """Group the gate groups into constraints; returns ``[(name, [group, ...])]``.
 
     ``model`` gives ``m = 1`` and ``layer``/``layer_split`` give ``m = n_layers`` and
     ``m = 2*n_layers`` — the model-wise and layer-wise granularities of their Fig. 1.
@@ -200,7 +170,7 @@ def _partition(groups: Sequence[GateGroup], granularity: str):
     if granularity == "model":
         return [("model", list(groups))]
     if granularity == "layer":
-        cells: dict[int, list[GateGroup]] = {}
+        cells: dict[int, list[GateParamGroup]] = {}
         for group in groups:
             cells.setdefault(group.layer, []).append(group)
         return [(f"layer{layer:02d}", cells[layer]) for layer in sorted(cells)]
@@ -208,42 +178,9 @@ def _partition(groups: Sequence[GateGroup], granularity: str):
     return [(group.name, [group]) for group in ordered]
 
 
-# --------------------------------------------------------------------------- #
-# attaching gates to a decoder LM
-# --------------------------------------------------------------------------- #
-
-
-def decoder_blocks(model: nn.Module):
-    """The transformer blocks of a HuggingFace-shaped decoder LM.
-
-    Resolved by attribute layout rather than by importing ``transformers``, so this works
-    for Llama/Qwen/Mistral-shaped models and for the local stand-in in
-    :mod:`paper.problems.tiny_lm` — which is what lets the gates, the constraints and the
-    whole training loop be tested without ``transformers`` installed.
-    """
-    inner = getattr(model, "model", model)
-    layers = getattr(inner, "layers", None)
-    if layers is None:
-        raise TypeError(
-            f"{type(model).__name__} has no `.model.layers`; expected a "
-            f"HuggingFace-shaped decoder LM"
-        )
-    return layers
-
-
-def _make_hook(group: GateGroup):
-    """A forward *pre*-hook scaling the layer's input by this group's gates."""
-
-    def pre_hook(module, args):
-        inputs = args[0]
-        z = group.expanded_z()
-        return (inputs * z.to(inputs.dtype),) + tuple(args[1:])
-
-    return pre_hook
-
 
 class GateSet:
-    """The gates attached to a model, plus the density constraints over them.
+    """All gates attached to a model, plus the constraint calculation over them.
 
     The gate modules are registered as a submodule of ``model`` (default name
     ``l0_gates``), so they appear in ``model.parameters()`` and are synchronised by
@@ -251,11 +188,20 @@ class GateSet:
     hold identical gate parameters, and hence identical constraint values.
     """
 
-    def __init__(self, model: nn.Module, groups: list[GateGroup], handles, holder: str):
+    def __init__(self, model: nn.Module, groups: list[GateParamGroup],
+                 holder: str = "l0_gates"):
+        if hasattr(model, holder):
+            raise ValueError(f"{type(model).__name__} already has an attribute {holder!r}")
         self.model = model
         self.groups = groups
         self.holder = holder
-        self._handles = list(handles)
+        model.add_module(  # ModuleDict keys cannot contain "."
+            holder,
+            nn.ModuleDict({g.name.replace(".", "_"): g.gate for g in groups}),
+        )
+        self._handles = [
+            group.module.register_forward_pre_hook(group.pre_hook) for group in groups
+        ]
         self.mode = "open"
         self.use_open()
 
@@ -316,7 +262,7 @@ class GateSet:
             numerator = None
             denominator = 0
             for group in cell:
-                weighted = group.gate.open_prob().sum() * group.params_per_gate
+                weighted = group.gate.open_proba().sum() * group.params_per_gate
                 numerator = weighted if numerator is None else numerator + weighted
                 denominator += group.params_total
             out.append(numerator / denominator)
@@ -360,7 +306,7 @@ class GateSet:
         rows = []
         for group in self.groups:
             with torch.no_grad():
-                open_prob = group.gate.open_prob()
+                open_prob = group.gate.open_proba()
                 median = group.gate.median()
                 active = int((median > 0).sum())
             rows.append(
@@ -381,128 +327,3 @@ class GateSet:
     def gate_parameters(self) -> list[nn.Parameter]:
         return [group.gate.log_alpha for group in self.groups]
 
-
-def attach_gates(
-    model: nn.Module,
-    *,
-    gate_mlp: bool = True,
-    gate_heads: bool = True,
-    init_open: float = 0.95,
-    init_std: float = 0.01,
-    seed: int = 0,
-    holder: str = "l0_gates",
-    device=None,
-    dtype=torch.float32,
-) -> GateSet:
-    """Install structured hard-concrete gates on a decoder LM.
-
-    Gates are applied by ``register_forward_pre_hook`` on ``mlp.down_proj`` and
-    ``self_attn.o_proj``, scaling their *input*. That needs no model surgery and works for
-    any Llama/Qwen-shaped model, at the cost of one elementwise multiply per block.
-
-    Attention gating covers **query heads only**. Qwen2.5-0.5B has 14 query heads to 2
-    key/value heads, so a key/value head is shared 7:1 and is not a per-head structured
-    unit; gating a query head drops its slice of ``q_proj``'s output and the matching
-    columns of ``o_proj``.
-    """
-    if not (gate_mlp or gate_heads):
-        raise ValueError("at least one of gate_mlp / gate_heads must be True")
-    if hasattr(model, holder):
-        raise ValueError(f"{type(model).__name__} already has an attribute {holder!r}")
-
-    config = getattr(model, "config", None)
-    if config is None:
-        raise TypeError("model has no `.config`; cannot determine the head layout")
-    hidden = int(config.hidden_size)
-    n_heads = int(config.num_attention_heads)
-    head_dim = int(getattr(config, "head_dim", None) or hidden // n_heads)
-
-    generator = torch.Generator().manual_seed(seed)
-    groups: list[GateGroup] = []
-    modules = nn.ModuleDict()
-    handles = []
-
-    def make(name, layer, kind, n_gates, params_per_gate, repeat) -> GateGroup:
-        gate = HardConcreteGate(
-            n_gates,
-            init_open=init_open,
-            init_std=init_std,
-            generator=generator,
-            device=device,
-            dtype=dtype,
-        )
-        group = GateGroup(
-            name=name,
-            layer=layer,
-            kind=kind,
-            gate=gate,
-            params_per_gate=params_per_gate,
-            repeat=repeat,
-        )
-        groups.append(group)
-        modules[name.replace(".", "_")] = gate  # ModuleDict keys cannot contain "."
-        return group
-
-    for index, block in enumerate(decoder_blocks(model)):
-        if gate_mlp:
-            down = block.mlp.down_proj
-            group = make(
-                f"layer{index:02d}.mlp",
-                index,
-                "mlp",
-                down.in_features,  # intermediate_size
-                3 * hidden,  # gate_proj row + up_proj row + down_proj column
-                1,
-            )
-            handles.append(down.register_forward_pre_hook(_make_hook(group)))
-        if gate_heads:
-            out_proj = block.self_attn.o_proj
-            if out_proj.in_features != n_heads * head_dim:
-                raise ValueError(
-                    f"layer {index}: o_proj.in_features={out_proj.in_features} does not "
-                    f"match num_attention_heads*head_dim={n_heads * head_dim}"
-                )
-            group = make(
-                f"layer{index:02d}.attn",
-                index,
-                "attn",
-                n_heads,
-                2 * head_dim * hidden,  # q_proj rows + o_proj columns
-                head_dim,
-            )
-            handles.append(out_proj.register_forward_pre_hook(_make_hook(group)))
-
-    if not groups:
-        raise ValueError("no gates were attached; the model has no decoder blocks")
-
-    model.add_module(holder, modules)
-    return GateSet(model, groups, handles, holder)
-
-
-# --------------------------------------------------------------------------- #
-# accounting
-# --------------------------------------------------------------------------- #
-
-
-def trainable_bytes(model: nn.Module) -> int:
-    """Bytes a gradient all-reduce moves per step, i.e. the ``O(n)`` term."""
-    return sum(
-        p.numel() * p.element_size() for p in model.parameters() if p.requires_grad
-    )
-
-
-def describe(model: nn.Module, gate_set: Optional[GateSet] = None) -> dict:
-    """Parameter and gate counts, for the record kept alongside every run."""
-    total = sum(p.numel() for p in model.parameters())
-    gate_params = 0 if gate_set is None else sum(len(g.gate) for g in gate_set.groups)
-    gated = 0 if gate_set is None else sum(g.params_total for g in gate_set.groups)
-    return {
-        "params_total": total,
-        "params_gated": gated,
-        # The share of the model the density constraint can actually reach. The rest
-        # (embeddings, norms) is why the density denominator runs over gated groups only:
-        # a whole-model denominator would put a hard floor under every target. For
-        # Qwen2.5-0.5B the tied 151936x896 embedding alone is 27.5% of the parameters.
-        "gated_fraction": gated / total if total else 0.0,
-        "gate_params": gate_params,
-    }

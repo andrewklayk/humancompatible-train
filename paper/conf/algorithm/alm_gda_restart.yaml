@@ -1,0 +1,16 @@
+# run_llm.METHODS["alm_gda_restart"]. Eq. (5) plus that paper's dual restart, Eq. (6),
+# which is sound *there* because their constraint is a deterministic function of the gate
+# parameters with no sampling noise to react to -- unlike E2's.
+name: alm_gda_restart
+label: "ALM (GDA, restart)"
+method: alm_gda_restart
+primal:
+  lr: 1.0e-3
+dual:
+  _target_: humancompatible.train.dual_optim.ALM
+  _partial_: true
+  lr: 1.0e-2
+  penalty: 0.0
+  init_duals: 0.0
+  is_ineq: true
+  restart: true

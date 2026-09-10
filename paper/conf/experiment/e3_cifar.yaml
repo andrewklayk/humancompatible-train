@@ -1,0 +1,30 @@
+# E3 (CIFAR half) -- controlled sparsity on a ResNet. Keys map 1:1 onto
+# run_cifar.build_parser() flags; the adapter sets them on a defaults namespace and calls
+# run_cifar.finalize(), so a default added to that parser still reaches the sweep.
+#
+# `method` and `eps` are FIXED here rather than swept: this harness tunes
+# hyperparameters, and run_cifar.py's own `grid()` still owns the method x eps grid.
+
+target: e3_cifar
+
+dataset: cifar10
+data: data
+download: false
+synthetic: false          # true runs the whole path with no dataset on disk
+
+eps: 0.3                  # target density
+penalty: 1.0              # only used by method=penalty
+granularity: model        # model | layer | layer_split
+depth: 18
+epochs: 100
+batch_size: 128
+steps_per_epoch: 0        # 0 = the whole set
+eval_batches: 0           # 0 = the whole test set
+workers: 4
+quick: false
+
+# --- swept by conf/sweep/e3_cifar_*.yaml ---
+lr: 0.1                   # SGD, on the weights
+weight_decay: 5.0e-4
+gate_lr: 1.0e-2           # Adam, on the gate log-alphas
+init_open: 0.95

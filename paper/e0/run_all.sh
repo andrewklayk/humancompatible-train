@@ -21,7 +21,8 @@ for arg in "${ARGS[@]}"; do
 done
 
 status=0
-for script in paper/e0/a_multipliers.py paper/e0/b_nonopt.py paper/e0/d_distributed.py; do
+for script in paper/e0/a_multipliers.py paper/e0/b_nonopt.py paper/e0/d_distributed.py \
+              paper/e0/e_cooper.py; do
   echo
   echo "=============================================================="
   echo "  $script ${ARGS[*]:-}"

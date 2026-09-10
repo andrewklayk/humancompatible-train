@@ -21,9 +21,9 @@ it from there rather than assuming.
 The sampler shards *blocks* across ranks and truncates so every rank yields exactly the
 same number of batches. That is not a nicety: a rank that runs out of batches early stops
 calling collectives while its peers are still waiting, and the job hangs instead of
-failing. It is also the specific defect ``BalancedBatchSampler`` has (its ``__len__``
-disagrees with its ``__iter__`` when ``extend_groups`` is set), so the shape of the bug is
-already known in this repo.
+failing. It is also the specific defect ``BalancedBatchSampler`` had (its ``__len__``
+disagreed with its ``__iter__`` when ``extend_groups`` was set, since fixed), so the shape
+of the bug is already known in this repo.
 """
 
 from __future__ import annotations

@@ -5,51 +5,51 @@
 - **PASS** — F: ALM (rho=1) is a fixed point at (x*, y*) on qp_active
   - grad_x 7.105e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: nuPI (rho=0) is a fixed point at (x*, y*) on qp_active
-  - grad_x 7.105e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 1.421e-14 (tol 1.4e-11); excess drift 9.770e-15 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: nuPI (rho=1) is a fixed point at (x*, y*) on qp_active
-  - grad_x 7.105e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 1.776e-14 (tol 1.4e-11); excess drift 9.770e-15 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: iALM is a fixed point at (x*, y*) on qp_active
-  - grad_x 7.105e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 1.066e-14 (tol 1.4e-11); excess drift 8.882e-16 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: PBM is a fixed point at (x*, y*) on qp_active
-  - grad_x 7.105e-15 (tol 1.4e-11); excess drift 4.441e-16 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=0.0001
+  - grad_x 7.105e-15 (tol 1.4e-11); excess drift 4.441e-16 (tol 4.2e-14); unavoidable 0.000e+00 from lower_bound=1e-09
 - **PASS** — F: ALM (rho=0) is a fixed point at (x*, y*) on qp_inactive
   - grad_x 3.553e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: ALM (rho=1) is a fixed point at (x*, y*) on qp_inactive
   - grad_x 3.553e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: nuPI (rho=0) is a fixed point at (x*, y*) on qp_inactive
-  - grad_x 3.553e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 9.326e-15 (tol 1.4e-11); excess drift 4.885e-15 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: nuPI (rho=1) is a fixed point at (x*, y*) on qp_inactive
-  - grad_x 3.553e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 9.770e-15 (tol 1.4e-11); excess drift 4.885e-15 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: iALM is a fixed point at (x*, y*) on qp_inactive
-  - grad_x 3.553e-15 (tol 1.4e-11); excess drift 0.000e+00 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 3.553e-15 (tol 1.4e-11); excess drift 2.220e-16 (tol 3.4e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: PBM is a fixed point at (x*, y*) on qp_inactive
-  - grad_x 1.003e-04 (tol 4.9e-03); excess drift 0.000e+00 (tol 3.4e-14); unavoidable 1.000e-04 from lower_bound=0.0001
+  - grad_x 1.003e-09 (tol 4.9e-08); excess drift 0.000e+00 (tol 3.4e-14); unavoidable 1.000e-09 from lower_bound=1e-09
 - **PASS** — F: ALM (rho=0) is a fixed point at (x*, y*) on svm_iris
   - grad_x 4.441e-16 (tol 1.4e-11); excess drift 0.000e+00 (tol 2.0e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: ALM (rho=1) is a fixed point at (x*, y*) on svm_iris
   - grad_x 4.441e-16 (tol 1.4e-11); excess drift 0.000e+00 (tol 2.0e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: nuPI (rho=0) is a fixed point at (x*, y*) on svm_iris
-  - grad_x 4.441e-16 (tol 1.4e-11); excess drift 0.000e+00 (tol 2.0e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 1.998e-15 (tol 1.4e-11); excess drift 1.221e-15 (tol 2.0e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: nuPI (rho=1) is a fixed point at (x*, y*) on svm_iris
-  - grad_x 4.441e-16 (tol 1.4e-11); excess drift 0.000e+00 (tol 2.0e-14); unavoidable 0.000e+00 from lower_bound=0
+  - grad_x 2.165e-15 (tol 1.4e-11); excess drift 1.221e-15 (tol 2.0e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: iALM is a fixed point at (x*, y*) on svm_iris
   - grad_x 4.441e-16 (tol 1.4e-11); excess drift 0.000e+00 (tol 2.0e-14); unavoidable 0.000e+00 from lower_bound=0
 - **PASS** — F: PBM is a fixed point at (x*, y*) on svm_iris
-  - grad_x 3.188e-03 (tol 1.7e-02); excess drift 0.000e+00 (tol 2.0e-14); unavoidable 1.000e-04 from lower_bound=0.0001
+  - grad_x 3.188e-08 (tol 1.7e-07); excess drift 0.000e+00 (tol 2.0e-14); unavoidable 1.000e-09 from lower_bound=1e-09
 - **PASS** — F is sharp: with the quadratic term on raw c and no non-negativity clamp, the fixed point breaks on qp_inactive (regression guard for the [c]+ fix)
   - grad_x 4.468e+00, dual drift 6.022e-02 — both must be large
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for one step on qp_active (bitwise)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for all 200 steps on qp_active where its preconditions apply
-  - worst dual difference 1.998e-15; preconditions broke at step None (unconditional)
+  - worst dual difference 1.332e-15; preconditions broke at step None (unconditional)
 - **PASS** — R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta) holds for one step on qp_active (bitwise)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
 - **PASS** — R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta) holds for all 200 steps on qp_active where its preconditions apply
-  - worst dual difference 8.882e-16; preconditions broke at step None (requires gamma >= beta*||c||, i.e. the safeguard does not bind)
+  - worst dual difference 1.332e-15; preconditions broke at step None (requires gamma >= beta*||c||, i.e. the safeguard does not bind)
 - **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for one step on qp_active (<= 1.4e-11)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
-- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 200 steps on qp_active where its preconditions apply
-  - worst dual difference 1.332e-15; preconditions broke at step None (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
+- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 6 steps on qp_active where its preconditions apply
+  - worst dual difference 2.220e-16; preconditions broke at step 6 (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for one step on qp_inactive (bitwise)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for all 200 steps on qp_inactive where its preconditions apply
@@ -57,11 +57,11 @@
 - **PASS** — R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta) holds for one step on qp_inactive (bitwise)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
 - **PASS** — R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta) holds for all 200 steps on qp_inactive where its preconditions apply
-  - worst dual difference 2.220e-16; preconditions broke at step None (requires gamma >= beta*||c||, i.e. the safeguard does not bind)
+  - worst dual difference 4.441e-16; preconditions broke at step None (requires gamma >= beta*||c||, i.e. the safeguard does not bind)
 - **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for one step on qp_inactive (<= 1.4e-11)
   - surrogate difference 1.665e-16, dual difference 1.110e-16, bitwise: False
-- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 6 steps on qp_inactive where its preconditions apply
-  - worst dual difference 2.220e-16; preconditions broke at step 6 (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
+- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 4 steps on qp_inactive where its preconditions apply
+  - worst dual difference 2.220e-16; preconditions broke at step 4 (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for one step on svm_iris (bitwise)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for all 200 steps on svm_iris where its preconditions apply
@@ -72,102 +72,102 @@
   - worst dual difference 0.000e+00; preconditions broke at step None (requires gamma >= beta*||c||, i.e. the safeguard does not bind)
 - **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for one step on svm_iris (<= 1.4e-11)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
-- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 3 steps on svm_iris where its preconditions apply
-  - worst dual difference 2.220e-16; preconditions broke at step 3 (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
+- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 2 steps on svm_iris where its preconditions apply
+  - worst dual difference 1.110e-16; preconditions broke at step 2 (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for one step on qp_nonconvex (bitwise)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
 - **PASS** — R1  nuPI(kp=0) == ALM(rho=0) holds for all 200 steps on qp_nonconvex where its preconditions apply
-  - worst dual difference 1.208e-13; preconditions broke at step None (unconditional)
+  - worst dual difference 0.000e+00; preconditions broke at step None (unconditional)
 - **PASS** — R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta) holds for one step on qp_nonconvex (bitwise)
   - surrogate difference 0.000e+00, dual difference 0.000e+00, bitwise: True
-- **PASS** — R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta) holds for all 117 steps on qp_nonconvex where its preconditions apply
-  - worst dual difference 1.421e-14; preconditions broke at step 117 (requires gamma >= beta*||c||, i.e. the safeguard does not bind)
+- **PASS** — R2  iALM(sigma=1, gamma>>) == ALM(lr=beta, rho=beta) holds for all 200 steps on qp_nonconvex where its preconditions apply
+  - worst dual difference 3.109e-15; preconditions broke at step None (requires gamma >= beta*||c||, i.e. the safeguard does not bind)
 - **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for one step on qp_nonconvex (<= 1.4e-11)
   - surrogate difference 0.000e+00, dual difference 1.110e-16, bitwise: False
-- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 2 steps on qp_nonconvex where its preconditions apply
-  - worst dual difference 2.220e-16; preconditions broke at step 2 (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
+- **PASS** — R3  PBM(penalty_update='alm') == ALM((1-g)/r, 1/r) holds for all 4 steps on qp_nonconvex where its preconditions apply
+  - worst dual difference 2.776e-16; preconditions broke at step 4 (requires c/p >= -0.5 (the quad_log branch) and no range clamps)
 - **PASS** — I1: ALM (rho=0) is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 5.551e-17 (unscaled 0.000e+00)
 - **PASS** — I1: ALM (rho=1) is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
-- **PASS** — I1: nuPI (rho=0) is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
-- **PASS** — I1: nuPI (rho=1) is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 5.551e-17 (unscaled 0.000e+00)
+- **FAIL** — I1: nuPI (rho=0) is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
+  - excess drift 6.839e-14 (unscaled 9.770e-15)
+- **FAIL** — I1: nuPI (rho=1) is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
+  - excess drift 6.839e-14 (unscaled 9.770e-15)
 - **PASS** — I1: iALM is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 6.217e-15 (unscaled 8.882e-16)
 - **PASS** — I1: PBM is a fixed point at (x*, y*/7) for qp_active with constraints scaled by 7
   - excess drift 5.829e-16 (unscaled 4.441e-16)
 - **PASS** — I1: ALM (rho=0) is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 2.776e-17 (unscaled 0.000e+00)
 - **PASS** — I1: ALM (rho=1) is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
-- **PASS** — I1: nuPI (rho=0) is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
-- **PASS** — I1: nuPI (rho=1) is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 2.776e-17 (unscaled 0.000e+00)
+- **FAIL** — I1: nuPI (rho=0) is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
+  - excess drift 3.419e-14 (unscaled 4.885e-15)
+- **FAIL** — I1: nuPI (rho=1) is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
+  - excess drift 3.419e-14 (unscaled 4.885e-15)
 - **PASS** — I1: iALM is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 2.220e-16 (unscaled 2.220e-16)
 - **PASS** — I1: PBM is a fixed point at (x*, y*/7) for qp_inactive with constraints scaled by 7
   - excess drift 0.000e+00 (unscaled 0.000e+00)
 - **PASS** — I1: ALM (rho=0) is a fixed point at (x*, y*/7) for svm_iris with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 6.939e-18 (unscaled 0.000e+00)
 - **PASS** — I1: ALM (rho=1) is a fixed point at (x*, y*/7) for svm_iris with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 6.939e-18 (unscaled 0.000e+00)
 - **PASS** — I1: nuPI (rho=0) is a fixed point at (x*, y*/7) for svm_iris with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 8.549e-15 (unscaled 1.221e-15)
 - **PASS** — I1: nuPI (rho=1) is a fixed point at (x*, y*/7) for svm_iris with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 8.549e-15 (unscaled 1.221e-15)
 - **PASS** — I1: iALM is a fixed point at (x*, y*/7) for svm_iris with constraints scaled by 7
-  - excess drift 0.000e+00 (unscaled 0.000e+00)
+  - excess drift 1.041e-17 (unscaled 0.000e+00)
 - **PASS** — I1: PBM is a fixed point at (x*, y*/7) for svm_iris with constraints scaled by 7
   - excess drift 0.000e+00 (unscaled 0.000e+00)
 - **PASS** — I2: ALM (rho=0) recovers the equality problem through the h<=0,-h<=0 reduction
-  - ||(y+ - y-) - y_eq||inf 8.216e-15, ||x - x*||inf 1.332e-15
+  - ||(y+ - y-) - y_eq||inf 1.577e-14, ||x - x*||inf 3.331e-15
 - **PASS** — I2: ALM (rho=1) recovers the equality problem through the h<=0,-h<=0 reduction
-  - ||(y+ - y-) - y_eq||inf 1.243e-14, ||x - x*||inf 1.776e-15
+  - ||(y+ - y-) - y_eq||inf 3.042e-14, ||x - x*||inf 3.331e-15
 - **PASS** — I2: nuPI (rho=0) recovers the equality problem through the h<=0,-h<=0 reduction
-  - ||(y+ - y-) - y_eq||inf 1.465e-14, ||x - x*||inf 1.776e-15
-- **PASS** — I2: nuPI (rho=1) recovers the equality problem through the h<=0,-h<=0 reduction
-  - ||(y+ - y-) - y_eq||inf 1.887e-14, ||x - x*||inf 1.776e-15
+  - ||(y+ - y-) - y_eq||inf 1.303e-13, ||x - x*||inf 1.776e-15
+- **FAIL** — I2: nuPI (rho=1) recovers the equality problem through the h<=0,-h<=0 reduction
+  - ||(y+ - y-) - y_eq||inf 1.006e+02, ||x - x*||inf 1.263e+00
 - **PASS** — I2: iALM recovers the equality problem through the h<=0,-h<=0 reduction
-  - ||(y+ - y-) - y_eq||inf 5.329e-15, ||x - x*||inf 1.554e-15
+  - ||(y+ - y-) - y_eq||inf 1.132e-14, ||x - x*||inf 7.772e-16
 - **PASS** — I2: PBM is exempt — its documented route for an equality is the threshold |h| <= tau, not the two-sided reduction, and a penalty-barrier surrogate has no interior to work in when both sides of a pair are active
-  - reported, not gated: ||(y+ - y-) - y_eq||inf 5.104e+01, ||x - x*||inf nan
-- **PASS** — C/qp_active: ALM (rho=0) converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
-  - relative KKT 1.914e-08
-- **PASS** — C/qp_active: ALM (rho=1) converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
-  - relative KKT 2.440e-08
+  - reported, not gated: ||(y+ - y-) - y_eq||inf 6.994e-15, ||x - x*||inf 4.441e-16
+- **FAIL** — C/qp_active: ALM (rho=0) converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
+  - relative KKT 6.967e-04
+- **FAIL** — C/qp_active: ALM (rho=1) converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
+  - relative KKT 8.409e-04
 - **PASS** — C/qp_active: nuPI (rho=0) converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
-  - relative KKT 2.222e-08
+  - relative KKT 8.726e-07
 - **PASS** — C/qp_active: nuPI (rho=1) converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
-  - relative KKT 2.738e-08
+  - relative KKT 6.210e-07
 - **PASS** — C/qp_active: iALM converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
-  - relative KKT 1.645e-08
+  - relative KKT 7.461e-07
 - **PASS** — C/qp_active: PBM converges — the KKT point is unique (strongly convex, all active, LICQ, strict complementarity), so every method must
-  - relative KKT 3.133e-15
+  - relative KKT 9.400e-07
 - **PASS** — C/qp_inactive: ALM (rho=0) has lower_bound=0, so it can represent y*_i = 0 exactly and must converge
-  - relative KKT 6.154e-15, smallest dual 0.000e+00
+  - relative KKT 9.129e-07, smallest dual 0.000e+00
 - **PASS** — C/qp_inactive: ALM (rho=1) has lower_bound=0, so it can represent y*_i = 0 exactly and must converge
-  - relative KKT 5.408e-15, smallest dual 0.000e+00
+  - relative KKT 8.754e-07, smallest dual 0.000e+00
 - **PASS** — C/qp_inactive: nuPI (rho=0) has lower_bound=0, so it can represent y*_i = 0 exactly and must converge
-  - relative KKT 8.112e-15, smallest dual 0.000e+00
+  - relative KKT 8.870e-07, smallest dual 0.000e+00
 - **PASS** — C/qp_inactive: nuPI (rho=1) has lower_bound=0, so it can represent y*_i = 0 exactly and must converge
-  - relative KKT 9.790e-15, smallest dual 0.000e+00
+  - relative KKT 8.936e-07, smallest dual 0.000e+00
 - **PASS** — C/qp_inactive: iALM has lower_bound=0, so it can represent y*_i = 0 exactly and must converge
-  - relative KKT 5.501e-15, smallest dual 0.000e+00
-- **PASS** — C/qp_inactive: PBM has lower_bound=0.0001 > 0, so y*_i = 0 is unrepresentable and its error is bounded below by that bound
-  - relative KKT 1.250e-04 against the bound 0.0001
+  - relative KKT 4.994e-07, smallest dual 0.000e+00
+- **PASS** — C/qp_inactive: PBM has lower_bound=1e-09 > 0, so y*_i = 0 is unrepresentable and its error is bounded below by that bound
+  - relative KKT 8.898e-07 against the bound 1e-09
 - **PASS** — C/svm_iris: ALM (rho=0) has lower_bound=0, so it can represent the 96 zero multipliers exactly and must converge
-  - relative KKT 9.134e-14
+  - relative KKT 9.488e-07
 - **PASS** — C/svm_iris: ALM (rho=1) has lower_bound=0, so it can represent the 96 zero multipliers exactly and must converge
-  - relative KKT 4.644e-14
-- **KNOWN-FALSE** — C/svm_iris: nuPI (rho=0) has lower_bound=0, so it can represent the 96 zero multipliers exactly and must converge
-  - relative KKT 2.512e-01
+  - relative KKT 9.959e-07
+- **UNEXPECTED-PASS** — C/svm_iris: nuPI (rho=0) has lower_bound=0, so it can represent the 96 zero multipliers exactly and must converge
+  - relative KKT 3.529e-07
   - *known false:* the PI proportional term is what fails here, and this experiment's original reasoning had it backwards. It predicted that the bias direction's missing curvature would obstruct plain dual ascent and that curvature *or* damping would rescue it. Both halves are false: ALM(rho=0), with neither, reaches 9.1e-14, while nuPI(rho=0) at kp = ki stalls at 2.5e-01 -- adding the proportional term without a quadratic term makes this problem worse, not better. Note the failure is invisible in stationarity and feasibility alone: with m=100 and n=5, J' has a 95-dimensional null space, so only complementarity pins y, and this configuration is feasible and stationary with multipliers wrong by 0.25. Claimed only for kp = ki, the one gain ratio tested.
 - **PASS** — C/svm_iris: nuPI (rho=1) has lower_bound=0, so it can represent the 96 zero multipliers exactly and must converge
-  - relative KKT 9.461e-14
+  - relative KKT 2.789e-07
 - **PASS** — C/svm_iris: iALM has lower_bound=0, so it can represent the 96 zero multipliers exactly and must converge
-  - relative KKT 4.080e-14
-- **PASS** — C/svm_iris: PBM has lower_bound=0.0001 > 0, so the 96 zero multipliers are unrepresentable and its error is bounded below by that bound
-  - relative KKT 4.466e-03 against the bound 0.0001
+  - relative KKT 2.817e-07
+- **PASS** — C/svm_iris: PBM has lower_bound=1e-09 > 0, so the 96 zero multipliers are unrepresentable and its error is bounded below by that bound
+  - relative KKT 5.465e-07 against the bound 1e-09

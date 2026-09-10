@@ -57,6 +57,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from paper.problems.sparsity import sparse_lm, sparsity_gates
+
+
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -71,7 +74,7 @@ from paper._harness import (
     write_csv,
     write_table,
 )
-from paper.problems import sparse_lm, tokens as tokens_mod
+from paper.problems import tokens as tokens_mod
 
 EXPERIMENT = "e3"
 
@@ -91,7 +94,7 @@ EXPERIMENT = "e3"
 METHODS = {
     # references, no dual optimizer
     "adam": None,
-    "penalty": None,
+    # "penalty": None,
     # the reference method and its variants
     "alm_gda": lambda m, device, pg, lr: ALM(
         m=m, lr=lr, penalty=0.0, init_duals=0.0, is_ineq=True,
@@ -103,23 +106,23 @@ METHODS = {
     ),
     "alm_quad": lambda m, device, pg, lr: ALM(
         m=m, lr=lr, penalty=1.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg,
+        device=device, process_group=pg, augmentation='hpr', restart=True
     ),
-    "ialm": lambda m, device, pg, lr: iALM(
-        m=m, beta=lr, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg,
-    ),
-    "nupi": lambda m, device, pg, lr: nuPI(
-        m=m, ki=lr, kp=lr, nu=0.0, penalty=0.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg,
-    ),
+    # "ialm": lambda m, device, pg, lr: iALM(
+    #     m=m, beta=lr, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True,
+    #     device=device, process_group=pg,
+    # ),
+    # "nupi": lambda m, device, pg, lr: nuPI(
+    #     m=m, ki=lr, kp=lr, nu=0.0, penalty=0.0, init_duals=0.0, is_ineq=True,
+    #     device=device, process_group=pg,
+    # ),
     # Annealing is switched off explicitly: it defaults on and then makes `epoch_length`
     # mandatory, so PBM(m=...) alone raises. Recorded as a blocker in the plan.
-    "pbm": lambda m, device, pg, lr: PBM(
-        m=m, gamma=0.5, penalty_mult=lr, delta=1.0, penalty_update="dimin_adapt",
-        gamma_annealing=False, penalty_annealing=False,
-        device=device, process_group=pg,
-    ),
+    # "pbm": lambda m, device, pg, lr: PBM(
+    #     m=m, gamma=0.5, penalty_mult=lr, delta=1.0, penalty_update="dimin_adapt",
+    #     gamma_annealing=False, penalty_annealing=False,
+    #     device=device, process_group=pg,
+    # ),
 }
 
 CONSTRAINED = tuple(name for name, build in METHODS.items() if build is not None)
@@ -482,7 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vocab-size", type=int, default=None)
     parser.add_argument("--method", default="alm_gda_restart", choices=sorted(METHODS))
     parser.add_argument("--granularity", default="layer",
-                        choices=sparse_lm.GRANULARITIES)
+                        choices=sparsity_gates.GRANULARITIES)
     parser.add_argument("--eps", type=float, default=0.5, help="target density")
     parser.add_argument("--penalty", type=float, default=1.0,
                         help="fixed penalty coefficient, for --method penalty")

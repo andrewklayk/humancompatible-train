@@ -1,0 +1,38 @@
+# Slurm launcher for the E3 sweeps: one GPU per job.
+#
+#   python paper/tune.py -m hydra/launcher=slurm_gpu +sweep=e3_cifar_alm
+#
+# --- On E3-LM and the "no Hydra" note in paper/e3/sbatch_e3.sh ---
+# That note ("SLURM must hand them the whole node rather than start two copies of the
+# driver ... which is why E3 uses plain sbatch and no Hydra") stays correct, and this
+# config does not contradict it: `tasks_per_node` is 1 here for exactly that reason. One
+# submitit task starts ONE driver; run_llm re-execs torch.distributed.run beneath it and
+# owns every GPU the task was given. To sweep multi-rank LM runs, raise the gres count and
+# set the matching ++experiment.ranks, e.g.
+#
+#   python paper/tune.py -m hydra/launcher=slurm_gpu +sweep=e3_llm_alm \
+#       ++experiment.ranks=4 hydra.launcher.additional_parameters.gres=gpu:4
+#
+# What must never happen is tasks_per_node > 1: that starts N drivers, each of which would
+# re-exec its own torchrun, all sharing one Hydra output dir.
+defaults:
+  - submitit_slurm
+
+# --- resources (edit for your cluster) ---
+partition: h200
+cpus_per_task: 8
+mem_per_cpu: 12G
+timeout_min: 1440
+tasks_per_node: 1
+
+# The GPU request goes through additional_parameters -> `#SBATCH --gres=gpu:1`. The plugin
+# does also expose a first-class `gres:` field, but this is the form new_bench's launchers
+# use and have actually been run with on this cluster, and it is the one the deleted
+# benchmark/conf/ launchers got wrong (`gres: gpu=1`, which requests no GPU).
+additional_parameters:
+  gres: "gpu:1"
+  # account: my_account
+
+array_parallelism: 99
+# setup:                   # shell lines run before each task (env activation, modules)
+#   - "source activate hc-dev"

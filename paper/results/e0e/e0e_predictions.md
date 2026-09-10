@@ -1,0 +1,86 @@
+# e0e: registered predictions
+
+- **PASS** — X1: forward_update <-> AlternatingDualPrimal agrees over 200 steps on qp_active (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X1: forward_update <-> AlternatingDualPrimal agrees over 200 steps on qp_inactive (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X1: forward_update <-> AlternatingDualPrimal agrees over 200 steps on qp_equality_reduced (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X1: forward_update <-> AlternatingDualPrimal agrees over 200 steps on svm_iris (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X1: forward_update <-> AlternatingDualPrimal agrees over 200 steps on qp_equality (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X2: split forward/update <-> Simultaneous agrees over 200 steps on qp_active (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X2: split forward/update <-> Simultaneous agrees over 200 steps on qp_inactive (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X2: split forward/update <-> Simultaneous agrees over 200 steps on qp_equality_reduced (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X2: split forward/update <-> Simultaneous agrees over 200 steps on svm_iris (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X2: split forward/update <-> Simultaneous agrees over 200 steps on qp_equality (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X7: split + re-evaluated c <-> AlternatingPrimalDual agrees over 200 steps on qp_active (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X7: split + re-evaluated c <-> AlternatingPrimalDual agrees over 200 steps on qp_inactive (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X7: split + re-evaluated c <-> AlternatingPrimalDual agrees over 200 steps on qp_equality_reduced (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X7: split + re-evaluated c <-> AlternatingPrimalDual agrees over 200 steps on svm_iris (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X7: split + re-evaluated c <-> AlternatingPrimalDual agrees over 200 steps on qp_equality (duals bitwise, params <= 1.4e-14)
+  - max |dy|=0.000e+00 (bitwise: True), max |dx|=0.000e+00
+- **PASS** — X3 control: forward_update <-> Simultaneous (control) is distinguishable on qp_active
+  - max |dy|=9.768e-03, max |dx|=3.301e-03, floor 1.0e-06
+- **PASS** — X3 control: forward_update <-> Simultaneous (control) is distinguishable on qp_inactive
+  - max |dy|=5.421e-03, max |dx|=1.906e-03, floor 1.0e-06
+- **PASS** — X3 control: forward_update <-> Simultaneous (control) is distinguishable on qp_equality_reduced
+  - max |dy|=9.796e-03, max |dx|=6.384e-03, floor 1.0e-06
+- **PASS** — X3 control: forward_update <-> Simultaneous (control) is distinguishable on svm_iris
+  - max |dy|=6.653e-02, max |dx|=5.620e-02, floor 1.0e-06
+- **PASS** — X3 control: forward_update <-> Simultaneous (control) is distinguishable on qp_equality
+  - max |dy|=9.826e-03, max |dx|=6.384e-03, floor 1.0e-06
+- **PASS** — X3 control: split + re-evaluated c <-> AlternatingDualPrimal (control) is distinguishable on qp_active
+  - max |dy|=1.929e-02, max |dx|=4.478e-03, floor 1.0e-06
+- **PASS** — X3 control: split + re-evaluated c <-> AlternatingDualPrimal (control) is distinguishable on qp_inactive
+  - max |dy|=1.111e-02, max |dx|=3.495e-03, floor 1.0e-06
+- **PASS** — X3 control: split + re-evaluated c <-> AlternatingDualPrimal (control) is distinguishable on qp_equality_reduced
+  - max |dy|=5.332e-02, max |dx|=1.371e-02, floor 1.0e-06
+- **PASS** — X3 control: split + re-evaluated c <-> AlternatingDualPrimal (control) is distinguishable on svm_iris
+  - max |dy|=0.000e+00, max |dx|=3.843e-02, floor 1.0e-06
+- **PASS** — X3 control: split + re-evaluated c <-> AlternatingDualPrimal (control) is distinguishable on qp_equality
+  - max |dy|=5.332e-02, max |dx|=1.372e-02, floor 1.0e-06
+- **PASS** — X5: clamp_ and relu pin the same multipliers to exactly 0.0 on qp_inactive
+  - 4 exact zeros ours, 4 cooper, same entries: True
+- **PASS** — X5: clamp_ and relu pin the same multipliers to exactly 0.0 on svm_iris
+  - 100 exact zeros ours, 100 cooper, same entries: True
+- **PASS** — X8: on qp_active, AlternatingPrimalDual from y0=[lr*c(x0)]+ is forward_update from y0=0 -- the same iterates, one dual step out of phase
+  - max |dy| at offset 1 = 0.000e+00 (bitwise: True), max |dx| = 0.000e+00, same-index dual gap 2.509e-02 > 1.0e-06
+- **PASS** — X8: on qp_inactive, AlternatingPrimalDual from y0=[lr*c(x0)]+ is forward_update from y0=0 -- the same iterates, one dual step out of phase
+  - max |dy| at offset 1 = 0.000e+00 (bitwise: True), max |dx| = 0.000e+00, same-index dual gap 2.472e-02 > 1.0e-06
+- **PASS** — X8: on qp_equality_reduced, AlternatingPrimalDual from y0=[lr*c(x0)]+ is forward_update from y0=0 -- the same iterates, one dual step out of phase
+  - max |dy| at offset 1 = 0.000e+00 (bitwise: True), max |dx| = 0.000e+00, same-index dual gap 7.326e-02 > 1.0e-06
+- **PASS** — X8: on svm_iris, AlternatingPrimalDual from y0=[lr*c(x0)]+ is forward_update from y0=0 -- the same iterates, one dual step out of phase
+  - max |dy| at offset 1 = 0.000e+00 (bitwise: True), max |dx| = 0.000e+00, same-index dual gap 1.371e-02 > 1.0e-06
+- **PASS** — X8: on qp_equality, AlternatingPrimalDual from y0=[lr*c(x0)]+ is forward_update from y0=0 -- the same iterates, one dual step out of phase
+  - max |dy| at offset 1 = 0.000e+00 (bitwise: True), max |dx| = 0.000e+00, same-index dual gap 7.326e-02 > 1.0e-06
+- **PASS** — X4: both libraries follow the same trajectory on qp_active over 20000 steps, reaching the same residual with the same 1e-06 convergence outcome
+  - ours 2.238e-03 vs cooper 2.238e-03 (difference 0.000e+00), solved at None vs None, duals bitwise: True
+- **PASS** — X4: both libraries follow the same trajectory on qp_inactive over 6300 steps, reaching the same residual with the same 1e-06 convergence outcome
+  - ours 9.129e-07 vs cooper 9.129e-07 (difference 0.000e+00), solved at 6300 vs 6300, duals bitwise: True
+- **PASS** — X4: both libraries follow the same trajectory on svm_iris over 17700 steps, reaching the same residual with the same 1e-06 convergence outcome
+  - ours 9.488e-07 vs cooper 9.488e-07 (difference 0.000e+00), solved at 17700 vs 17700, duals bitwise: True
+- **PASS** — X4: both libraries follow the same trajectory on qp_equality over 3500 steps, reaching the same residual with the same 1e-06 convergence outcome
+  - ours 9.502e-07 vs cooper 9.502e-07 (difference 0.000e+00), solved at 3500 vs 3500, duals bitwise: True
+- **PASS** — X4: the shared trajectory reaches the exact (x*, y*) on at least one problem, so the agreement is not agreement in being wrong
+  - solved to 1e-06 within 20000 steps: qp_inactive, svm_iris, qp_equality; residuals elsewhere qp_active 2.2e-03
+- **PASS** — X9: on qp_active the primal-dual ordering is not ahead of dual-primal, at twice the constraint evaluations per step
+  - solved at None (primal-dual, None constraint evals) vs None (dual-primal, None constraint evals); final relative KKT 2.275e-03 vs 2.238e-03
+- **PASS** — X9: on qp_inactive the primal-dual ordering is not ahead of dual-primal, at twice the constraint evaluations per step
+  - solved at 6300 (primal-dual, 12600 constraint evals) vs 6300 (dual-primal, 6300 constraint evals); final relative KKT 9.195e-07 vs 9.129e-07
+- **PASS** — X9: on svm_iris the primal-dual ordering is not ahead of dual-primal, at twice the constraint evaluations per step
+  - solved at 17700 (primal-dual, 35400 constraint evals) vs 17700 (dual-primal, 17700 constraint evals); final relative KKT 9.488e-07 vs 9.488e-07
+- **PASS** — X9: on qp_equality the primal-dual ordering is not ahead of dual-primal, at twice the constraint evaluations per step
+  - solved at 3500 (primal-dual, 7000 constraint evals) vs 3500 (dual-primal, 3500 constraint evals); final relative KKT 9.756e-07 vs 9.502e-07
+- **PASS** — X6: identical trajectories on income_pairwise (m=30, minibatch-stochastic constraint) over 200 steps
+  - max |dy|=0.000e+00 (bitwise: True), max |dweights|=0.000e+00

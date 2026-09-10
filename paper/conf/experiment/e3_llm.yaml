@@ -1,0 +1,36 @@
+# E3 (LM half) -- sparsity-constrained LM fine-tuning.
+#
+# UNLIKE the other two adapters this one goes through ARGV, not `_target_`: run_llm.main()
+# has a three-way dispatch (torchrun worker / re-exec self under torchrun / plain single
+# process) and a config object cannot cross the re-exec boundary. So the sweepable surface
+# here is exactly run_llm.build_parser()'s flag set, and `algorithm.dual` is ignored --
+# only `algorithm.method` is read. Sweep `dual_lr` here, not `algorithm.dual.lr`.
+
+target: e3_llm
+
+model: stub               # "stub" for the transformers-free stand-in, else a HF id
+tokens: null              # defaults to <results>/e3/tokens.bin
+synthetic: false          # write a random-token shard if `tokens` does not exist
+vocab_size: null
+
+eps: 0.5                  # target density
+penalty: 1.0              # only used by method=penalty
+granularity: layer        # model | layer | layer_split
+steps: 2000
+warmup: 5
+eval_batches: 16
+seq_len: 1024
+batch_size: 8             # per rank
+dtype: bfloat16
+quick: false
+
+# One submitit task per node, `ranks` GPUs beneath it -- run_llm re-execs torchrun itself.
+# See conf/hydra/launcher/slurm_gpu.yaml.
+ranks: 1
+
+# --- swept by conf/sweep/e3_llm_*.yaml ---
+lr: 1.0e-4
+gate_lr: 1.0e-2
+dual_lr: 1.0e-2
+grad_clip: 0.0
+init_open: 0.95

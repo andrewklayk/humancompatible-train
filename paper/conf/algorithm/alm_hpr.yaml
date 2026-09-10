@@ -1,0 +1,14 @@
+# a_fairness.METHODS["ALM (HPR)"]. The 'hpr' augmentation divides by the penalty, so it
+# requires penalty > 0 -- ALM's constructor rejects penalty=0 here.
+name: alm_hpr
+label: "ALM (HPR)"
+method: alm_quad
+primal:
+  lr: 1.0e-3
+dual:
+  _target_: humancompatible.train.dual_optim.ALM
+  _partial_: true
+  lr: 0.05
+  penalty: 1.0
+  is_ineq: true
+  augmentation: hpr

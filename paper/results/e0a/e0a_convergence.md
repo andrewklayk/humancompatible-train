@@ -1,28 +1,28 @@
-# E0a/C: one untuned configuration per method — primal step 1/(L_f + rho||J||^2), dual step 1/||J||^2, and a per-problem iteration budget of 700/dual_step so that every problem gets equal progress rather than equal iterations.
+# E0a/C: convergence certificates. Every step size is a fixed constant — primal SGD at 0.005, ALM at its shipped lr=0.01, the others at their published values — and each run stops when the relative KKT residual clears 1e-06 or at 25000 iterations. The question is whether convergence happens under a reasonable configuration, not how fast; the iteration counts are context, not a ranking.
 
-| problem | method | primal lr | dual step | status | relative KKT | ||y-y*||inf | max [c]+ | ||grad f + J'y||inf |
-|---|---|---|---|---|---|---|---|---|
-| qp_active | ALM (rho=0) | 2.547e-02 | 5.219e-02 | solved | 1.914e-08 | 5.697e-08 | 1.328e-09 | 4.552e-11 |
-| qp_active | ALM (rho=1) | 1.712e-02 | 5.219e-02 | solved | 2.440e-08 | 7.262e-08 | 1.666e-09 | 2.209e-09 |
-| qp_active | nuPI (rho=0) | 2.547e-02 | 5.219e-02 | solved | 2.222e-08 | 6.613e-08 | 1.541e-09 | 5.277e-11 |
-| qp_active | nuPI (rho=1) | 1.712e-02 | 5.219e-02 | solved | 2.738e-08 | 8.149e-08 | 1.870e-09 | 2.479e-09 |
-| qp_active | iALM | 1.712e-02 | 5.219e-02 | solved | 1.645e-08 | 4.898e-08 | 1.142e-09 | 1.139e-10 |
-| qp_active | PBM | 1.712e-02 | 5.219e-02 | solved | 3.133e-15 | 9.326e-15 | 0.000e+00 | 3.553e-15 |
-| qp_inactive | ALM (rho=0) | 3.142e-02 | 4.092e-02 | solved | 6.154e-15 | 1.465e-14 | 2.665e-15 | 3.553e-15 |
-| qp_inactive | ALM (rho=1) | 1.777e-02 | 4.092e-02 | solved | 5.408e-15 | 1.288e-14 | 2.442e-15 | 4.441e-15 |
-| qp_inactive | nuPI (rho=0) | 3.142e-02 | 4.092e-02 | solved | 8.112e-15 | 1.932e-14 | 3.331e-15 | 3.553e-15 |
-| qp_inactive | nuPI (rho=1) | 1.777e-02 | 4.092e-02 | solved | 9.790e-15 | 2.331e-14 | 3.997e-15 | 7.105e-15 |
-| qp_inactive | iALM | 1.777e-02 | 4.092e-02 | solved | 5.501e-15 | 1.310e-14 | 2.665e-15 | 2.665e-15 |
-| qp_inactive | PBM | 1.777e-02 | 4.092e-02 | bounded | 1.250e-04 | 1.000e-04 | 0.000e+00 | 2.978e-04 |
-| svm_iris | ALM (rho=0) | 1.000e+00 | 3.283e-03 | solved | 9.134e-14 | 1.285e-13 | 8.438e-15 | 0.000e+00 |
-| svm_iris | ALM (rho=1) | 3.272e-03 | 3.283e-03 | solved | 4.644e-14 | 6.534e-14 | 8.438e-15 | 2.431e-14 |
-| svm_iris | nuPI (rho=0) | 1.000e+00 | 3.283e-03 | bounded | 2.512e-01 | 3.534e-01 | 0.000e+00 | 8.327e-17 |
-| svm_iris | nuPI (rho=1) | 3.272e-03 | 3.283e-03 | solved | 9.461e-14 | 1.331e-13 | 1.266e-14 | 2.831e-14 |
-| svm_iris | iALM | 3.272e-03 | 3.283e-03 | solved | 4.080e-14 | 5.740e-14 | 8.438e-15 | 1.676e-14 |
-| svm_iris | PBM | 3.272e-03 | 3.283e-03 | bounded | 4.466e-03 | 3.378e-03 | 0.000e+00 | 6.284e-03 |
-| qp_nonconvex | ALM (rho=0) | 4.544e-01 | 5.000e-01 | diverged | 6.167e+08 | nan | 2.803e+08 | 6.167e+08 |
-| qp_nonconvex | ALM (rho=1) | 2.381e-01 | 5.000e-01 | bounded | 8.427e+01 | nan | 4.706e+01 | 8.427e+01 |
-| qp_nonconvex | nuPI (rho=0) | 4.544e-01 | 5.000e-01 | diverged | 3.159e+08 | nan | 1.436e+08 | 3.159e+08 |
-| qp_nonconvex | nuPI (rho=1) | 2.381e-01 | 5.000e-01 | bounded | 4.643e+01 | nan | 2.998e+01 | 4.643e+01 |
-| qp_nonconvex | iALM | 2.381e-01 | 5.000e-01 | diverged | 3.771e+08 | nan | 1.714e+08 | 3.771e+08 |
-| qp_nonconvex | PBM | 2.381e-01 | 5.000e-01 | diverged | 9.848e+08 | nan | 9.848e+08 | 8.195e+08 |
+| problem | method | primal lr | iterations | hit cap | status | relative KKT | ||y-y*||inf | max [c]+ | ||grad f + J'y||inf |
+|---|---|---|---|---|---|---|---|---|---|
+| qp_active | ALM (rho=0) | 5.000e-03 | 25000 | True | bounded | 6.967e-04 | 2.074e-03 | 4.838e-05 | 2.639e-06 |
+| qp_active | ALM (rho=1) | 5.000e-03 | 25000 | True | bounded | 8.409e-04 | 2.503e-03 | 5.740e-05 | 7.589e-05 |
+| qp_active | nuPI (rho=0) | 5.000e-03 | 550 | False | solved | 8.726e-07 | 2.597e-06 | 6.135e-08 | 5.236e-07 |
+| qp_active | nuPI (rho=1) | 5.000e-03 | 550 | False | solved | 6.210e-07 | 1.848e-06 | 4.458e-08 | 3.694e-07 |
+| qp_active | iALM | 5.000e-03 | 426 | False | solved | 7.461e-07 | 2.221e-06 | 9.038e-08 | 8.948e-07 |
+| qp_active | PBM | 5.000e-03 | 1013 | False | solved | 9.400e-07 | 2.798e-06 | 1.028e-07 | 5.436e-07 |
+| qp_inactive | ALM (rho=0) | 5.000e-03 | 6300 | False | solved | 9.129e-07 | 2.174e-06 | 4.600e-07 | 5.649e-08 |
+| qp_inactive | ALM (rho=1) | 5.000e-03 | 7700 | False | solved | 8.754e-07 | 2.085e-06 | 3.624e-07 | 3.105e-07 |
+| qp_inactive | nuPI (rho=0) | 5.000e-03 | 283 | False | solved | 8.870e-07 | 2.178e-08 | 2.124e-09 | 2.112e-06 |
+| qp_inactive | nuPI (rho=1) | 5.000e-03 | 283 | False | solved | 8.936e-07 | 2.410e-08 | 2.371e-09 | 2.128e-06 |
+| qp_inactive | iALM | 5.000e-03 | 330 | False | solved | 4.994e-07 | 1.189e-06 | 0.000e+00 | 1.105e-06 |
+| qp_inactive | PBM | 5.000e-03 | 400 | False | solved | 8.898e-07 | 2.119e-06 | 1.176e-07 | 1.747e-06 |
+| svm_iris | ALM (rho=0) | 5.000e-03 | 17700 | False | solved | 9.488e-07 | 1.335e-06 | 8.794e-08 | 5.036e-08 |
+| svm_iris | ALM (rho=1) | 5.000e-03 | 18200 | False | solved | 9.959e-07 | 1.401e-06 | 8.924e-08 | 1.019e-07 |
+| svm_iris | nuPI (rho=0) | 5.000e-03 | 2900 | False | solved | 3.529e-07 | 4.965e-07 | 1.125e-07 | 4.044e-07 |
+| svm_iris | nuPI (rho=1) | 5.000e-03 | 3200 | False | solved | 2.789e-07 | 3.924e-07 | 4.010e-08 | 1.195e-07 |
+| svm_iris | iALM | 5.000e-03 | 5700 | False | solved | 2.817e-07 | 3.963e-07 | 2.509e-07 | 3.532e-07 |
+| svm_iris | PBM | 5.000e-03 | 8160 | False | solved | 5.465e-07 | 4.688e-07 | 5.465e-07 | 7.068e-07 |
+| qp_nonconvex | ALM (rho=0) | 5.000e-03 | 2700 | False | diverged | 2.672e+08 | nan | 1.214e+08 | 2.672e+08 |
+| qp_nonconvex | ALM (rho=1) | 5.000e-03 | 25000 | True | bounded | 1.967e+02 | nan | 5.414e+01 | 1.967e+02 |
+| qp_nonconvex | nuPI (rho=0) | 5.000e-03 | 900 | False | solved | 1.668e-07 | nan | 3.536e-08 | 1.668e-07 |
+| qp_nonconvex | nuPI (rho=1) | 5.000e-03 | 869 | False | solved | 5.378e-07 | nan | 5.814e-08 | 5.378e-07 |
+| qp_nonconvex | iALM | 5.000e-03 | 25000 | True | bounded | 3.263e+00 | nan | 2.897e-01 | 3.263e+00 |
+| qp_nonconvex | PBM | 5.000e-03 | 11000 | False | solved | 7.904e-07 | nan | 7.904e-07 | 5.997e-07 |

@@ -149,21 +149,22 @@ PROBLEMS = [
 # assumed.
 METHODS = {
     "Adam": (None, False),
-    "Adam (c in graph)": (None, True),
+    # "Adam (c in graph)": (None, True),
     "ALM": (lambda m: ALM(m=m, lr=DUAL_LR, penalty=1.0, is_ineq=True), True),
+    "ALM (HPR)": (lambda m: ALM(m=m, lr=DUAL_LR, penalty=1.0, is_ineq=True, augmentation="hpr"), True),
     "ALM (restart)": (lambda m: ALM(m=m, lr=DUAL_LR, penalty=1.0, is_ineq=True,
                                     restart=True), True),
-    "iALM": (lambda m: iALM(m=m, beta=1.0, sigma=1.0, gamma=1.0, is_ineq=True), True),
+    # "iALM": (lambda m: iALM(m=m, beta=1.0, sigma=1.0, gamma=1.0, is_ineq=True), True),
     # penalty=0 is the published nuPI; penalty=1 is what E0a recommends. Both are
     # here because the difference is an E0a finding worth re-testing on real data.
-    "nuPI (rho=0)": (lambda m: nuPI(m=m, ki=DUAL_LR, kp=DUAL_LR, nu=0.01,
-                                    penalty=0.0, is_ineq=True), True),
-    "nuPI (rho=1)": (lambda m: nuPI(m=m, ki=DUAL_LR, kp=DUAL_LR, nu=0.01,
-                                    penalty=1.0, is_ineq=True), True),
-    # Annealing off, so epoch_length is not required (see the plan's blocker #1).
-    "PBM": (lambda m: PBM(m=m, gamma=0.5, penalty_mult=0.1, delta=1.0,
-                          penalty_update="dimin_adapt", gamma_annealing=False,
-                          penalty_annealing=False), True),
+    # "nuPI (rho=0)": (lambda m: nuPI(m=m, ki=DUAL_LR, kp=DUAL_LR, nu=0.01,
+    #                                 penalty=0.0, is_ineq=True), True),
+    # "nuPI (rho=1)": (lambda m: nuPI(m=m, ki=DUAL_LR, kp=DUAL_LR, nu=0.01,
+    #                                 penalty=1.0, is_ineq=True), True),
+    # # Annealing off, so epoch_length is not required (see the plan's blocker #1).
+    # "PBM": (lambda m: PBM(m=m, gamma=0.5, penalty_mult=0.1, delta=1.0,
+    #                       penalty_update="dimin_adapt", gamma_annealing=False,
+    #                       penalty_annealing=False), True),
 }
 
 CONTROL = "Adam (c in graph)"
@@ -229,15 +230,25 @@ def _flat_norm(grads):
 # --------------------------------------------------------------------------- #
 
 
-def run(problem, method, seed, epochs):
-    """Train one (problem, method, seed); return the per-epoch history."""
+def run(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_LR):
+    """Train one (problem, method, seed); return the per-epoch history.
+
+    :param dual_factory: ``m -> DualOptimizer``, overriding ``METHODS[method]``.
+        The registry's builders close over ``DUAL_LR``, so without this no dual
+        hyperparameter is reachable from outside the module -- which is what the
+        sweep in ``paper/tune.py`` needs. ``method`` then only names the row.
+    :param primal_lr: likewise for the primal step.
+    """
     set_seed(seed)
     # The sampler's generator lives on the problem, so it must be reset here or
     # each successive run continues the previous one's batch order.
     problem.reseed(seed)
     model = problem.make_model()
-    primal = torch.optim.Adam(model.parameters(), lr=PRIMAL_LR)
-    build, evaluates_constraint = METHODS[method]
+    primal = torch.optim.Adam(model.parameters(), lr=primal_lr)
+    if dual_factory is None:
+        build, evaluates_constraint = METHODS[method]
+    else:
+        build, evaluates_constraint = dual_factory, True
     dual = None if build is None else build(problem.m)
 
     history = []

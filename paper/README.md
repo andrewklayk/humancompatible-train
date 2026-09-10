@@ -35,7 +35,8 @@ python paper/e0/a_multipliers.py --help  # per-script options
 `tests/test_distributed.py` avoid overwriting a real run's results.
 
 Requires `qpsolvers` (with `clarabel`), `scikit-learn`, `matplotlib` and `scipy`
-on top of the package's own dependencies.
+on top of the package's own dependencies. E0e additionally needs `cooper-optim`
+(`pip install -e '.[compare]'`) and skips cleanly without it.
 
 ## E0 — validation
 
@@ -48,6 +49,7 @@ people's; the implementation is ours, so this is the part that earns trust in it
 | [e0/a_multipliers.py](e0/a_multipliers.py) | the dual optimizers are faithful to the mathematics they implement | ~10 min (`--quick` skips convergence: seconds) |
 | [e0/b_nonopt.py](e0/b_nonopt.py) | `NonOpt` reaches the published optimal values on the ten standard nonsmooth problems at n = 50 | ~10 min |
 | [e0/d_distributed.py](e0/d_distributed.py) | data-parallel equivalence: duals identical across ranks, `G x B` = `1 x (G*B)` where that can hold, and the measured gap where it cannot | ~1 min |
+| [e0/e_cooper.py](e0/e_cooper.py) | `ALM(penalty=0)` is bitwise the projected GDA that [Cooper](https://github.com/cooper-org/cooper) implements, in all three of Cooper's step orderings — cross-validation against another library rather than against ourselves | ~2 min (`--quick`: seconds) |
 
 ### E0a — mathematical faithfulness
 
@@ -223,6 +225,144 @@ equivalence is **conditional**, and the conditions are worth stating in the pape
   surrogate. The gap is measured against per-rank batch size, which is what bounds
   how small a per-rank batch those experiments may use.
 
+### E0e — cross-validation against Cooper
+
+E0a and E0b validate the implementations against exact reference *values*; E0a's
+reductions validate the four dual optimizers against *each other*. None of that
+answers the question a reviewer of a software paper asks first: how does this
+compare to [Cooper](https://github.com/cooper-org/cooper) (`cooper-optim`), the
+PyTorch constrained-optimization library from the same group as arXiv:2208.04425
+and the one package with the same remit as `dual_optim`? And the claim that
+`ALM(penalty=0, is_ineq=True)` **is** that paper's Eq. (5) projected
+gradient descent-ascent rested, until here, on reading our own code.
+
+**Which Cooper optimizer is the counterpart is the whole design problem**, and
+getting it wrong would silently compare two different algorithms. Our `_snapshot`
+returns the live dual tensor and the dual update and safeguard clamp both run
+*before* the surrogate terms are added, so `forward_update` builds
+`f + y_{t+1}'c_t` from **post-update** multipliers while the split
+`forward`/`backward`/`update` idiom builds `f + y_t'c_t` from **pre-update** ones.
+Cooper's `SimultaneousOptimizer` fills both gradient buffers from one forward at
+`(x_t, y_t)`; its `AlternatingDualPrimalOptimizer` steps the dual *before*
+building the primal Lagrangian, from the same single forward; and its
+`AlternatingPrimalDualOptimizer` — the one Cooper's own documentation recommends —
+steps the primal first and then **re-evaluates the constraints at `x_{t+1}`** to
+drive the dual. So:
+
+| ours | Cooper |
+|---|---|
+| `forward_update(...).backward()` | `AlternatingDualPrimalOptimizer` |
+| `forward(...)` / `.backward()` / `primal.step()` / `update(c)` | `SimultaneousOptimizer` |
+| `forward(...)` / `.backward()` / `primal.step()` / `update(c(x_{t+1}))` | `AlternatingPrimalDualOptimizer` |
+
+All three pairings are asserted bitwise, and each has a **negative control** — the
+same `ours` side against the Cooper class it must *not* match — without which
+agreement could mean nothing more than that every configuration converges to the
+same point. The controls differ by 3e-03 to 6e-02 where the matched pairings
+differ by exactly zero.
+
+The third row is what the recommended optimizer costs to reach from `dual_optim`:
+nothing. There is no primal-dual *entry point*, and none is needed — the ordering
+is the split API with the constraint closure called a second time after
+`primal.step()`, which is the loop a user writes anyway.
+
+`bar` follows E0a's rule. The dual updates are the *same floating-point
+operation* — ours is `duals.add_(c, alpha=lr)` then `clamp_`; Cooper's dual scalar
+is `einsum("i...,i...->", y, c.detach())`, a **sum** with no `1/m`, giving
+`y.grad = c` exactly, stepped by `SGD(maximize=True)` into `add_(grad, alpha=+lr)`
+and projected by `post_step_`'s `relu` — so bitwise is the right bar. The primal
+sides were held to rounding instead, since `snapshot @ c` and `einsum` are
+different kernels; **they came out bitwise too**, which is a fact about torch's
+reductions rather than about either library, and is recorded as its own column so
+it is not buried under a tolerance.
+
+**Cooper's recommended ordering is not a different algorithm.** Both orderings
+iterate `y <- P(y + η c(x_t))` over the same sequence of constraint values, and
+differ only in whether `c(x_0)` is folded in before or after the first primal
+step. So handing primal-dual that one term as its initial multiplier must erase
+the difference entirely — and it does: `AlternatingPrimalDualOptimizer` started
+from `y_0 = [η c(x_0)]_+` reproduces `forward_update` started from `y_0 = 0` with
+**bitwise-identical parameter iterates** and duals that are **bitwise identical at
+an offset of one step**, on all five problems including the equality path. The
+same-index dual gap (1e-02 to 7e-02) is reported beside it as the control; were it
+also zero, the offset would be doing no work and the claim would be vacuous. The
+recommended optimizer is the same recursion lagging by one dual step, and it pays
+a second constraint evaluation per step for the lag.
+
+**The KKT anchor makes the stopping test part of the comparison** rather than
+defending a budget. Two implementations of one algorithm must not only end at the
+same residual, they must clear the tolerance at the same iteration — measured 6300
+on `qp_inactive`, 3500 on `qp_equality`, 17700 on `svm_iris`, and neither reaching
+it on `qp_active` within 20k. That last spread is E0a's finding #4 again (progress
+tracks the dual step against `‖J‖²`, so `svm_iris` at m=100 gets further than
+`qp_active` at m=5), which is exactly why an exemption list picked after seeing the
+numbers would be curve-fitting; the "and are right" half is instead asserted once,
+without naming a problem, as *some* problem reaching the exact `(x*, y*)`.
+
+Run from a common `y_0 = 0`, the three orderings then give the practical reading of
+the identity above: **primal-dual clears the tolerance at exactly the same
+iteration as dual-primal** on all three problems that clear it (6300, 17700, 3500),
+which is *twice* the constraint evaluations for the same result, and on `qp_active`,
+where none of them converges within 20k, it ends at a slightly worse residual
+(2.275e-03 against 2.238e-03) — the one dual step of lag, showing up as lag. That
+arm runs on our side only, which the three bitwise pairings license: each ordering
+*is* its Cooper counterpart, so running one library runs both.
+
+`income_pairwise` (m = 30) carries the same claim for a minibatch-stochastic,
+data-dependent constraint, with batches materialised once and replayed into both
+runs and one `state_dict` loaded into both models — by construction, since E2a's
+shared-generator bug is what a comparison that merely trusts two shufflers costs.
+
+**Two properties of Cooper 1.0.1 the paper should record either way**, both read
+off its source rather than inferred from these numbers:
+
+- **It has no dual restart.** `grep -i restart` hits only the *penalty
+  coefficient* updaters; nothing zeroes `y`. Cooper 0.x had `dual_restarts`. So
+  `ALM(restart=True)` — arXiv:2208.04425's Eq. (6) — is not available in the
+  authors' current library, which is where [E2a](e2/a_fairness.py)'s finding that
+  restarts *cost* feasibility under a stochastic constraint gets to stand.
+- **It ships its own `nuPI`** (`cooper.optim.nuPI`), usable directly as the
+  multiplier's optimizer, with `nuPI(Kp=0, Ki=1, ema_nu=0)` reducing to SGD. That
+  is a reference implementation for our `nuPI` row and the obvious next step past
+  this script; scope here is deliberately one method.
+
+**Two traps, both of which would have looked like algorithmic discrepancies.**
+`DenseMultiplier`'s `dtype` defaults to `torch.float32` and ignores
+`torch.set_default_dtype` — and `initialize_weight` applies that default to `init`
+via `init.to(dtype=dtype)`, so passing an explicitly float64 `init` is silently
+downcast and both have to be given. Second, `ALM` ships a safeguard box
+`dual_range=(-100, 100)` that Cooper has no equivalent of, its projection being
+`relu`. Opening the box is what makes the two the same algorithm, so E0e opens it
+explicitly rather than relying on a bound that happens not to bind — the box is a
+real design difference and belongs in the paper as one.
+
+Reported, not gated: Cooper costs **1.9-2.3x per step** here, in both orderings,
+with a mechanism rather than a mystery — it builds two scalars from one forward and
+calls `backward` on each, which its own source notes as going over the constraints
+twice (`simultaneous_optimizer.py:60-62`), against our one scalar and one backward.
+Its primal-dual roll is timed through the `compute_violations` hook, Cooper's
+documented way to re-evaluate the constraints without recomputing the loss or
+building a primal graph, so neither library is timed at a handicap it does not have
+to run under. Note that the second constraint evaluation costs only **7-13% of
+wall clock** on these problems while doubling the constraint-evaluation *count*:
+here the constraint is a handful of flops and the step is interpreter overhead, so
+`e0e_orderings.md`'s count is the number that transfers to a setting where a
+constraint is a forward pass over a batch. At these problem sizes the dual layer
+*is* the step; at LM scale all of it would be invisible, which is E3's measurement.
+Alongside, an API-surface table: 22 non-comment lines of user code against 34 for
+the same job across all three orderings, and a third column for **what Cooper's
+larger surface buys** — the step ordering being a class choice rather than a loop
+the user has to write correctly, indexed/implicit multipliers,
+`constraint_features`, a `strict_violation` channel separating the differentiable
+surrogate from the statistic that drives the multiplier, and composable penalty
+schedules, none of which `dual_optim` has. A table without that column would be a
+strawman.
+
+`cooper` is an optional extra (`pip install -e '.[compare]'`); without it E0e
+prints a skip line and exits 0, so `run_all.sh` stays green.
+`e0e_overhead.md/.json` is the one E0e artifact that is not byte-for-byte
+reproducible, because it measures wall clock.
+
 ## E2 — fairness-constrained learning on real data
 
 E2 is where the constraint is a statistic of *data* rather than of parameters, which
@@ -374,12 +514,59 @@ without either: `--model stub` uses [problems/tiny_lm.py](problems/tiny_lm.py), 
 fixture, so the gates, constraints, duals, distributed path and artifact writing are all
 exercisable on CPU.
 
+## Sweeps — tuning the hyperparameters E2 and E3 hold fixed
+
+Every experiment above runs one **untuned** configuration per method, identical across
+methods, on purpose: the comparison is then about the update rule rather than about who got
+tuned harder. That leaves the tuning burden unmeasured, and it is a separate question.
+[tune.py](tune.py) is where it gets asked.
+
+One invocation is one (experiment, algorithm, hyperparameter) combination, writing a
+`row.json` sidecar into its own job directory. Hydra's `-m` produces the cartesian product.
+
+```bash
+python paper/tune.py experiment=e2a algorithm=alm            # one run
+python paper/tune.py -m experiment=e2a algorithm=alm +sweep=e2a_alm
+python paper/tune.py -m hydra/launcher=slurm +sweep=e2a_alm seed=0,1,2
+python paper/tune_report.py --runs paper/multirun/e2a/alm --out best
+```
+
+Needs the `paper` extra (`hydra-core`, `hydra-submitit-launcher`). `conf/experiment/` holds
+what is fixed for a run, `conf/algorithm/` the dual optimizer as an `instantiate` spec, and
+`conf/sweep/` the grids — the same shape as `benchmark/new_bench/conf/`, deliberately, so
+there is one Hydra idiom in the repo rather than two.
+
+Three things worth knowing before using it:
+
+- **It never writes to `paper/results/`.** Each job redirects the shared harness at its own
+  Hydra output directory (`_harness.set_results_dir`), which is also what keeps concurrent
+  jobs from colliding on the fixed artifact filenames every script writes.
+- **It does not replace the drivers.** `a_fairness.py`, `e3/sweep.py`, `scaling.py` and
+  `run_cifar.py` keep their CLIs and still produce the committed artifacts; they own the
+  *configuration* grids (method × eps × seed), this owns the *hyperparameter* grids.
+- **E3-LM is driven through argv, not through `conf/algorithm/`.** `run_llm.main()` may
+  re-exec itself under `torch.distributed.run`, and a config object cannot cross that
+  boundary — so there, sweep `experiment.dual_lr`, and the algorithm group contributes only
+  the method name. The other two adapters call their per-run function directly and can
+  sweep any constructor argument. This is also why
+  [e3/sbatch_e3.sh](e3/sbatch_e3.sh)'s "one task, not two" rule still holds under submitit:
+  one task starts one driver, which owns every GPU the task was given.
+
+Ranking is by a single scalar, so infeasibility enters it as a penalty rather than a filter:
+E2a scores test loss plus `1e3 ×` train violation; E3 scores perplexity (or `1 − accuracy`)
+plus `1e3 ×` the distance from the requested density. E2a uses a tail mean and E3 the final
+iterate, for the reason each experiment already gives — E2's constraint is a sample mean
+whose sign flickers with the minibatch, E3's is a closed form in the gate parameters.
+
 ## Layout
 
 ```
 paper/
   README.md                 this file
   _harness.py               seeding, float64, CSV/JSON/Markdown writers, PDF figures, Checks
+  tune.py                   Hydra hyperparameter-sweep entrypoint for E2/E3 (one run per job)
+  tune_report.py            rank a sweep's row.json sidecars
+  conf/                     config.yaml + experiment/ algorithm/ sweep/ hydra/launcher/
   problems/
     __init__.py             the Problem dataclass, including the derived primal step size
     qp.py                   convex and nonconvex QPs with exact (x*, y*)
@@ -390,7 +577,7 @@ paper/
     tiny_lm.py              a Llama/Qwen-shaped decoder, so E3 runs without `transformers`
     tokens.py               uint16/uint32 token shards + a rank-sharded block sampler
   e0/
-    a_multipliers.py  b_nonopt.py  d_distributed.py  run_all.sh
+    a_multipliers.py  b_nonopt.py  d_distributed.py  e_cooper.py  run_all.sh
   e2/
     a_fairness.py  b_parallel.py  run_all.sh
   e3/
@@ -398,7 +585,7 @@ paper/
     sweep.py  scaling.py    the two drivers
     prepare_data.py         login-node one-off: FineWeb-Edu -> tokens.bin
     sbatch_e3.sh  run_all.sh
-  results/e0a/ e0b/ e0d/    *.csv (raw), *.md + *.json (tables), *.pdf (figures)
+  results/e0a/ e0b/ e0d/ e0e/   *.csv (raw), *.md + *.json (tables), *.pdf (figures)
   results/e2a/ e2b/ e3/
 ```
 

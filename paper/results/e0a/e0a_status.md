@@ -2,7 +2,7 @@
 
 | problem | convex | solved | bounded (finite, not a KKT point) | diverged | did not solve |
 |---|---|---|---|---|---|
-| qp_active | True | 6 | 0 | 0 | - |
-| qp_inactive | True | 5 | 1 | 0 | PBM |
-| svm_iris | True | 4 | 2 | 0 | nuPI (rho=0), PBM |
-| qp_nonconvex | False | 0 | 2 | 4 | ALM (rho=0), ALM (rho=1), nuPI (rho=0), nuPI (rho=1), iALM, PBM |
+| qp_active | True | 4 | 2 | 0 | ALM (rho=0), ALM (rho=1) |
+| qp_inactive | True | 6 | 0 | 0 | - |
+| svm_iris | True | 6 | 0 | 0 | - |
+| qp_nonconvex | False | 3 | 2 | 1 | ALM (rho=0), ALM (rho=1), iALM |

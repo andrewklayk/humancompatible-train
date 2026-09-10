@@ -61,8 +61,11 @@ def _configs(args):
     for method in run_llm.CONSTRAINED:
         for eps in args.eps:
             out.append((f"{method}@{eps:g}", {"method": method, "eps": eps}))
-    for lam in args.lambdas:
-        out.append((f"penalty@{lam:g}", {"method": "penalty", "penalty": lam}))
+    # The baseline is skipped when it is switched off in run_llm.METHODS, so the
+    # grid follows that one list the way CONSTRAINED does.
+    if "penalty" in run_llm.METHODS:
+        for lam in args.lambdas:
+            out.append((f"penalty@{lam:g}", {"method": "penalty", "penalty": lam}))
     return out
 
 

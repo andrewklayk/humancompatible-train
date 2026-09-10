@@ -1,0 +1,35 @@
+# e2b: registered predictions
+
+- **PASS** — D1: duals are bitwise identical on every rank, for every method, constraint shape and sharding mode
+  - 0 of 80 configurations disagree
+- **PASS** — D6: duals round-trip through state_dict on every rank
+- **PASS** — D2: ALM (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 1 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 0.00e+00, param 2.85e-17
+- **PASS** — D2: nuPI (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 1 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 0.00e+00, param 2.85e-17
+- **PASS** — D2: ALM (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 10 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 1.16e-16, param 1.11e-16
+- **PASS** — D2: nuPI (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 10 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 2.31e-16, param 1.11e-16
+- **PASS** — D2: ALM (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 1 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 2.21e-16, param 1.14e-16
+- **PASS** — D2: nuPI (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 1 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 2.21e-16, param 1.14e-16
+- **PASS** — D2: ALM (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 10 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 2.16e-16, param 1.11e-16
+- **PASS** — D2: nuPI (rho=0) on the pairwise constraint with balanced sharding matches 1 x pooled after 10 step(s) — the per-group denominator is constant, so the statistic is mean-type
+  - dual 6.46e-16, param 3.32e-16
+- **PASS** — D3a: where the quadratic penalty is LIVE (some c_r > 0), one step already makes the parameters differ, because mean_r ||[c_r]_+||^2 != ||[mean_r c_r]_+||^2
+  - ALM (rho=1) b=-0.02 1.52e-03; iALM b=-0.02 1.53e-03
+- **PASS** — D3b: where it is INERT (every c_r <= 0), the same surrogate is exactly as reproducible as a linear one — [c]_+ zeroes its gradient on every rank, so there is no variance term left to disagree about
+  - ALM (rho=1) b=0.05 2.85e-17; iALM b=0.05 5.71e-17
+- **PASS** — D3c: PBM never matches, in EITHER regime — its surrogate is a barrier sum_i y_i p_i phi(c_i / p_i), which is nonlinear in c at every c. There is no clamp to switch off when the iterate is feasible, so unlike the quadratic methods its inexactness does not depend on the bound
+  - PBM b=0.05 live=False 1.66e-12; PBM b=-0.02 live=True 1.66e-12
+- **PASS** — D3d: in every regime the duals still match exactly after one step, because the dual update only ever sees the reduced constraint vector
+  - ALM (rho=1) b=0.05 0.00e+00; iALM b=0.05 3.42e-16; PBM b=0.05 0.00e+00; ALM (rho=1) b=-0.02 2.21e-16; iALM b=-0.02 3.99e-16; PBM b=-0.02 2.01e-16
+- **PASS** — D4: with shuffled sharding even a linear surrogate stops matching — the per-group counts differ across ranks, so PositiveRate reverts to a genuine ratio of sums. The reduction is load-bearing, and balanced sharding is its precondition
+  - ALM (rho=0) k=1 8.32e-05; nuPI (rho=0) k=1 8.32e-05; ALM (rho=0) k=10 2.53e-04; nuPI (rho=0) k=10 2.94e-04; ALM (rho=0) k=1 8.32e-05; nuPI (rho=0) k=1 8.32e-05; ALM (rho=0) k=10 2.53e-04; nuPI (rho=0) k=10 2.94e-04
+- **PASS** — D5: the aggregate shape does not match under balanced sharding either — a norm of per-group means is not the mean of norms, and balanced batching fixes the denominator, not the outer nonlinearity
+  - ALM (rho=0) k=1 2.05e-02; nuPI (rho=0) k=1 2.05e-02; ALM (rho=0) k=10 5.41e-02; nuPI (rho=0) k=10 5.42e-02; ALM (rho=0) k=1 2.06e-02; nuPI (rho=0) k=1 2.06e-02; ALM (rho=0) k=10 5.73e-02; nuPI (rho=0) k=10 5.74e-02
+- **PASS** — D5: the aggregate shape does not match under shuffled sharding either — a norm of per-group means is not the mean of norms, and balanced batching fixes the denominator, not the outer nonlinearity
+  - ALM (rho=0) k=1 3.17e-02; nuPI (rho=0) k=1 3.17e-02; ALM (rho=0) k=10 4.95e-02; nuPI (rho=0) k=10 4.97e-02; ALM (rho=0) k=1 3.20e-02; nuPI (rho=0) k=1 3.20e-02; ALM (rho=0) k=10 5.18e-02; nuPI (rho=0) k=10 5.20e-02

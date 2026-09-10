@@ -1,0 +1,18 @@
+# Annealing off explicitly: it defaults on and then makes `epoch_length` mandatory, so
+# PBM(m=...) alone raises. PBM is an inequality method by construction and takes no
+# `is_ineq`. Note its `dual_range` floor makes lambda=0 unrepresentable -- a structural
+# limit E0a measured, not a tuning artifact.
+name: pbm
+label: "PBM"
+method: null            # commented out of run_llm.METHODS
+primal:
+  lr: 1.0e-3
+dual:
+  _target_: humancompatible.train.dual_optim.PBM
+  _partial_: true
+  gamma: 0.5
+  penalty_mult: 0.1
+  delta: 1.0
+  penalty_update: dimin_adapt
+  gamma_annealing: false
+  penalty_annealing: false

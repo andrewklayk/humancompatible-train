@@ -1,0 +1,15 @@
+# a_fairness.METHODS["ALM (restart)"]. E2a measures what the restart costs on a
+# *stochastic* constraint: it zeroes the multiplier whenever a minibatch estimate looks
+# satisfied, which at 8 samples per group is most steps.
+name: alm_restart
+label: "ALM (restart)"
+method: alm_gda_restart
+primal:
+  lr: 1.0e-3
+dual:
+  _target_: humancompatible.train.dual_optim.ALM
+  _partial_: true
+  lr: 0.05
+  penalty: 1.0
+  is_ineq: true
+  restart: true

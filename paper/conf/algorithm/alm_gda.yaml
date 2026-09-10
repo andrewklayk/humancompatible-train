@@ -1,0 +1,14 @@
+# run_llm.METHODS["alm_gda"]. ALM(penalty=0) IS the projected gradient descent-ascent of
+# arXiv:2208.04425 Eq. (5) -- the reference method for E3.
+name: alm_gda
+label: "ALM (GDA)"
+method: alm_gda
+primal:
+  lr: 1.0e-3
+dual:
+  _target_: humancompatible.train.dual_optim.ALM
+  _partial_: true
+  lr: 1.0e-2
+  penalty: 0.0
+  init_duals: 0.0
+  is_ineq: true

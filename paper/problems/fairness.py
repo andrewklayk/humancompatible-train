@@ -28,6 +28,7 @@ the declared bound.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Callable, Optional
 
 import numpy as np
@@ -177,6 +178,7 @@ def available_states() -> list[str]:
     return found
 
 
+@lru_cache(maxsize=1)  # parsing the ACS CSV dominates a multi-shape run
 def _load_income(states, sens_attrs):
     """ACSIncome features, crossed-one-hot sensitive groups, binary labels."""
     import pandas as pd
@@ -311,6 +313,7 @@ def build(dataset: str = "income", shape: str = "pairwise", *, bound: float = 0.
         can be measured against a *fixed* test set -- otherwise a method's test
         violation moves for two unrelated reasons at once.
     """
+    raw, m_fn = _build_raw_constraints(shape)
     if dataset == "income":
         features, groups, labels = _load_income(states, sens_attrs)
         notes = f"ACSIncome {'+'.join(states)}, sens={'x'.join(sens_attrs)}"
@@ -327,7 +330,6 @@ def build(dataset: str = "income", shape: str = "pairwise", *, bound: float = 0.
         notes += f", dropped {dropped} group(s) with < {min_group} members"
 
     n_groups = groups.shape[1]
-    raw, m_fn = _build_raw_constraints(shape)
     train, test = _split_and_scale(features, groups, labels,
                                    seed=split_seed, device=device)
 

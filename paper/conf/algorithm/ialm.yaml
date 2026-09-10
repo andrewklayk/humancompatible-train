@@ -1,0 +1,13 @@
+# `beta` is iALM's dual step size; there is no `lr`.
+name: ialm
+label: "iALM"
+method: null            # commented out of run_llm.METHODS
+primal:
+  lr: 1.0e-3
+dual:
+  _target_: humancompatible.train.dual_optim.iALM
+  _partial_: true
+  beta: 1.0
+  sigma: 1.0
+  gamma: 1.0
+  is_ineq: true

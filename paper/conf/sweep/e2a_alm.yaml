@@ -1,0 +1,17 @@
+# @package _global_
+# E2a x ALM hyperparameter grid (manual grid, BASIC sweeper).
+# 4 * 5 * 4 = 80 configs. Add `seed=0,1,2` on the CLI to triple it.
+#
+# `penalty` spans the two formulations rather than tuning around one: 0.0 is projected
+# gradient descent-ascent (no augmentation), > 0 adds the quadratic term. E0a found the
+# difference matters, and it is the axis a single "dual lr" sweep would miss.
+defaults:
+  - override /experiment: e2a
+  - override /algorithm: alm
+
+hydra:
+  sweeper:
+    params:
+      algorithm.primal.lr: choice(0.0003, 0.001, 0.003, 0.01)
+      algorithm.dual.lr: choice(0.005, 0.01, 0.05, 0.1, 0.5)
+      algorithm.dual.penalty: choice(0.0, 0.5, 1.0, 5.0)
