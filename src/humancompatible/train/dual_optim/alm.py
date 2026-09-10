@@ -24,7 +24,7 @@ class ALM(DualOptimizer):
         dampening: Optional[float] = None,
         is_ineq: bool = False,
         restart: bool = False,
-        augmentation: str = "quadratic",
+        augmentation: str = "hpr",
         device=None,
         process_group: Optional[dist.ProcessGroup] = None,
     ) -> None:
