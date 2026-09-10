@@ -391,7 +391,7 @@ def print_table(specs, methods, names, cond_pbm=None):
     lines = [ r"\begin{table}[h]",
             r"\centering",
             r"\caption{Comparison of Adam, SSL-ALM, and SPBM on experiments \Exp{7} and \Exp{8}. We report the best test loss, together with the corresponding constraint violations (averaged over runs).}",
-            r"\label{tab:best_results}",
+            r"\label{tab:best_results_pinns}",
         r"\begin{tabular}{l l c c c}",
         r"\toprule",
         r"Exp. & Method & Best loss & Max constraint viol. & Mean constraint \\",
@@ -436,6 +436,7 @@ if __name__ == "__main__":
     best_validation_window = 50
 
     names = ["E7", "E8", "E9"]
+    names = ["E8"]
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
@@ -448,11 +449,12 @@ if __name__ == "__main__":
                               results_root="results"),
     }
 
+    # cond_pbm = [{'mu': 0.0},
+    #             {'penalty_mult': 0.1},
+    #             {'gamma': 0.1},
+    #             None] # 4 options in total
 
-    cond_pbm = [{'mu': 0.0},
-                {'penalty_mult': 0.1},
-                {'gamma': 0.1},
-                None] # 4 options in total
+    cond_pbm =  None
 
     # TODO: put best config and just change the variable one at a time  
 
