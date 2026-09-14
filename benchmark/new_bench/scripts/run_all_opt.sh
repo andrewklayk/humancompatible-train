@@ -25,8 +25,7 @@ set -euo pipefail
 
 PARTITION=${PARTITION:-cpulong}
 DEP=${DEP:-afterany}
-ALGOS=${ALGOS:-"alm_proj"}
-# ALGOS=${ALGOS:-"adam alm_proj ssg"}
+ALGOS=${ALGOS:-"adam pbm alm_proj ssg"}
 SELECT=${SELECT:-1}
 
 # sbatch options common to every DRIVER job (a lightweight blocking loop: 1 CPU, no GPU).

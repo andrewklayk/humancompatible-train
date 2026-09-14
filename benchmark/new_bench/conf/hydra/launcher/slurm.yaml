@@ -8,12 +8,13 @@ defaults:
   - submitit_slurm
 
 # --- resources (edit for your cluster) ---
-mem_per_cpu: 4G
+mem_per_cpu: 3G
 cpus_per_task: 4
-partition: amd
-timeout_min: 1440          # 24h wall clock per job
+partition: amdfast
+# timeout_min: 30          # 24h wall clock per job
 # tasks_per_node: 1
 # array_parallelism: 50    # cap simultaneously-running array tasks
 # additional_parameters: { account: my_account }
 # setup:                   # shell lines run before each task (env activation, modules)
 #   - "source activate hc-dev"
+array_parallelism: 99

@@ -14,14 +14,17 @@ METHOD_COLORS = {
     "SPBM": "#D1495B",            # crimson — your method
     "Adam": "#4C4C4C",            # muted baseline
     "SSL-ALM (proj.)": "#2E86AB",
+    "ALM": "#2E86AB",
     "SSL-ALM (max)": "#5BC0BE",
     "SSw": "#E0A458",
+    r"$\nu$PI": "#008000"
 }
 METHOD_LABELS = {
     "adam": "Adam", "pbm": "SPBM",
     # "alm_proj": "SSL-ALM (proj.)", # make it work in maths
     "alm_proj": "ALM",
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
+    "nupi": r"$\nu$PI"
 }
 _MARKERS = {"adam": "o", "pbm": "s",
             "alm_proj": "D", "alm_max": "^", "ssg": "v"}

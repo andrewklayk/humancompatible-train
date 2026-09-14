@@ -1,0 +1,17 @@
+# @package _global_
+# nuPI hyperparameter grid for E1 (manual grid, BASIC sweeper).
+# Full cartesian product: 5 * 3 * 3 * 2 = 90 configs (lr x kp x ki x mu).
+# nu is pinned to 0.99 and penalty to 0 (pure multiplier update, no augmentation),
+# so the swept axes are the two controller gains + the primal lr + the Moreau level.
+defaults:
+  - override /algorithm: nupi
+
+hydra:
+  sweeper:
+    params:
+      algorithm.primal.lr: choice(0.001, 0.005, 0.01, 0.02, 0.05)
+      algorithm.dual.kp: choice(1., 5., 10., 20., 100.)
+      algorithm.dual.ki: choice(0.01, 0.02, 0.05, 0.1)
+      algorithm.dual.nu: choice(0.99)
+      algorithm.dual.penalty: choice(0.)
+      # algorithm.moreau.mu: choice(0., 1.)

@@ -30,7 +30,7 @@ METHOD_LABELS = {
     "pbm": "SPBM",
     "ssg": "SSw",
     "alm_proj": "ALM",
-    "nupi": r"$\nu PI", 
+    "nupi": r"$\nu$PI", 
     "pbm_gamma0": r"SPBM ($\gamma_0$)", 
     "pbm_kappa0": r"SPBM ($\kappa_0$)", 
     "pbm_mu0": r"SPBM ($\mu_0$)"
@@ -294,7 +294,7 @@ def print_table(specs, methods):
     print(table_str)
 
     # dump into a text file
-    out = '../../results/tables/FAIR_latex_table.txt'
+    out = './results/tables/FAIR_latex_table.txt'
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
         f.write(table_str)
@@ -305,9 +305,9 @@ if __name__ == "__main__":
     experiments = [ 
         # 'weight_norm',
         # 'folktables_positive_rate_vec',
-        # 'folktables_positive_rate_pair', 
+        'folktables_positive_rate_pair', 
         # 'dutch_positive_rate_pair',
-        'cifar10_loss'
+        # 'cifar10_loss',
         # "cifar100_loss"
     ]
 
@@ -316,13 +316,15 @@ if __name__ == "__main__":
                     "folktables_positive_rate_vec": "income", 
                     "folktables_positive_rate_pair": "income",
                     "dutch_positive_rate_pair": "dutch",
-                    "cifar10_loss": "cifar10"
+                    "cifar10_loss": "cifar10",
+                    "cifar100_loss": "cifar100"
     }
     bounds_map = {  "weight_norm": 2.0,
                     "folktables_positive_rate_vec": 0.2, 
                     "folktables_positive_rate_pair": 0.1,
                     "dutch_positive_rate_pair": 0.1,
-                     'cifar10_loss': 0.1
+                     'cifar10_loss': 0.1,
+                     'cifar100_loss': 0.1
     }
 
     # map to the E 
@@ -330,7 +332,9 @@ if __name__ == "__main__":
                     "folktables_positive_rate_vec": "E2", 
                     "folktables_positive_rate_pair": "E3",
                     "dutch_positive_rate_pair": "E4",
-                     'cifar10_loss': "E5"}
+                     'cifar10_loss': "E5",
+                     'cifar100_loss': "E6",
+                     }
 
     # define output folder
     # out = "../../results/plots/"
@@ -355,14 +359,16 @@ if __name__ == "__main__":
         specs.append(spec)
 
 
-    methods = ["adam","alm_proj", "pbm", "ssg"]
+    methods = ["adam","alm_proj", "pbm", "ssg",
+    # "nupi"
+    ]
     # methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
 
     # plot each experiment separately
     for i, experiment in enumerate(experiments):
 
-        plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1.0, companion="train",
-            constraint_titles=list(range(300)), methods=methods)
+        plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1., companion="train",
+            constraint_titles=list(range(3000000)), methods=methods)
 
     print_table(specs, methods)
 

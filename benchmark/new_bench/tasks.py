@@ -26,6 +26,7 @@ class Task:
     m: int
     bound: float
     fuse_loss_constraint: bool
+    reweight_loss: bool = False
 
 
 def _build_model_factory(model_kind: str, bundle) -> Callable[[], torch.nn.Module]:
@@ -98,4 +99,5 @@ def build_task(cfg_task, bundle) -> Task:
         m=m,
         bound=bound,
         fuse_loss_constraint=fuse,
+        reweight_loss=bool(cfg_task.get("reweight_loss", False)),
     )

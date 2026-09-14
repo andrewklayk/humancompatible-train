@@ -22,7 +22,7 @@ mem_per_cpu: 4G
 # additional_parameters -> renders as `#SBATCH --gres=gpu:1`. This is the most
 # widely-supported form (works on older Slurm / strictly-GRES clusters).
 additional_parameters:
-  gres: "gpu:1"            # or e.g. "gpu:a100:1" to pin a GPU type
+  gres: "gpu:a100:1"            # or e.g. "gpu:a100:1" to pin a GPU type
   # account: my_account
 
 # Alternative on newer Slurm (>=19.05 with the --gpus GRES family enabled):

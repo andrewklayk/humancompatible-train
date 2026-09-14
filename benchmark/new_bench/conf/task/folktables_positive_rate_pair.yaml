@@ -2,6 +2,7 @@ name: folktables_positive_rate_pair
 batch_size: 36
 model: mlp
 loss: bce
+reweight_loss: true
 constraint:
   kind: FairretPairwise
   bound: 0.1

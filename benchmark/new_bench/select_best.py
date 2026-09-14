@@ -131,7 +131,7 @@ def _select(items, filt, tol, tail, last_epoch, split=None, tolerance_decimal=No
     return feasible.loc[feasible["loss_mean"].idxmin()].to_dict()
 
 
-def _load_cells(agg_dir):
+def _load_cells(agg_dir, skip=["cifar100_loss", "cifar10_loss"]):
     """Read aggregate.py's per-cell CSV+JSON into {(task, data, algo): [item, ...]}.
 
     Each ``<cell>.json`` holds per-config metadata; the sibling ``<cell>.parquet``
@@ -142,6 +142,9 @@ def _load_cells(agg_dir):
     for jpath in sorted(glob.glob(os.path.join(agg_dir, "*.json"))):
         with open(jpath) as f:
             meta = json.load(f)
+        if meta["task"] in skip:
+            print(f"skipping {meta['task']}")
+            continue
         long = read_curves(jpath[:-5])
         items = []
         for cfg in meta["configs"]:
@@ -185,7 +188,7 @@ def main():
     last_epoch = not args.rolling
     os.makedirs(args.out, exist_ok=True)
 
-    cells = _load_cells(args.agg)
+    cells = _load_cells(args.agg, skip=[])
     if not cells:
         print(f"No aggregated configs (*.json) found under {args.agg}; run aggregate.py first.")
         return
@@ -195,7 +198,9 @@ def main():
         items.sort(key=lambda it: it["index"])
         by_index = {it["index"]: it for it in items}
         filt, bound = items[0]["filter"], items[0]["bound"]
-
+        print(cell[0])
+        if cell[0] == "cifar100_loss":
+            continue
         def process(cell, items, by_index, filt, bound, cond, args, tol_mults, last_epoch, summary):
             # One feasibility-first pick per slack multiplier (filter='none' -> single pick).
             for mult in ([None] if filt == "none" else tol_mults):
