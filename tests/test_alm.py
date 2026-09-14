@@ -269,7 +269,7 @@ class TestALMHPR(unittest.TestCase):
         # non-negativity clamp; only the surrogate differs.
         rho = 1.0
         c = torch.tensor([0.5, -0.3, -2.0])
-        quad = ALM(m=3, lr=rho, penalty=rho, init_duals=0.6, is_ineq=True)
+        quad = ALM(m=3, lr=rho, penalty=rho, init_duals=0.6, is_ineq=True, augmentation='quadratic')
         hpr = self._hpr(m=3, lr=rho, penalty=rho, init_duals=0.6, is_ineq=True)
 
         lag_q = quad.forward_update(self.loss, c)

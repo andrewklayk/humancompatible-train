@@ -66,6 +66,12 @@ class TestBalancedBatchSampler(unittest.TestCase):
             [i.tolist() for i in sampler._group_indices], self.subset_indices
         )
 
+    def test_group_weights(self):
+        # group sizes [2, 3, 5], n_groups=3 -> weight_g = 3 * size_g / 10
+        sampler = BalancedBatchSampler(group_indices=self.subset_indices, batch_size=3)
+        expected = torch.tensor([0.6, 0.9, 1.5])
+        torch.testing.assert_close(sampler.group_weights, expected)
+
     def test_iter(self):
         sampler = BalancedBatchSampler(
             group_indices=self.subset_indices, batch_size=6, drop_last=True
