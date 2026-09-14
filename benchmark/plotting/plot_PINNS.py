@@ -28,8 +28,14 @@ from plotting import plot_losses_and_constraints_stochastic   # your existing mo
 running_average = False
 
 METHOD_LABELS = {
-    "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
-    "alm_max": "SSL-ALM (max)", "ssg": "SSw",
+    "adam": "Adam",
+    "pbm": "SPBM",
+    "pbm_mu0": "SPBM ($\mu=0$)",
+    "pbm_gamma0": "SPBM ($\gamma=0$)",
+    "pbm_kappa0": "SPBM ($\kappa=0$)",
+    "alm_proj": "SSL-ALM (proj.)",
+    # "alm_max": "SSL-ALM (max)",
+    "ssg": "SSw",
 }
 
 def expand_methods(methods, cond_pbm):
@@ -216,6 +222,7 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
 METHOD_LABELS = {
     "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
+    "pbm_mu0": "SPBM ($\mu=0$)", "pbm_gamma0": "SPBM ($\gamma=0$)", "pbm_kappa0": "SPBM ($\kappa=0$)"
 }
 
 
@@ -459,7 +466,13 @@ if __name__ == "__main__":
     # TODO: put best config and just change the variable one at a time  
 
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
-    methods = ["adam", "alm_proj", "ssg", "pbm"]
+    # methods = [
+    #     "adam",
+    #     "alm_proj",
+    #     "ssg",
+    #     "pbm"
+    # ]
+    methods = ["pbm_mu0", "pbm_gamma0", "pbm_kappa0", "pbm"]
 
     # iterate and plot all single plot for each experiment
     for name in names:
@@ -467,7 +480,8 @@ if __name__ == "__main__":
         plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
                 constraint_titles=constraint_titles, 
                 best_validation_lastK=best_validation_window,
-                cond_pbm=cond_pbm)
+                cond_pbm=cond_pbm,
+                methods=methods)
 
     
     # print the latex table

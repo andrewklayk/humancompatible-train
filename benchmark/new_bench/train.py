@@ -11,6 +11,8 @@ import numpy as np
 import torch
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 
+from humancompatible.train.fairness.utils import BalancedBatchSampler
+
 def calc_constraints(constraint_fn, bounds, fuse, constraints_to_eq, model, out, sens, labels, loss):
     """Raw constraints and their bounded(/equality) form (c - bound)."""
     if fuse:
@@ -135,16 +137,36 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
     return rec
 
 
-def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbose=False):
+def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbose=False,
+          reweight_loss=False):
     """Run training; returns (history_train, history_val, history_test, history_opt)
     as lists of dicts. ``history_opt`` holds the full-batch KKT optimality metrics
-    (only populated when ``approach='opt'`` on a tabular task; empty otherwise)."""
+    (only populated when ``approach='opt'`` on a tabular task; empty otherwise).
+
+    ``reweight_loss``: pass each sample's inverse-propensity group weight to
+    ``loss_fn`` (as ``weight=``), correcting the training loss for
+    ``BalancedBatchSampler``'s equal per-batch group representation. Requires
+    ``bundle.train_loader``'s sampler to be a ``BalancedBatchSampler`` and
+    ``loss_fn`` to accept a per-sample ``weight=`` kwarg (e.g. bce, not ce)."""
     model.to(device)
     bounds = torch.tensor([task.bound] * task.m).to(device)
     constraint_fn = task.constraint_fn
     loss_fn = task.loss_fn
     fuse = task.fuse_loss_constraint
     c_to_eq = algorithm.constraints_to_eq
+
+    group_weights = None
+    if reweight_loss:
+        sampler = getattr(bundle.train_loader, "batch_sampler", None)
+        if not isinstance(sampler, BalancedBatchSampler):
+            raise ValueError("reweight_loss=True requires a BalancedBatchSampler train loader")
+        group_weights = sampler.group_weights.to(device)
+
+    def _loss(out, labels, sens):
+        if group_weights is None:
+            return loss_fn(out, labels)
+        w = (sens @ group_weights).unsqueeze(-1)
+        return loss_fn(out, labels, weight=w)
 
     history_train, history_val, history_test, history_opt = [], [], [], []
 
@@ -172,7 +194,7 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
             for feats, sens, labels in bundle.train_loader:
                 feats, sens, labels = feats.to(device), sens.to(device), labels.to(device)
                 out = model(feats)
-                loss = loss_fn(out, labels)
+                loss = _loss(out, labels, sens)
                 c, _ = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model, out, sens, labels, loss)
                 acc = calc_perclass_acc(sens, labels, out)
                 losses.append((loss.mean() if loss.dim() > 0 else loss).detach().cpu().numpy().item())
@@ -184,7 +206,7 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
                 feats, sens, labels = feats.to(device), sens.to(device), labels.to(device)
                 algorithm.zero_grad()
                 out = model(feats)
-                loss = loss_fn(out, labels)
+                loss = _loss(out, labels, sens)
                 loss_for_c = loss if algorithm.passes_loss_to_constraints else None
                 c, c_eq = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model, out, sens, labels, loss_for_c)
                 loss_mean = loss.mean() if loss.dim() > 0 else loss

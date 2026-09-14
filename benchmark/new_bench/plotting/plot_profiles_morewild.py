@@ -126,23 +126,26 @@ if __name__ == "__main__":
     
     experiments = [
         # 'weight_norm',
-        # 'folktables_positive_rate_vec',
-        # 'folktables_positive_rate_pair', 
-        # 'dutch_positive_rate_pair'
-        "cifar10_loss"
+        'folktables_positive_rate_vec',
+        'folktables_positive_rate_pair', 
+        'dutch_positive_rate_pair',
+        "cifar10_loss",
+        "cifar100_loss"
     ]
 
     data_map = {    "weight_norm": "income_norm",
                     "folktables_positive_rate_vec": "income", 
                     "folktables_positive_rate_pair": "income",
                     "dutch_positive_rate_pair": "dutch",
-                    "cifar10_loss": "cifar10"
+                    "cifar10_loss": "cifar10",
+                    "cifar100_loss": "cifar100"
     }
     bounds_map = {  "weight_norm": 2.0,
                     "folktables_positive_rate_vec": 0.2, 
                     "folktables_positive_rate_pair": 0.1,
                     "dutch_positive_rate_pair": 0.1,
-                    "cifar10_loss": 0.1
+                    "cifar10_loss": 0.1,
+                    "cifar100_loss": 0.1
     }
 
     agg = "../selection/aggregated/"

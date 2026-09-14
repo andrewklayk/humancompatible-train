@@ -10,19 +10,20 @@ defaults:
 
 # --- resources (edit for your cluster) ---
 partition: h200fast             # <-- your GPU partition name
+timeout_min: 10            # <-- max job time in minutes
 # MUST stay 1: submitit runs the job's function ONCE PER TASK. run.py is a single
 # process (not torch.distributed), so tasks_per_node>1 launches N duplicate processes
 # that share one Hydra output dir and write train.csv/opt.csv concurrently -> torn,
 # interleaved CSV rows. To pack many jobs on a node, use array_parallelism, not tasks.
 tasks_per_node: 1
-cpus_per_task: 4          # dataloading workers / host-side work
-mem_per_cpu: 8G
+cpus_per_task: 4        # dataloading workers / host-side work
+mem_per_cpu: 4G
 
 # GPU request. submitit has no first-class `gres` field, so we pass it through
 # additional_parameters -> renders as `#SBATCH --gres=gpu:1`. This is the most
 # widely-supported form (works on older Slurm / strictly-GRES clusters).
 additional_parameters:
-  gres: "gpu:1"            # or e.g. "gpu:a100:1" to pin a GPU type
+  gres: "gpu:h200:1"            # or e.g. "gpu:a100:1" to pin a GPU type
   # account: my_account
 
 # Alternative on newer Slurm (>=19.05 with the --gpus GRES family enabled):
@@ -40,6 +41,6 @@ additional_parameters:
 #       sacctmgr -n show qos format=Name,MaxSubmitJobsPerUser).
 # NOTE: this bounds *concurrency*, not the array's total size -- that's the separate
 # MaxArraySize (1001 here) constraint documented in scripts/_env.sh.
-array_parallelism: 199
+array_parallelism: 1
 # setup:                   # shell lines run before each task (env activation, modules)
 #   - "source activate hc-dev"

@@ -1,0 +1,22 @@
+name: nupi
+updater: primal_dual
+constraints_to_eq: false
+select_filter: upper
+primal:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.01
+moreau:
+  mu: 0.0
+dual:
+  _target_: humancompatible.train.dual_optim.nuPI
+  _partial_: true
+  # PI controller on the constraint violation. ki is the integral gain (== the dual
+  # step size of plain gradient ascent), kp the proportional gain, nu the error-buffer
+  # decay. nu=0, kp=0 recovers plain dual ascent (i.e. alm_proj with penalty=0).
+  ki: 0.01
+  kp: 1.0
+  nu: 0.99
+  # 0 = pure Lagrangian multiplier update, no augmentation (the reference method).
+  penalty: 0.0
+  is_ineq: true
