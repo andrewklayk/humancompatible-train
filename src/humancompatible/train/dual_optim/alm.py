@@ -8,7 +8,7 @@ from .base import DualOptimizer
 # cite: Stochastic Smoothed Primal-Dual Algorithms for Nonconvex Optimization with Linear Inequality Constraints
 # https://arxiv.org/pdf/2504.07607
 
-AUGMENTATIONS = ("quadratic", "hpr")
+AUGMENTATIONS = ("quadratic", "hpr", None)
 
 
 class ALM(DualOptimizer):
@@ -17,17 +17,21 @@ class ALM(DualOptimizer):
         m: int = None,
         lr: float = 0.01,
         init_duals: float | Tensor = None,
-        penalty: float = 1.0,
+        penalty: float = 0.0,
         *,
         dual_range: Tuple[float, float] = (-100.0, 100.0),
         momentum: float = 0.0,
         dampening: Optional[float] = None,
         is_ineq: bool = False,
         restart: bool = False,
-        augmentation: str = "hpr",
+        augmentation: Optional[str] = None,
         device=None,
         process_group: Optional[dist.ProcessGroup] = None,
     ) -> None:
+
+        # Unset + a nonzero penalty means "augment"; HPR is the better default surrogate.
+        if augmentation is None and penalty > 0:
+            augmentation = "hpr"
 
         if augmentation not in AUGMENTATIONS:
             raise ValueError(
@@ -64,8 +68,6 @@ class ALM(DualOptimizer):
         restart: bool = None,
         device=None,
     ):
-        if momentum is not None and (momentum < 0 or momentum > 1):
-            raise ValueError(f"momentum must be within [0,1]; got {momentum}")
 
         # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.
         if dampening is None:
@@ -151,7 +153,7 @@ class ALM(DualOptimizer):
     def _ascent_direction(self, group: dict[str, Any], c: Tensor) -> Tensor:
         """This group's dual ascent direction, i.e. the surrogate's gradient in the duals.
         """
-        if self.augmentation == "quadratic" or not group.get("is_ineq"):
+        if self.augmentation in ("quadratic", None) or not group.get("is_ineq"):
             return c
         duals = group["params"][0]
         return (torch.clamp(duals + self.penalty * c, min=0.0) - duals) / self.penalty
@@ -176,7 +178,7 @@ class ALM(DualOptimizer):
     def _add_constraint_contributions(
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
-        if self.augmentation == "quadratic":
+        if self.augmentation in ("quadratic", None):
             lagrangian.add_(snapshot @ c)
             return
 
@@ -241,11 +243,22 @@ ALM.__doc__ = (
     r"""
     A Dual Optimizer that works on the dual maximization tasks according to the (Augmented) Lagrangian rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2504.07607
 
+    By default (``augmentation=None``, ``penalty=0``), this is dual ascent on the
+    plain Lagrangian:
+
     .. math::
+
+        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t})
 
         \pmb{\lambda}_{t+1} & \leftarrow \pmb{\lambda}_t + \gamma \mathbf{c}_t(\theta_{t})
 
-        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
+    Setting ``penalty > 0`` augments the Lagrangian; ``augmentation`` picks the form
+    and defaults to ``"hpr"`` when left unset. Passing ``augmentation="quadratic"``
+    instead adds a quadratic penalty term; the dual update is unchanged:
+
+    .. math::
+
+        \mathcal{L}_{t+1} \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
 
     For constraint groups registered with ``is_ineq=True`` the quadratic term acts
     on the violation, :math:`\frac{\rho}{2} \| [\mathbf{c}_t(\theta_t)]_+ \|^2_2`,
@@ -253,9 +266,9 @@ ALM.__doc__ = (
     being strictly feasible. The linear term and the dual update always use the raw
     values.
 
-    Setting ``augmentation="hpr"`` switches to the Hestenes--Powell--Rockafellar
-    augmentation, in which the linear and quadratic terms are replaced by a single
-    expression per group,
+    ``augmentation="hpr"`` (the implicit default whenever ``penalty > 0``) is the
+    Hestenes--Powell--Rockafellar augmentation, in which the linear and quadratic
+    terms are replaced by a single expression per group,
 
     .. math::
 
@@ -268,11 +281,11 @@ ALM.__doc__ = (
 
     for inequality groups, the dual update again being gradient ascent on the
     surrogate. Writing :math:`\sigma = \pmb{\lambda} + \rho \mathbf{c}` for the trial
-    multiplier, the whole difference from the default is where the clamp sits: the
-    weight the surrogate puts on :math:`\partial \mathbf{c} / \partial \theta` is
-    :math:`\max(\pmb{\lambda}, \sigma)` for ``"quadratic"`` but
-    :math:`\max(0, \sigma)` for ``"hpr"``. The default therefore never lets a
-    multiplier's pull on the primal step fall below :math:`\pmb{\lambda}` however
+    multiplier, the whole difference between the two augmented modes is where the
+    clamp sits: the weight the surrogate puts on :math:`\partial \mathbf{c} /
+    \partial \theta` is :math:`\max(\pmb{\lambda}, \sigma)` for ``"quadratic"`` but
+    :math:`\max(0, \sigma)` for ``"hpr"``. The quadratic penalty therefore never lets
+    a multiplier's pull on the primal step fall below :math:`\pmb{\lambda}` however
     feasible the constraint is, whereas HPR switches that pull off entirely once
     :math:`\sigma \le 0`. Three practical consequences:
 
@@ -280,16 +293,16 @@ ALM.__doc__ = (
       :math:`\frac{1}{2\rho}(\|\pmb{\mu} + \rho \mathbf{h}\|^2 - \|\pmb{\mu}\|^2)
       = \pmb{\mu}^T \mathbf{h} + \frac{\rho}{2}\|\mathbf{h}\|^2` identically and the
       dual update is unchanged.
-    * At ``lr == penalty`` both modes perform the *same* dual update
-      :math:`\pmb{\lambda}_{t+1} = [\pmb{\lambda}_t + \rho \mathbf{c}_t]_+` -- the
-      default reaches it via the non-negativity clamp -- so at that setting the choice
-      is purely a primal-side one. ``restart=True`` is also less necessary under HPR,
-      since an inactive multiplier stops influencing the primal step while still
-      nonzero.
+    * At ``lr == penalty`` both augmented modes perform the *same* dual update
+      :math:`\pmb{\lambda}_{t+1} = [\pmb{\lambda}_t + \rho \mathbf{c}_t]_+` --
+      ``"quadratic"`` reaches it via the non-negativity clamp -- so at that setting
+      the choice is purely a primal-side one. ``restart=True`` is also less necessary
+      under HPR, since an inactive multiplier stops influencing the primal step while
+      still nonzero.
     * The clamp inside the dual update makes it a nonlinear function of the constraint
       estimate, so with *stochastic* constraints HPR biases the multipliers upward
-      (Jensen), i.e. toward feasibility. The default's dual update is linear in the
-      estimate and carries no such bias.
+      (Jensen), i.e. toward feasibility. The plain and quadratic dual updates are
+      linear in the estimate and carry no such bias.
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int
@@ -297,7 +310,7 @@ ALM.__doc__ = (
     :type lr: float
     :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
     :type init_duals: float | Tensor
-    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`0.`(no augmentation term). A nonzero value auto-selects the`"hpr"`augmentation unless`augmentation`is set explicitly.
     :type penalty: float
     :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
     :type dual_range: Tuple[float, float]
@@ -311,8 +324,8 @@ ALM.__doc__ = (
     :type restart: bool
     :param ctol: Reserved for a constraint tolerance allowing tiny violations to account for noise. Accepted for API stability but **currently unused** by the dual update.
     :type ctol: float
-    :param augmentation: Which augmentation to form, ``"quadratic"`` (default) or ``"hpr"``. The latter requires `penalty > 0` and, on inequality groups, replaces the linear-plus-quadratic terms by the Hestenes-Powell-Rockafellar expression above.
-    :type augmentation: str
+    :param augmentation: Which augmentation to form: `None`(default -- no augmentation term if`penalty == 0`, else`"hpr"`), `"quadratic"`, or `"hpr"`. `"hpr"` requires `penalty > 0` and, on inequality groups, replaces the linear-plus-quadratic terms by the Hestenes-Powell-Rockafellar expression above.
+    :type augmentation: str, optional
     :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
     :type process_group: dist.ProcessGroup, optional
 
