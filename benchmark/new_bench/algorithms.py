@@ -61,7 +61,7 @@ class Algorithm:
             self._clip()
             self.primal.step()
         elif self.updater == "switching":
-            max_c = max(constraints_bounded_eq)
+            max_c = torch.max(constraints_bounded_eq)
             if max_c > self.constraint_tol:
                 max_c.backward()
                 self._clip()
