@@ -37,7 +37,7 @@ class BalancedBatchSampler(Sampler):
         group_indices: Optional[Iterable[Iterable[int]]] = None,
         batch_size: int = 1,
         drop_last: bool = True,
-        extend_groups: Optional[bool | Iterable[int]] = True,
+        extend_groups: Optional[bool | Iterable[int]] = False,
         generator: Optional[torch.Generator]=None
     ):
 
