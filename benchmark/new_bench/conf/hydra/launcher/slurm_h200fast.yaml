@@ -10,7 +10,6 @@ defaults:
 
 # --- resources (edit for your cluster) ---
 partition: h200fast             # <-- your GPU partition name
-timeout_min: 10            # <-- max job time in minutes
 # MUST stay 1: submitit runs the job's function ONCE PER TASK. run.py is a single
 # process (not torch.distributed), so tasks_per_node>1 launches N duplicate processes
 # that share one Hydra output dir and write train.csv/opt.csv concurrently -> torn,
