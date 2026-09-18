@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=cifar100_runtime
-#SBATCH --partition=h200
+#SBATCH --partition=h200fast
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=16G
