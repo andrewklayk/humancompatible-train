@@ -224,8 +224,9 @@ def train(u_model, beta, trainloader, bdry_data, val_test, optimizer, loss_f,
             optimizer.zero_grad()
 
         u_model.eval()
-        val_err = torch.linalg.norm((u_model(X_val) - y_val), 2).item() / torch.linalg.norm(y_val, 2).item()
-        test_err = torch.linalg.norm((u_model(X_test) - y_test), 2).item() / torch.linalg.norm(y_test, 2).item()
+        with torch.no_grad():
+            val_err = torch.linalg.norm((u_model(X_val) - y_val), 2).item() / torch.linalg.norm(y_val, 2).item()
+            test_err = torch.linalg.norm((u_model(X_test) - y_test), 2).item() / torch.linalg.norm(y_test, 2).item()
 
 
         # ── KKT on the entire train set (post-step, current weights) ──── ADDED

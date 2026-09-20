@@ -17,4 +17,4 @@ partition: amdfast
 # additional_parameters: { account: my_account }
 # setup:                   # shell lines run before each task (env activation, modules)
 #   - "source activate hc-dev"
-array_parallelism: 99
+array_parallelism: 50

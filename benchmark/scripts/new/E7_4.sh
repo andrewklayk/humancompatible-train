@@ -7,9 +7,9 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
 #SBATCH --mem=10G
-#SBATCH --time=24:00:00
-#SBATCH --partition=amdgpu
-#SBATCH --array=0-4
+#SBATCH --time=30:00:00
+#SBATCH --partition=amdgpulong
+#SBATCH --array=0
 
 ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
 ml Hydra/1.3.2-GCCcore-14.3.0

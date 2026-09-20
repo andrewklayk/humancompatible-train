@@ -39,7 +39,12 @@ import tasks as tasks_mod
 from train import calc_constraints
 
 CONF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conf")
-ALGOS = ["adam", "pbm", "alm_proj", "ssg"]
+ALGOS = [
+    "adam",
+    "pbm",
+    "alm_proj",
+    "ssg"
+]
 CONSTRAINT_GRID = [100, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 9900]
 N_EPOCHS = 3
 INIT_SEEDS = [0, 1, 2, 3, 4]
@@ -57,7 +62,7 @@ def _compose_cfg(algo):
 
 def _mute_mask(full_m, k, device):
     """Fixed size-k subset of range(full_m), nested across k (k=100 subset of k=1000, ...)."""
-    perm = torch.randperm(full_m, generator=torch.Generator().manual_seed(MASK_SEED))
+    perm = torch.randperm(full_m, device="cpu", generator=torch.Generator().manual_seed(MASK_SEED))
     return perm[:k].to(device)
 
 
@@ -102,30 +107,40 @@ def run_one(algo, n_constraints, init_seed, device):
             algorithm.step(loss_mean, c_eq)
             active_fracs.append((c.detach() > bounds).float().mean().item())
         epoch_time = time.perf_counter() - start
+        active_pct = 100.0 * sum(active_fracs) / len(active_fracs)
         records.append({
             "algorithm": algo,
             "n_constraints": k,
             "init_seed": init_seed,
             "epoch": epoch,
             "epoch_time_sec": epoch_time,
-            "active_pct": 100.0 * sum(active_fracs) / len(active_fracs),
+            "active_pct": active_pct,
+            "active_count": active_pct / 100.0 * k,  # average number (not %) of enforced constraints active
         })
     return records
 
 
+def _metric_table(df, metric, fmt):
+    """Per-(algorithm, n_constraints) 'mean +/- std' of ``metric``, pooled over epochs
+    and seeds; rows=n_constraints, columns=algorithm."""
+    stats = df.groupby(["n_constraints", "algorithm"])[metric].agg(["mean", "std"])
+    cells = stats.apply(lambda r: f"{r['mean']:{fmt}} $\\pm$ {r['std']:{fmt}}", axis=1).unstack("algorithm")
+    return cells.reindex(index=CONSTRAINT_GRID, columns=[a for a in ALGOS if a in cells.columns])
+
+
 def _write_latex_table(df, out_path):
-    """Per-(algorithm, n_constraints) mean +/- std of epoch_time_sec, pooled over
-    epochs and seeds; rows=n_constraints, columns=algorithm."""
-    stats = df.groupby(["n_constraints", "algorithm"])["epoch_time_sec"].agg(["mean", "std"])
-    cells = stats.apply(lambda r: f"{r['mean']:.2f} $\\pm$ {r['std']:.2f}", axis=1).unstack("algorithm")
-    cells = cells.reindex(index=CONSTRAINT_GRID, columns=[a for a in ALGOS if a in cells.columns])
-    latex = cells.to_latex(
-        escape=False, na_rep="--",
-        caption="CIFAR100 per-epoch runtime (s), mean $\\pm$ std over epochs and init seeds.",
-        label="tab:cifar100_runtime",
-    )
+    tables = [
+        (_metric_table(df, "epoch_time_sec", ".2f"),
+         "CIFAR100 per-epoch runtime (s), mean $\\pm$ std over epochs and init seeds.",
+         "tab:cifar100_runtime"),
+        (_metric_table(df, "active_count", ".1f"),
+         "CIFAR100 average number of active (violated) constraints, mean $\\pm$ std over epochs and init seeds.",
+         "tab:cifar100_active"),
+    ]
     with open(out_path, "w") as f:
-        f.write(latex)
+        for cells, caption, label in tables:
+            f.write(cells.to_latex(escape=False, na_rep="--", caption=caption, label=label))
+            f.write("\n")
 
 
 def main():
