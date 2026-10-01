@@ -155,7 +155,7 @@ class SSG(DualOptimizer):
     def _dual_update(self, group: dict[str, Any], c: Tensor) -> None:
         """No multipliers to update: the method switches objectives instead."""
 
-    def _add_surrogate_terms(
+    def _add_constraint_contributions(
         self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
     ) -> None:
         """No per-group terms: :meth:`_initial_surrogate` is the whole surrogate."""

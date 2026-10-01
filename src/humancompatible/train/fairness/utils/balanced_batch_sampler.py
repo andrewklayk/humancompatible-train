@@ -18,6 +18,12 @@ class BalancedBatchSampler(Sampler):
     Oversampling reuses a group's samples evenly: over one epoch, each sample of an extended group is drawn either
     `floor`or`ceil`of the per-sample average, and no sample is ever repeated within a single batch.
 
+    Because every batch draws the same number of samples per group regardless of true group size, the batch loss
+    over-represents small groups relative to their population share. The`group_weights`property gives the
+    inverse-propensity per-group weight (`n_groups * group_size / total_size`) that corrects for this: passing it
+    (indexed/broadcast per sample) as the`weight`argument of a mean-reduced loss recovers an unbiased estimate of
+    the population loss.
+
     :param group_indices: List of indices for each group. Defaults to`None`.
     :type group_indices: Iterable[Iterable[int]]
     :param group_onehot: Tensor of one-hot-encoded groups memberships of shape`(N, S)`, where`S`is the number of groups. Defaults to`None`.
@@ -140,3 +146,11 @@ class BalancedBatchSampler(Sampler):
             else self._group_sizes[group_idx]
             for group_idx in range(self._n_groups)
         ) // self._n_samples_per_group
+
+    @property
+    def group_weights(self) -> torch.Tensor:
+        """Inverse-propensity per-group weight (n_groups * population proportion), to
+        pass as `weight=` to a mean-reduced loss and correct for this sampler's equal
+        per-batch group representation."""
+        sizes = torch.tensor(self._group_sizes, dtype=torch.float32)
+        return self._n_groups * sizes / sizes.sum()

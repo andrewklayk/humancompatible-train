@@ -22,7 +22,15 @@ Usage::
     python paper/tune.py -m experiment=e2a algorithm=alm +sweep=e2a_alm
     python paper/tune.py -m hydra/launcher=slurm experiment=e2a +sweep=e2a_alm seed=0,1,2
 
-Then rank the results with ``python paper/tune_report.py --runs paper/multirun/e2a/alm``.
+    # E2c: two experiment configs, one per cadence (see _run_e2c's docstring for why).
+    python paper/tune.py -m experiment=e2c_per_iteration +sweep=e2c_alm \\
+        experiment.problem.dataset=income,dutch experiment.problem.per_group=4,8,16
+    python paper/tune.py -m experiment=e2c_per_epoch +sweep=e2c_alm \\
+        experiment.problem.dataset=income,dutch
+
+Then rank the results with ``python paper/tune_report.py --runs paper/multirun/e2a/alm``,
+or for E2c, apply the winners directly with ``python paper/e2/tune_apply.py --runs
+paper/multirun/e2c/alm``.
 """
 
 from __future__ import annotations
@@ -114,7 +122,7 @@ def _run_e2a(cfg) -> dict:
     print(f"{label} on {problem.name}: m={problem.m}, {problem.n_groups} groups, "
           f"batch {problem.batch_size}, {len(problem.loader)} batches/epoch")
 
-    history = a_fairness.run(
+    history = a_fairness.train(
         problem,
         # With a factory the registry is bypassed entirely and `method` only names the
         # row; without one this must be a real key, and "Adam" is the reference.
@@ -155,6 +163,69 @@ def _run_e2a(cfg) -> dict:
     _harness.write_csv(history, "e2a_trajectory", "e2a")
     # Feasibility first: an infeasible configuration is not a cheaper solution, it is a
     # different problem. Judged on train, which is what the method actually optimized.
+    row["objective"] = row["test loss"] + INFEASIBLE_WEIGHT * max(0.0, train_viol)
+    print(f"  loss {row['test loss']:.4f}  viol train {train_viol:+.4f} "
+          f"test {test_viol:+.4f}  -> objective {row['objective']:.4f}")
+    return row
+
+
+# --------------------------------------------------------------------------- #
+# adapter: E2c -- batch size / cadence's per-cell ALM tuning
+# --------------------------------------------------------------------------- #
+
+
+def _run_e2c(cfg) -> dict:
+    """One (dataset, per_group, cadence, primal_lr, dual_lr) cell of E2c's tuning.
+
+    ``experiment.cadence`` and the fixed half of ``experiment.problem`` come from
+    ``conf/experiment/e2c_per_iteration.yaml`` / ``e2c_per_epoch.yaml`` -- separate
+    files because cadence changes what a "step" costs (one dual update per batch vs.
+    per epoch), so the same nominal ``dual_lr`` means something different under each
+    and they should not share one sweep. ``+sweep=e2c_alm`` supplies the
+    (primal_lr, dual_lr) grid; ``experiment.problem.dataset=income,dutch`` and (for
+    per-iteration only) ``experiment.problem.per_group=4,8,16`` extend it on the CLI.
+    Only ALM is tuned -- c_cadence.py's ``ALM_FAMILY_KWARGS`` variants reuse their
+    cell's winning pair, adding no hyperparameter of their own.
+    """
+    from paper.e2 import c_cadence
+    from paper.problems import fairness
+
+    seed = int(cfg.seed)
+    spec = OmegaConf.to_container(cfg.experiment.problem, resolve=True)
+    spec = {key: tuple(value) if isinstance(value, list) else value
+            for key, value in spec.items()}
+    problem = fairness.build(**spec, extend_groups=True)
+    cadence = str(cfg.experiment.cadence)
+
+    print(f"ALM on {problem.name}: per_group={spec.get('per_group')}, "
+          f"cadence={cadence}, batch {problem.batch_size}")
+
+    history = c_cadence.train(
+        problem, seed, int(cfg.experiment.epochs),
+        primal_lr=float(cfg.algorithm.primal.lr),
+        dual_lr=float(cfg.algorithm.dual.lr),
+        cadence=cadence,
+    )
+
+    tail = history[-min(int(cfg.experiment.tail), len(history) - 1):]
+
+    def mean(key, source=tail):
+        return float(np.mean([h[key] for h in source]))
+
+    train_viol, test_viol = mean("train_max_viol"), mean("test_max_viol")
+    row = {
+        "problem": problem.name,
+        "per_group": spec.get("per_group"),
+        "cadence": cadence,
+        "seed": seed,
+        "train loss": mean("train_loss"),
+        "test loss": mean("test_loss"),
+        "train max_viol": train_viol,
+        "test max_viol": test_viol,
+    }
+
+    _harness.write_csv(history, "e2c_trajectory", "e2c")
+    # Same feasibility-first objective as e2a's adapter -- see its comment above.
     row["objective"] = row["test loss"] + INFEASIBLE_WEIGHT * max(0.0, train_viol)
     print(f"  loss {row['test loss']:.4f}  viol train {train_viol:+.4f} "
           f"test {test_viol:+.4f}  -> objective {row['objective']:.4f}")
@@ -307,7 +378,7 @@ def _density_objective(quality, achieved, eps, constrained: bool) -> float:
 # entry point
 # --------------------------------------------------------------------------- #
 
-ADAPTERS = {"e2a": _run_e2a, "e3_cifar": _run_e3_cifar, "e3_llm": _run_e3_llm}
+ADAPTERS = {"e2a": _run_e2a, "e2c": _run_e2c, "e3_cifar": _run_e3_cifar, "e3_llm": _run_e3_llm}
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")

@@ -41,7 +41,7 @@ def set_results_dir(path) -> Path:
     ``RESULTS`` is bound at import, so a driver that runs several configurations in
     one process cannot redirect them by setting the environment variable alone.
     Several scripts also re-exec themselves under ``torch.distributed.run``
-    (``e3/run_llm.py``, ``e3/sweep.py``, ``e2/b_parallel.py``), and the child
+    (``e3/run_llm.py``, ``e3/sweep.py``), and the child
     imports this module fresh -- which is why the environment variable is set too
     rather than only the global.
     """

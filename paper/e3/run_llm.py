@@ -18,19 +18,9 @@ density, what is the model worth at that density (perplexity at the median gates
 held-out blocks), and what does the dual layer cost in throughput. It does **not** validate
 the data-parallel constraint reduction — the density constraint is a closed form in the gate
 parameters with no data in it, so every rank computes the same value and ``all_reduce(c,
-AVG)`` cannot be caught being wrong here. That claim belongs to ``paper/e2/b_parallel.py``,
-whose constraints are sample averages.
-
-**This script registers no predictions**, and neither do the drivers. The other paper
-experiments state falsifiable expectations up front and gate on them with ``--check``; E3 is
-deliberately descriptive, so ``--check`` is accepted for interface parity and exits 0.
-Assertions about the gate mathematics live in ``tests/test_llm_gates.py``, where they
-belong.
-
-**SSG is deliberately not wired here.** It is implemented in the package but set aside for
-every paper experiment, and its switching step takes a different code path (it steps the
-model on ``max_i c_i`` rather than on a surrogate), so adding it would need its own branch
-below as well as revisiting that scope decision.
+AVG)`` cannot be caught being wrong here. That claim belongs to E0d's data-parallel
+equivalence testing, whose ratio-type-constraint finding is stated generally enough to
+cover E2 and E3's per-group rates alike.
 
 Usage::
 

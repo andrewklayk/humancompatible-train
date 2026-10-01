@@ -69,9 +69,9 @@ class ALM(DualOptimizer):
         device=None,
     ):
 
-        # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.
+        # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.1
         if dampening is None:
-            dampening = momentum if (momentum is not None and momentum > 0) else 0.0
+            dampening = 0.0
 
         if not isinstance(restart, bool):
             raise ValueError(

@@ -1,6 +1,12 @@
 """
 E2a — fairness-constrained learning on real data.
 
+No longer part of the paper's plan (paper/README.md) or run_all.sh: its
+per_group=8, per-iteration cell is now one slice of e2/c_cadence.py's sweep,
+which is what run_all.sh runs for E2. Kept as a library -- c_cadence.py reuses
+``train()``/``METHODS``/``CONSTRAINED``/``CONTROL`` from here -- and still
+runnable standalone with its own predictions below.
+
 The two things a synthetic benchmark structurally cannot show:
 
 1. **Constraint generalization.** The constraint is an *expectation*, and it is
@@ -86,6 +92,7 @@ import numpy as np
 import torch
 
 from humancompatible.train.dual_optim import ALM, PBM, iALM, nuPI
+from humancompatible.train.fairness.utils import BalancedBatchSampler
 from paper._harness import (
     Checks,
     figure,
@@ -230,15 +237,32 @@ def _flat_norm(grads):
 # --------------------------------------------------------------------------- #
 
 
-def run(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_LR):
+def train(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_LR,
+          cadence="per_iteration", reweight_loss=False):
     """Train one (problem, method, seed); return the per-epoch history.
+
+    Named to match ``run_cifar.py``/``run_llm.py``'s ``train()``, which is what
+    ``paper/tune.py``'s adapters call into for every experiment.
 
     :param dual_factory: ``m -> DualOptimizer``, overriding ``METHODS[method]``.
         The registry's builders close over ``DUAL_LR``, so without this no dual
         hyperparameter is reachable from outside the module -- which is what the
         sweep in ``paper/tune.py`` needs. ``method`` then only names the row.
     :param primal_lr: likewise for the primal step.
+    :param cadence: ``"per_iteration"`` (default, what every E2a run uses) updates
+        the duals every minibatch, off a noisy per-batch constraint estimate.
+        ``"per_epoch"`` freezes the duals for the whole epoch's primal steps
+        (``dual.forward`` instead of ``dual.forward_update``), then updates them
+        once at epoch end from a full-batch evaluation on ``problem.train`` --
+        the classical outer/inner ALM structure, against the single-loop
+        stochastic version above. No-op when ``dual is None``.
+    :param reweight_loss: pass each sample's inverse-propensity group weight
+        (``BalancedBatchSampler.group_weights``) to the training loss, correcting
+        for the sampler's equal per-batch group representation when
+        ``extend_groups`` oversamples small groups. Evaluation in ``_kkt`` is
+        never reweighted -- that is meant to read as the true population loss.
     """
+    assert cadence in ("per_iteration", "per_epoch"), cadence
     set_seed(seed)
     # The sampler's generator lives on the problem, so it must be reset here or
     # each successive run continues the previous one's batch order.
@@ -250,6 +274,18 @@ def run(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_LR
     else:
         build, evaluates_constraint = dual_factory, True
     dual = None if build is None else build(problem.m)
+
+    group_weights = None
+    if reweight_loss:
+        sampler = problem.loader.batch_sampler
+        if not isinstance(sampler, BalancedBatchSampler):
+            raise ValueError("reweight_loss=True requires a BalancedBatchSampler loader")
+        group_weights = sampler.group_weights
+
+    def batch_loss(logits, labels, sens):
+        if group_weights is None:
+            return problem.objective(logits, labels)
+        return problem.objective(logits, labels, weight=(sens @ group_weights).unsqueeze(-1))
 
     history = []
 
@@ -268,7 +304,7 @@ def run(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_LR
         for features, sens, labels in problem.loader:
             primal.zero_grad()
             logits = model(features)
-            objective = problem.objective(logits, labels)
+            objective = batch_loss(logits, labels, sens)
             constraints = (problem.constraints(logits, sens)
                            if evaluates_constraint else None)
             if dual is None:
@@ -278,11 +314,21 @@ def run(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_LR
                 surrogate = (objective if constraints is None
                              else objective + 0.0 * constraints.sum())
                 surrogate.backward()
-            else:
+            elif cadence == "per_iteration":
                 # forward_update is the documented entry point: it is immune to
                 # the forward/update ordering hazard on forward().
                 dual.forward_update(objective, constraints).backward()
+            else:
+                # per_epoch: duals stay frozen through the whole inner loop.
+                dual.forward(objective, constraints).backward()
             primal.step()
+        if dual is not None and cadence == "per_epoch":
+            # One accurate dual update per epoch, from the full training set at
+            # the epoch's new iterate -- the outer step of the outer/inner split.
+            with torch.no_grad():
+                x_train, a_train, _ = problem.train
+                train_constraints = problem.constraints(model(x_train), a_train)
+            dual.update(train_constraints)
         snapshot(epoch, time.perf_counter() - started)
 
     return history
@@ -324,7 +370,7 @@ def main(argv=None):
         print(f"    {problem.notes}")
         for method in METHODS:
             for seed in seeds:
-                history = run(problem, method, seed, epochs)
+                history = train(problem, method, seed, epochs)
                 for row in history:
                     trajectories.append(
                         {"problem": problem.name, "m": problem.m,
