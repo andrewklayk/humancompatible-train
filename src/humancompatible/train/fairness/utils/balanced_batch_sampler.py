@@ -16,7 +16,7 @@ class BalancedBatchSampler(Sampler):
     the size of group`g`itself otherwise.
 
     Oversampling reuses a group's samples evenly: over one epoch, each sample of an extended group is drawn either
-    `floor`or`ceil`of the per-sample average, and no sample is ever repeated within a single batch.
+     `floor` or `ceil` of the per-sample average, and no sample is ever repeated within a single batch.
 
     Because every batch draws the same number of samples per group regardless of true group size, the batch loss
     over-represents small groups relative to their population share. The`group_weights`property gives the

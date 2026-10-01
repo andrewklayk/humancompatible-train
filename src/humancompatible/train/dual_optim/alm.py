@@ -237,9 +237,6 @@ def _update_duals(
 
 
 ALM.__doc__ = (
-
-        # \textbf{input}: \gamma \text{ (lr) }, \pmb{\lambda}_t \text{ (dual variables, created by method) }, \\
-        # \mathbf{c}(\theta) \text{ (constraints) }, f(\theta) \text{ (objective) }, \rho \text{ (penalty coefficient) } \\
     r"""
     A Dual Optimizer that works on the dual maximization tasks according to the (Augmented) Lagrangian rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2504.07607
 
@@ -310,9 +307,9 @@ ALM.__doc__ = (
     :type lr: float
     :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
     :type init_duals: float | Tensor
-    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`0.`(no augmentation term). A nonzero value auto-selects the`"hpr"`augmentation unless`augmentation`is set explicitly.
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to `0.`(no augmentation term). A nonzero value auto-selects the`"hpr"`augmentation unless`augmentation`is set explicitly.
     :type penalty: float
-    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :param dual_range: Safeguarding range for dual variables; they will be `clamp`-ed to this range.
     :type dual_range: Tuple[float, float]
     :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
     :type momentum: float
