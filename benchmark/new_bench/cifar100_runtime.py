@@ -40,11 +40,14 @@ from train import calc_constraints
 
 CONF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conf")
 ALGOS = [
-    "adam",
-    "pbm",
-    "alm_proj",
-    "ssg"
+    # "adam",
+    "adam_reg",
+    # "pbm",
+    # "alm_proj",
+    # "ssg"
 ]
+    
+
 CONSTRAINT_GRID = [100, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 9900]
 N_EPOCHS = 3
 INIT_SEEDS = [0, 1, 2, 3, 4]

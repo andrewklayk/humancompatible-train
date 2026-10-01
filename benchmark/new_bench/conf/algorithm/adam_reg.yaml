@@ -1,0 +1,9 @@
+name: adam_reg
+updater: reg
+select_filter: none
+# backprops loss + reg_const * max(c - bound) every step (no dual ascent, no gating)
+reg_const: 1.0
+primal:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001

@@ -7,9 +7,9 @@
 
 # Cluster modules (skipped off-cluster, e.g. a local conda env, where ml is absent).
 if command -v ml >/dev/null 2>&1; then
-  ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
+  ml PyTorch/2.11.0-foss-2025b-CUDA-12.9.1
   ml Hydra/1.3.2-GCCcore-14.3.0
-  ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
+  ml torchvision/0.28.0-foss-2025b-CUDA-12.9.1
   ml Optuna/4.6.0-foss-2025b
   source env_empty/bin/activate
   pip install ../../
@@ -44,7 +44,7 @@ python3 -m pip install -q hydra-submitit-launcher
 # Each (fold, init_seed) is a separate basic-sweeper run over the SAME manual grid,
 # so every run produces identical configs and select_best can match them across
 # folds and inits.
-: "${INIT_SEEDS:=0 1 2 3 4}"
+: "${INIT_SEEDS:=2 3}"
 : "${N_FOLDS:=5}"
 : "${CV_SEED:=0}"
 # Training length. NOTE: this only sets the default value -- for it to reach a run,

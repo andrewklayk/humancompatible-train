@@ -87,19 +87,20 @@ class ALM(Optimizer):
 
     def _add_penalty_term(self, lagrangian: Tensor, constraints: Tensor) -> None:
         """Add penalty term to lagrangian in-place."""
+        constraints_pos = torch.clamp(constraints, 0)
         if self.penalty == 0:
             return
         elif constraints.ndim > 0:
             lagrangian.add_(
                 0.5
                 * self.penalty
-                * torch.dot(constraints, constraints)
+                * torch.dot(constraints_pos, constraints_pos)
             )
         else:
             lagrangian.add_(
                 0.5
                 * self.penalty
-                * torch.square(constraints)
+                * torch.square(constraints_pos)
             )
 
 

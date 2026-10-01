@@ -19,7 +19,7 @@ import json
 import os
 import sys
 import numpy as np
-from prepare_results_plotting import ExperimentSpec, config_trajectory, acc_trajectory
+from prepare_results_plotting import ExperimentSpec, config_trajectory, acc_trajectory, best_config_in
 
 # Shared renderer lives in the sibling ../../plotting package (pure matplotlib/numpy).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plotting"))
@@ -28,25 +28,35 @@ from plotting import plot_losses_and_constraints_stochastic  # noqa: E402
 METHOD_LABELS = {
     "adam": "Adam",
     "pbm": "SPBM",
+    "pbm_mu0": r"SPBM (\mu=0)",
+    "pbm_gamma0": r"SPBM (\gamma=0)",
+    "pbm_kappa0": r"SPBM (\kappa=0)",
+    # "pbm_dual": r"SPBM (\kappa=0)"
+    "alm_proj": "SSL-ALM (proj.)",
     "ssg": "SSw",
-    "alm_proj": "ALM",
-    "nupi": r"$\nu$PI", 
-    "pbm_gamma0": r"SPBM ($\gamma_0$)", 
-    "pbm_kappa0": r"SPBM ($\kappa_0$)", 
-    "pbm_mu0": r"SPBM ($\mu_0$)"
 }
 plot_train_only = True
 tail = 5
 
+
 def read_best_configs(spec, methods, tol_mult=1.0):
-    """{method: best_config_index}, read from select_best.py's best_*.json winners.
+    """{method: (source_algorithm, best_config_index)}, read from select_best.py's
+    best_*.json winners.
 
     No re-selection here -- select_best.py is the single selector. Looks up the
     per-(cell, slack) winner file for ``tol_mult``, falling back to the
     filter='none' pick (adam) or an untagged file. Methods with no winner at this
-    slack (e.g. infeasible) are skipped."""
+    slack (e.g. infeasible) are skipped.
+
+    ``source_algorithm`` is the raw cell the winning config actually lives in --
+    for a pooled cell (select_best.py's --pool_subtypes) this may differ from
+    ``method`` itself (e.g. method="alm_proj" but the winner came from
+    "alm_proj_fix"), and config_index is only unique WITHIN that source cell's
+    own aggregated file, so callers must use source_algorithm, not method, to
+    locate the winning trajectory. Falls back to ``method`` for best_*.json
+    files written before that field existed.
+    """
     sel_dir = os.path.dirname(os.path.abspath(spec.agg_root).rstrip("/"))  # selection/
-    print(f"looking for best_*.json in {sel_dir} for {spec.name} (tol={tol_mult:g})")
     cell = f"{spec.task}_{spec.data}"
     best = {}
     for method in methods:
@@ -60,8 +70,8 @@ def read_best_configs(spec, methods, tol_mult=1.0):
             continue
         with open(path) as f:
             rec = json.load(f)
-        best[method] = int(rec["config_index"])
-        
+        best[method] = (rec.get("source_algorithm", method), int(rec["config_index"]))
+
     return best
 
 
@@ -93,8 +103,19 @@ def _load_config_trajectory(spec, method, config_idx, companion="test"):
     return loss_m, loss_s, cons_tr_m, cons_tr_s, comp_m, comp_s, cons_co_m, cons_co_s
 
 
-def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test", with_acc=False):
-    best = read_best_configs(spec, methods, tol_mult=tol_mult)
+def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test", with_acc=False,
+                       split_by=None, pool_subtypes=False):
+    """split_by: optional {method: (dotted_hparam, value)} -- instead of that method's
+    single select_best.py winner, plots two independently-best-selected entries: configs
+    matching hparam==value, and the complement ("other" values). See
+    prepare_results_plotting.best_config_in for the per-half selection rule.
+
+    pool_subtypes: forwarded to best_config_in for methods in split_by, so the
+    split re-selection also pools subtype cells (e.g. alm_proj_fix into alm_proj)
+    the same way select_best.py's --pool_subtypes does for the non-split_by
+    winner -- False (default)/True/a collection of subtype names."""
+    split_by = split_by or {}
+    best = read_best_configs(spec, [m for m in methods if m not in split_by], tol_mult=tol_mult)
     keys = ["train_losses_list", "train_losses_std_list", "test_losses_list",
             "test_losses_std_list", "train_constraints_list", "train_constraints_std_list",
             "test_constraints_list", "test_constraints_std_list", "titles"]
@@ -102,13 +123,13 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test", with_acc=Fa
         keys += ["train_acc_list", "train_acc_std_list"]
     acc = {k: [] for k in keys}
     any_test = False
-    for method in methods:
-        if method not in best:
-            continue
-        traj = _load_config_trajectory(spec, method, best[method], companion=companion)
+
+    def add_entry(method, config_idx, title):
+        nonlocal any_test
+        traj = _load_config_trajectory(spec, method, config_idx, companion=companion)
         if traj is None:
-            print(f"  {method}: no trajectory for config {best[method]}, skipping")
-            continue
+            print(f"  {method}: no trajectory for config {config_idx}, skipping")
+            return
         loss_m, loss_s, cons_tr_m, cons_tr_s, comp_m, comp_s, cons_co_m, cons_co_s = traj
         acc["train_losses_list"].append(loss_m)
         acc["train_losses_std_list"].append(loss_s)
@@ -122,10 +143,27 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test", with_acc=Fa
             acc["test_constraints_list"].append(cons_co_m)
             acc["test_constraints_std_list"].append(cons_co_s)
         if with_acc:  # train per-class accuracy [K, L] (None if not aggregated)
-            at = acc_trajectory(spec, method, best[method], "train")
+            at = acc_trajectory(spec, method, config_idx, "train")
             acc["train_acc_list"].append(at[0] if at is not None else None)
             acc["train_acc_std_list"].append(at[1] if at is not None else None)
-        acc["titles"].append(METHOD_LABELS.get(method, method))
+        acc["titles"].append(title)
+
+    for method in methods:
+        label = METHOD_LABELS.get(method, method)
+        if method in split_by:
+            hkey, hval = split_by[method]
+            for where, title in [({hkey: hval}, f"{label} ({hkey}={hval})"),
+                                  ({hkey: lambda v, hval=hval: v != hval}, f"{label} (other {hkey})")]:
+                source_method, cfg_idx = best_config_in(spec, method, where, pool_subtypes=pool_subtypes)
+                if cfg_idx is None:
+                    print(f"  [{spec.name}] {method} split {hkey}: no matching config, skipping")
+                    continue
+                add_entry(source_method, cfg_idx, title)
+        else:
+            if method not in best:
+                continue
+            source_method, config_idx = best[method]
+            add_entry(source_method, config_idx, label)
     if not any_test:  # no companion panel -> let the renderer draw train only
         for k in ["test_losses_list", "test_losses_std_list",
                   "test_constraints_list", "test_constraints_std_list"]:
@@ -134,13 +172,14 @@ def build_plot_inputs(spec, methods, tol_mult=1.0, companion="test", with_acc=Fa
 
 
 def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=None,
-         companion="test"):
+         companion="test", split_by=None, pool_subtypes=False):
     if methods is None:
-        methods = ["adam","alm_proj", "pbm", "ssg"]
+        methods = ["adam","alm_proj", "ssg", "pbm"]
     # Per-class accuracy row only for the image tasks (they store per-class acc).
     with_acc = spec.data in ("cifar10", "cifar100")
     inputs, any_comp = build_plot_inputs(spec, methods, tol_mult=tol_mult,
-                                         companion=companion, with_acc=with_acc)
+                                         companion=companion, with_acc=with_acc,
+                                         split_by=split_by, pool_subtypes=pool_subtypes)
     if not inputs["train_losses_list"]:
         print("no data to plot")
         return
@@ -177,7 +216,11 @@ def plot(spec, methods=None, save_path=None, tol_mult=1.0, constraint_titles=Non
 
 
 
-def print_table(specs, methods):
+def print_table(specs, methods, tol=1.1, split_by=None, pool_subtypes=False):
+    """Rows are keyed by build_plot_inputs's `titles` (not the raw `methods` list) so a
+    split method (see `split_by`) contributes its own row per half, and a method with
+    no available config for a given spec is simply absent from that spec's rows rather
+    than misaligning the rest via positional indexing."""
 
     # create an array for storing the best train loss and constraint violation for each method and experiment
     best_train_losses = {spec.task: {} for spec in specs}
@@ -186,13 +229,17 @@ def print_table(specs, methods):
     best_train_losses_std = {spec.task: {} for spec in specs}
     best_constraint_violations_std = {spec.task: {} for spec in specs}
     best_max_viol_std = {spec.task: {} for spec in specs}
+    row_order = []  # preserves first-seen order of titles across specs
 
-    for spec in specs: 
+    for spec in specs:
 
         # for methods - store the tail of the losses and the tail of the max violation
-        inputs, _ = build_plot_inputs(spec, methods, tol_mult=1.0, companion="train")
+        inputs, _ = build_plot_inputs(spec, methods, tol_mult=tol, companion="train",
+                                      split_by=split_by, pool_subtypes=pool_subtypes)
 
-        for idx, method in enumerate(methods): 
+        for idx, title in enumerate(inputs["titles"]):
+            if title not in row_order:
+                row_order.append(title)
 
             # get the losses and the constraints
             loss = np.array(inputs['train_losses_list'][idx])
@@ -210,18 +257,17 @@ def print_table(specs, methods):
             worst_idx = constraints_tail.argmax()
             max_viol = max(0.0, constraints_tail[worst_idx] - spec.bound)
             max_viol_std = constraints_std_tail[worst_idx]
-            best_max_viol[spec.task][method] = max_viol
 
             # store the values
-            best_train_losses[spec.task][method] = loss_tail
-            best_train_losses_std[spec.task][method] = loss_std_tail
-            best_constraint_violations[spec.task][method] = constraints_tail.mean()
-            best_constraint_violations_std[spec.task][method] = constraints_std_tail.mean()
-            best_max_viol[spec.task][method] = max_viol
-            best_max_viol_std[spec.task][method] = max_viol_std
+            best_train_losses[spec.task][title] = loss_tail
+            best_train_losses_std[spec.task][title] = loss_std_tail
+            best_constraint_violations[spec.task][title] = constraints_tail.mean()
+            best_constraint_violations_std[spec.task][title] = constraints_std_tail.mean()
+            best_max_viol[spec.task][title] = max_viol
+            best_max_viol_std[spec.task][title] = max_viol_std
 
     def rank_format(values_by_method, stds_by_method, methods,
-                    precision=3, mark=True, tol=1e-5):
+                    precision=4, mark=True, tol=1e-5):
         """{method: formatted cell}, best bold, second-best brown (lower is better).
         Appends ± std. mark=False disables highlighting."""
 
@@ -269,24 +315,26 @@ def print_table(specs, methods):
         lines.append(r"\midrule")
         exp_id = mapping_name[spec.task].split('E')[1]
 
+        rows = [t for t in row_order if t in best_train_losses[spec.task]]
+
         loss_cells = rank_format(best_train_losses[spec.task],
-                                best_train_losses_std[spec.task], methods,
+                                best_train_losses_std[spec.task], rows,
                                 precision=3)
         mean_cells = rank_format(best_constraint_violations[spec.task],
-                                best_constraint_violations_std[spec.task], methods,
-                                precision=3, mark=False)
+                                best_constraint_violations_std[spec.task], rows,
+                                precision=4, mark=False)
         maxv_cells = rank_format(best_max_viol[spec.task],
-                                best_max_viol_std[spec.task], methods,
-                                precision=3)
+                                best_max_viol_std[spec.task], rows,
+                                precision=4)
 
-        for i, method in enumerate(methods):
-            multirow = (r"\multirow{" + str(len(methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
+        for i, title in enumerate(rows):
+            multirow = (r"\multirow{" + str(len(rows)) + r"}{*}{\Exp{" + exp_id + r"}}"
                         if i == 0 else "")
             lines.append(
-                f"{multirow} & {METHOD_LABELS[method]} & "
-                f"{loss_cells[method]} & "
-                f"{maxv_cells[method]} & "
-                f"{mean_cells[method]} " + r"\\"
+                f"{multirow} & {title} & "
+                f"{loss_cells[title]} & "
+                f"{maxv_cells[title]} & "
+                f"{mean_cells[title]} " + r"\\"
             )
         
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
@@ -294,7 +342,7 @@ def print_table(specs, methods):
     print(table_str)
 
     # dump into a text file
-    out = './results/tables/FAIR_latex_table.txt'
+    out = '/mnt/personal/kliacand/humancompatible-train/benchmark/new_bench/results/tables/FAIR_latex_table.txt'
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
         f.write(table_str)
@@ -304,9 +352,8 @@ if __name__ == "__main__":
     # all possible experiments
     experiments = [ 
         # 'weight_norm',
-        # 'folktables_positive_rate_vec',
         'folktables_positive_rate_pair', 
-        # 'dutch_positive_rate_pair',
+        'dutch_positive_rate_pair',
         # 'cifar10_loss',
         # "cifar100_loss"
     ]
@@ -329,17 +376,17 @@ if __name__ == "__main__":
 
     # map to the E 
     mapping_name = {"weight_norm": "E1",
-                    "folktables_positive_rate_vec": "E2", 
-                    "folktables_positive_rate_pair": "E3",
-                    "dutch_positive_rate_pair": "E4",
-                     'cifar10_loss': "E5",
-                     'cifar100_loss': "E6",
+                    "folktables_positive_rate_pair": "E2",
+                    "dutch_positive_rate_pair": "E3",
+                     'cifar10_loss': "E4",
+                     'cifar100_loss': "E5",
                      }
 
     # define output folder
     # out = "../../results/plots/"
-    out = "./plots/"
-    agg = "../selection/aggregated/"
+    out = "/mnt/personal/kliacand/humancompatible-train/benchmark/new_bench/plotting/plots/"
+    # agg = "../selection/aggregated/"
+    agg = "/mnt/data/optimization/current/best_noablation/aggregated/"
     
     os.makedirs(out, exist_ok=True)
 
@@ -358,18 +405,36 @@ if __name__ == "__main__":
 
         specs.append(spec)
 
+    tol = 1.1
 
-    methods = ["adam","alm_proj", "pbm", "ssg",
-    # "nupi"
+    methods = [
+        "adam",
+        "pbm",
+        "alm_proj",
+        "ssg",
     ]
-    # methods = ["pbm", "pbm_gamma0", "pbm_kappa0", "pbm_mu0"]
+    split_by = {}
 
+
+    # methods = [
+    #     # "alm_proj",
+    #     "pbm",
+    #     "pbm_gamma0",
+    #     "pbm_kappa0",
+    #     "pbm_mu0"
+    # ]
+    # split_by = {
+    #     "pbm": ("dual.penalty_update", "alm"),
+    # }
+
+
+    POOL_SUBTYPES = False
     # plot each experiment separately
     for i, experiment in enumerate(experiments):
 
-        plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=1., companion="train",
-            constraint_titles=list(range(3000000)), methods=methods)
+        plot(specs[i], save_path=out + f"{mapping_name[experiment]}.pdf", tol_mult=tol, companion="train",
+            constraint_titles=list(range(3000000)), methods=methods, split_by=split_by, pool_subtypes = POOL_SUBTYPES)
 
-    print_table(specs, methods)
+    print_table(specs, methods, split_by=split_by, tol=tol, pool_subtypes = POOL_SUBTYPES)
 
     

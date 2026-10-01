@@ -1,9 +1,10 @@
 """prepare_results_plotting.py — plotting data backend over aggregate.py's output.
 
 Reads the per-cell aggregates `aggregate.py` writes under `selection/aggregated/`
-(one `<cell>.json` metadata + `<cell>.csv` long curves per cell); never re-scans the
-raw multirun tree, so run `aggregate.py` first. Best-config selection is a separate
-step (`select_best.py`, used only by plot_fair).
+(one `<cell>.json` metadata + `<cell>.parquet` long curves per cell, `.csv` for
+older aggregated dirs); never re-scans the raw multirun tree, so run `aggregate.py`
+first. Best-config selection is a separate step (`select_best.py`, used only by
+plot_fair).
 
 Public API (consumed by the plot_* scripts):
     ExperimentSpec                                    -- name, task, data, bound, agg_root
@@ -19,6 +20,9 @@ Public API (consumed by the plot_* scripts):
     config_params(spec, method, cfg) -> {dotted_hparam: value}   (e.g. 'moreau.mu': 0.0)
     list_configs(spec, method, where=None) -> [config_index, ...]
         where: {dotted_hparam: value|predicate} keeps only matching configs
+    best_config_in(spec, method, where, split="opt") -> (source_method, config_index | None)
+        feasible argmin-loss config among configs matching `where` (see list_configs);
+        source_method == method unless pool_subtypes pooled in a subtype's config
 """
 import glob
 import json
@@ -32,12 +36,32 @@ import numpy as np
 import pandas as pd
 
 # `collapse` (curve -> representative scalar) lives in select_best.py, the selector;
-# import it so selection and plots use identical windowing semantics.
+# import it so selection and plots use identical windowing semantics. `read_curves`
+# (parquet, falling back to CSV for older aggregated dirs) lives in aggregate.py.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from select_best import collapse as _collapse  # noqa: E402
-from aggregate import read_curves  # noqa: E402
+from aggregate import read_curves as _read_curves  # noqa: E402
 
-DEFAULT_METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg", "nupi"]
+DEFAULT_METHODS = ["adam", "pbm", "alm_proj", "alm_max", "ssg"]
+
+# subtype method -> base method it also gets pooled into when pool_subtypes is set on
+# best_config_in. Mirrors select_best.py's / plot_profiles_morewild.py's SUBTYPE_TO_BASE
+# -- keep in sync by hand.
+SUBTYPE_TO_BASE = {
+    # "pbm_gamma0": "pbm",
+    # "pbm_kappa0": "pbm",
+    # "pbm_mu0": "pbm",
+    "alm_proj_fix": "alm_proj"
+}
+
+
+def _pooled_members(base, only=None):
+    """[base] + its subtypes from SUBTYPE_TO_BASE. `only`, if given, keeps just
+    the subtypes named in it; base itself is always included."""
+    subtypes = [s for s, b in SUBTYPE_TO_BASE.items() if b == base]
+    if only is not None:
+        subtypes = [s for s in subtypes if s in only]
+    return [base] + subtypes
 
 
 @dataclass
@@ -52,14 +76,15 @@ class ExperimentSpec:
 @lru_cache(maxsize=None)
 def _load(agg_root, task, data):
     """(task, data) -> {method: {config_index: curves DataFrame}}. Reads every
-    <cell>.json matching (task, data) and its sibling <cell>.parquet, split by config."""
+    <cell>.json matching (task, data) and its sibling curves (parquet, or CSV for
+    older aggregated dirs -- see aggregate.read_curves), split by config."""
     out = {}
     for json_path in sorted(glob.glob(os.path.join(agg_root, "*.json"))):
         with open(json_path) as f:
             meta = json.load(f)
         if meta.get("task") != task or meta.get("data") != data:
             continue
-        curves = read_curves(json_path[:-5])
+        curves = _read_curves(json_path[:-5])
         out[meta["algorithm"]] = {int(i): g for i, g in curves.groupby("config")}
     return out
 
@@ -136,7 +161,7 @@ def list_configs(spec, method, where=None):
     return [ci for ci in idx if match(ci)]
 
 
-def aggregate_method(spec, method, split="opt", tail=10, last_epoch=True):
+def aggregate_method(spec, method, split="val", tail=10, last_epoch=True):
     """Per-config scalar table for one method: each config's curve collapsed to a
     representative (loss, violation). None if the method has no such configs."""
     records = []
@@ -157,7 +182,47 @@ def aggregate_method(spec, method, split="opt", tail=10, last_epoch=True):
     return table
 
 
-def aggregate_experiment(spec, methods=DEFAULT_METHODS, split="opt", tail=10, last_epoch=True):
+def best_config_in(spec, method, where, split="opt", tail=5, last_epoch=True, pool_subtypes=False, tol_mult=1.1):
+    """Feasible argmin-loss config among ``method``'s configs matching ``where``
+    (see ``list_configs``), else least-infeasible (min violation); (method, None)
+    if no config matches or there's no aggregated data. Mirrors select_best.py's
+    winner rule (feasible-argmin-loss, least-infeasible fallback), scoped to a
+    subset -- the building block for splitting one method's plotted curve by a
+    hyperparameter.
+
+    pool_subtypes: False (default) searches only ``method``'s own cell; True pools
+    every subtype SUBTYPE_TO_BASE maps to it; a collection of subtype names pools
+    only those. Each source cell is queried independently and tagged with its own
+    name before concatenating -- config indices are only unique WITHIN their own
+    source cell, so they're never merged/looked-up across cells by bare index
+    (the same collision select_best.py's pooling guards against). Always returns
+    (source_method, config_index_or_None); source_method == method when unpooled.
+    """
+    only = None if pool_subtypes is True else (pool_subtypes or None)
+    sources = _pooled_members(method, only=only) if pool_subtypes else [method]
+
+    frames = []
+    for src in sources:
+        configs = list_configs(spec, src, where=where)
+        if not configs:
+            continue
+        table = aggregate_method(spec, src, split=split, tail=tail, last_epoch=last_epoch)
+        if table is None:
+            continue
+        sub = table[table["config"].isin(configs)]
+        if not sub.empty:
+            frames.append(sub.assign(source=src))
+
+    if not frames:
+        return method, None
+    pool = pd.concat(frames, ignore_index=True)
+    feasible = pool[pool["violation_constr_mean"] <= spec.bound * tol_mult]
+    cand, col = (feasible, "loss_mean") if not feasible.empty else (pool, "violation_constr_mean")
+    row = cand.loc[cand[col].idxmin()]
+    return row["source"], int(row["config"])
+
+
+def aggregate_experiment(spec, methods=DEFAULT_METHODS, split="val", tail=10, last_epoch=True):
     """{method: per-config DataFrame}; methods with no aggregated configs are skipped."""
     per_method = {}
     for method in methods:
@@ -180,7 +245,7 @@ def _load_config_trajectory(spec, method, config_idx, companion="test"):
     the comp_* / cons_co_* are None when the companion split is not stored (e.g.
     image tasks have no per-epoch val curve in some setups). Train and companion
     arrays are truncated to a common length."""
-    tr = config_trajectory(spec, method, config_idx, "opt")
+    tr = config_trajectory(spec, method, config_idx, "train")
     if tr is None:
         return None
     loss_m, loss_s, cons_tr_m, cons_tr_s = tr
@@ -252,11 +317,9 @@ def metric_trajectory(spec, method, config_index, split, metric):
 
 def dual_trajectory(spec, method, config_index, split="opt"):
     """Seed-averaged per-epoch dual variables for one config/split:
-    (lambda_mean[m,L], lambda_std[m,L]|None, epochs[L]), or None if the split has no
+    (lambda_mean[m,L], lambda_std[m,L], epochs[L]), or None if the split has no
     lambda_j columns (unconstrained methods / SSG store no duals). m = number of
-    constraints, rows ordered lambda_0..lambda_{m-1}. lambda_std is None because
-    aggregate.py stores no across-seed spread for the duals -- plot_kkt bands them by
-    the spread ACROSS configs instead."""
+    constraints, rows ordered lambda_0..lambda_{m-1}."""
     curve = _curve(spec, method, config_index, split)
     if curve is None:
         return None
@@ -266,10 +329,7 @@ def dual_trajectory(spec, method, config_index, split="opt"):
         return None
 
     def stack(suffix):
-        cols = [f"{c}_{suffix}" for c in lam]
-        if not all(c in curve.columns for c in cols):
-            return None
-        return np.vstack([curve[c].to_numpy() for c in cols])
+        return np.vstack([curve[f"{c}_{suffix}"].to_numpy() for c in lam])
 
     return stack("mean"), stack("std"), curve["epoch"].to_numpy()
 

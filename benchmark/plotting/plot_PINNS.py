@@ -33,14 +33,38 @@ METHOD_LABELS = {
     "pbm_mu0": "SPBM ($\mu=0$)",
     "pbm_gamma0": "SPBM ($\gamma=0$)",
     "pbm_kappa0": "SPBM ($\kappa=0$)",
+    "pbm_penalty_updatedimin_adapt": r"SPBM ($\hat{\pi}_\rho^{ADAPT}$)",
+    "pbm_penalty_updatealm": r"SPBM ($\hat{\pi}_\rho^{ALM}$)",
+    "pbm_gamma0_penalty_updatedimin_adapt": "SPBM ($\gamma=0$), ADAPT",
     "alm_proj": "SSL-ALM (proj.)",
     # "alm_max": "SSL-ALM (max)",
     "ssg": "SSw",
 }
 
-def expand_methods(methods, cond_pbm):
-    """Expand 'pbm' into one pseudo-method per condition.
-    Returns (expanded_names, resolver) where resolver[name] = (real_method, cond_dict_or_None).
+
+# subtype method -> base method it also gets pooled into when pool_subtypes=True is
+# passed down to expand_methods. The subtype's own standalone method entry (if also
+# listed) is unaffected -- pooling only extends what the BASE method's own
+# best-config selection considers, mirroring select_best.py's --pool_subtypes.
+SUBTYPE_TO_BASE = {
+    "pbm_gamma0": "pbm",
+    "pbm_kappa0": "pbm",
+    "pbm_mu0": "pbm"
+}
+
+
+def _pooled_members(base):
+    return [base] + [s for s, b in SUBTYPE_TO_BASE.items() if b == base]
+
+
+def expand_methods(methods, cond_pbm, pool_subtypes=False):
+    """Expand 'pbm' into one pseudo-method per condition (cond_pbm). When
+    pool_subtypes=True, every method that's a base in SUBTYPE_TO_BASE (currently
+    just 'pbm') also pools its subtypes (pbm_gamma0/kappa0/mu0) into its own
+    selection -- so e.g. the 'pbm' entry's best config may come from pbm_mu0, in
+    addition to (not instead of) pbm_mu0's own standalone entry if also listed.
+    Returns (expanded_names, resolver) where resolver[name] = (real_methods, cond)
+    -- real_methods is always a list (a singleton unless pooled); cond is a dict or None.
     """
     expanded, resolver = [], {}
     for m in methods:
@@ -48,10 +72,12 @@ def expand_methods(methods, cond_pbm):
             for cond in cond_pbm:
                 name = _pbm_name(cond)           # e.g. 'pbm', 'pbm_mu0', 'pbm_mu0_gamma0'
                 expanded.append(name)
-                resolver[name] = ('pbm', cond)
+                real = _pooled_members('pbm') if pool_subtypes else ['pbm']
+                resolver[name] = (real, cond)
         else:
             expanded.append(m)
-            resolver[m] = (m, None)
+            real = _pooled_members(m) if (pool_subtypes and m in SUBTYPE_TO_BASE.values()) else [m]
+            resolver[m] = (real, None)
     return expanded, resolver
 
 def _pbm_name(cond):
@@ -91,39 +117,72 @@ def _matches(params, cond):
     """Does this config's (nested) hyperparameters satisfy every key in cond?"""
     for k, v in cond.items():
         pv = _find_hparam(params, k)      # reuse the recursive finder from select_best.py
-        if pv is None or not np.isclose(pv, v):
+        if pv is None or not (pv == v if isinstance(v, str) else np.isclose(pv, v)):
             return False
     return True
 
-def select_best_configs(spec, expanded_methods, resolver, split="", best_validation_lastK=1):
-    real_methods = sorted({resolver[n][0] for n in expanded_methods})
+def _rolling_argmin(arr, window):
+    """Epoch index minimizing the rolling-`window` mean of a 1-D trajectory
+    (min_periods=1, so short trajectories still return a valid index). Mirrors
+    aggregate_results.py's _rolling_min_per_config, applied to an already-reloaded
+    single config's trajectory rather than to pick among many configs."""
+    smooth = pd.Series(arr).rolling(window, min_periods=1).mean()
+    return int(smooth.idxmin())
+
+def select_best_configs(spec, expanded_methods, resolver, split="", best_validation_lastK=1,
+                        select_metric="val"):
+    real_methods = sorted({rm for n in expanded_methods for rm in resolver[n][0]})
     agg = aggregate_experiment(spec, methods=real_methods, split=split,
                                tail=best_validation_lastK, last_epoch=not running_average)
-    params_cache = {rm: _config_params(spec, rm) for rm in real_methods}
+    params_cache = {rm: _config_params(spec, rm) for rm in real_methods if rm in agg}
+    sel_col = f"{select_metric}_mean"
 
-    best = {}
+    best, records = {}, {}
     for name in expanded_methods:
-        real, cond = resolver[name]
-        df = agg[real]
-
-        # select feasible - TODO: add this after rebuttal
-        # pool = df[df["violation_constr_mean"] < 0.00011] if real != 'adam' else df # select feasible configs only
+        real_list, cond = resolver[name]
+        present = [rm for rm in real_list if rm in agg]
+        if not present:
+            print(f"  [{spec.name}] {name}: none of {real_list} found, skipping")
+            continue
+        pool = pd.concat([agg[rm].assign(source_method=rm) for rm in present], ignore_index=True)
 
         if cond is not None:
-            params = params_cache[real]
-            ok = [idx for idx in df["config"] if _matches(params.get(int(idx), {}), cond)]
-            pool = df[df["config"].isin(ok)]
-        else:
-            pool = df
+            # match each row against ITS OWN source method's params -- config numbers
+            # are only unique within a method, so real_list[0]'s grid alone would
+            # silently mismatch rows pooled in from the other methods.
+            ok = [_matches(params_cache.get(sm, {}).get(int(idx), {}), cond)
+                  for sm, idx in zip(pool["source_method"], pool["config"])]
+            pool = pool[ok]
 
         if len(pool) == 0:
             print(f"  [{spec.name}] {name}: no config matches {cond}, skipping")
             continue
- 
-        # col = "train_mean"   # TODO:  add this after rebuttal
-        best_row = pool.loc[pool["val_mean"].idxmin()]
-        best[name] = int(best_row["config"])
-        print(f"  [{spec.name}] {name}: config {best[name]} (val_mean={best_row['val_mean']:.4g})")
+
+        # feasible-argmin(sel_col); if none feasible, fall back to least-infeasible
+        # (smallest violation_constr_mean) among the same cond-matching candidates.
+        # Adam is exempt from the feasibility filter -- it has no constraint mechanism.
+        feasible = pool[pool["violation_constr_mean"] < 0.00015] if real_list != ['adam'] else pool
+        if len(feasible) > 0:
+            best_row = feasible.loc[feasible[sel_col].idxmin()]
+        else:
+            best_row = pool.loc[pool["violation_constr_mean"].idxmin()]
+            print(f"  [{spec.name}] {name}: no feasible config "
+                  f"(min violation={best_row['violation_constr_mean']:.4g}), "
+                  f"falling back to least-infeasible")
+
+        best[name] = (best_row["source_method"], int(best_row["config"]))
+        full_config = params_cache.get(best_row["source_method"], {}).get(best[name][1], {})
+        print(f"  [{spec.name}] {name}: {best_row['source_method']} config {best[name][1]} "
+              f"({sel_col}={best_row[sel_col]:.4g}) params={full_config}")
+        records[name] = {"source_method": best_row["source_method"], "config": best[name][1],
+                         sel_col: float(best_row[sel_col]),
+                         "violation_constr_mean": float(best_row["violation_constr_mean"]),
+                         "params": full_config}
+
+    out = f"./results/best_configs/PINNS_{spec.name}_best_configs.json"
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w") as f:
+        json.dump(records, f, indent=2, default=str)
     return best
 
 # ── Step 2: reload full trajectory of one config, stacked across seeds ────────
@@ -163,31 +222,37 @@ def _load_config_trajectory(spec: ExperimentSpec, method: str, config_idx: int,
 
 # ── assemble the lists the plotting function expects ─────────────────────────
 def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_lastK=1,
-                      cond_pbm=None):
+                      cond_pbm=None, pool_subtypes=False, select_metric="val"):
     """Returns the argument lists for plot_losses_and_constraints_stochastic:
         train_losses (PDE residual), test_losses (solution error),
         train_constraints (m x epochs), and their stds; plus titles.
     Each list is per-method; arrays are mean / std across seeds."""
 
-    expanded_methods, resolver = expand_methods(methods, cond_pbm) 
+    expanded_methods, resolver = expand_methods(methods, cond_pbm, pool_subtypes)
 
-    best = select_best_configs(spec, expanded_methods, resolver, split=split, 
-                               best_validation_lastK=best_validation_lastK)
+    best = select_best_configs(spec, expanded_methods, resolver, split=split,
+                               best_validation_lastK=best_validation_lastK,
+                               select_metric=select_metric)
 
     train_losses, train_losses_std = [], []
     test_losses, test_losses_std = [], []
     train_cons, train_cons_std = [], []
     titles = []
+    used_methods = []  # `name` per entry, in lockstep with the lists above -- a method
+                        # can be missing (no feasible config, no trajectory), so this is
+                        # NOT positionally aligned with `expanded_methods`; callers that
+                        # need the method behind each entry should zip against this,
+                        # not re-enumerate expanded_methods and assume same length/order.
 
     for name in expanded_methods:
         if name not in best:
             continue
-        real, cond = resolver[name]
-        traj = _load_config_trajectory(spec, real, best[name], split=split)
+        source_method, config_idx = best[name]
+        traj = _load_config_trajectory(spec, source_method, config_idx, split=split)
         if traj is None:
-            print(f"  {name}: no trajectory for config {best[name]}, skipping")
+            print(f"  {name}: no trajectory for config {config_idx}, skipping")
             continue
-    
+
         loss, test, cons, m = traj
         train_losses.append(loss.mean(0))
         train_losses_std.append(loss.std(0))
@@ -196,13 +261,14 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
         train_cons.append(cons.mean(0))          # (m, epochs)
         train_cons_std.append(cons.std(0))       # (m, epochs)
         titles.append(METHOD_LABELS.get(name, name))
+        used_methods.append(name)
 
         # TODO: remove after rebuttal:
         dump_path = "./results/logs/traj_dump.txt"
         os.makedirs(os.path.dirname(dump_path), exist_ok=True)
         with open(dump_path, "a") as f:
             with np.printoptions(threshold=np.inf, precision=3, suppress=False):
-                f.write(f"=== [{spec.name}] {name} (config {best[name]}) ===\n")
+                f.write(f"=== [{spec.name}] {name} ({source_method} config {config_idx}) ===\n")
                 f.write(f"test loss (last 1000 epochs, every 100th):\n{test.mean(0)[-1000::100]}\n\n"
                         f"cons (m x last 1000 epochs, every 100th):\n{cons.mean(0)[:, -1000::100]}\nm: {m}\n\n")
 
@@ -216,18 +282,18 @@ def build_plot_inputs(spec: ExperimentSpec, methods, split="", best_validation_l
         train_constraints_list=train_cons,
         train_constraints_std_list=train_cons_std,
         titles=titles,
+        methods=used_methods,
     )
 
 
 METHOD_LABELS = {
     "adam": "Adam", "pbm": "SPBM", "alm_proj": "SSL-ALM (proj.)",
     "alm_max": "SSL-ALM (max)", "ssg": "SSw",
-    "pbm_mu0": "SPBM ($\mu=0$)", "pbm_gamma0": "SPBM ($\gamma=0$)", "pbm_kappa0": "SPBM ($\kappa=0$)"
 }
 
 
-def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None, 
-               best_validation_lastK=1, cond_pbm=None):
+def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None,
+               best_validation_lastK=1, cond_pbm=None, pool_subtypes=False, select_metric="val"):
     if spec is None:
         spec = ExperimentSpec(name="E8", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1),
@@ -235,14 +301,16 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None,
     if methods is None:
         methods = ["adam", "pbm", "alm_proj", "ssg"]
 
-    inputs = build_plot_inputs(spec, methods, split="", 
+    inputs = build_plot_inputs(spec, methods, split="",
                                best_validation_lastK=best_validation_lastK,
-                               cond_pbm=cond_pbm)
+                               cond_pbm=cond_pbm, pool_subtypes=pool_subtypes,
+                               select_metric=select_metric)
     if not inputs["test_losses_list"]:
         print("no data to plot")
         return
 
     inputs['train_losses_list'] += 1e-4  # avoid log(0) in plotting
+    inputs.pop("methods")  # not a plot_losses_and_constraints_stochastic kwarg
 
     plot_losses_and_constraints_stochastic(
         **inputs,
@@ -263,8 +331,8 @@ def plot_PINNs(spec=None, methods=None, save_path=None, constraint_titles=None,
 
 def plot_PINNs_single(specs, names, methods=None,
         save_path="./results/plots/pinns_convergence.pdf",
-         best_validation_lastK=1):
-   
+         best_validation_lastK=1, cond_pbm=None, pool_subtypes=False, select_metric="val"):
+
     if methods is None:
         methods = ["adam","alm_proj", "ssg", "pbm"]
 
@@ -272,7 +340,9 @@ def plot_PINNs_single(specs, names, methods=None,
     per = {m: {"loss": [], "test": [], "cons": []} for m in methods}
     for name in names:
 
-        inputs = build_plot_inputs(specs[name], methods, best_validation_lastK=best_validation_lastK)
+        inputs = build_plot_inputs(specs[name], methods, best_validation_lastK=best_validation_lastK,
+                                   cond_pbm=cond_pbm, pool_subtypes=pool_subtypes,
+                                   select_metric=select_metric)
 
         # per-spec baseline: best final value across methods (eps-floored)
         eps = 1e-4 
@@ -312,7 +382,9 @@ def plot_PINNs_single(specs, names, methods=None,
 
     print(f"wrote {save_path}")
 
-def print_table(specs, methods, names, cond_pbm=None):
+def print_table(specs, methods, names, cond_pbm=None, pool_subtypes=False, select_metric="val",
+                report_running_average=False):
+    assert methods, "print_table got an empty `methods` list -- nothing to tabulate"
 
     # create an array for storing the best train loss and constraint violation for each method and experiment
     best_train_losses = {name: {} for name in names}
@@ -321,18 +393,24 @@ def print_table(specs, methods, names, cond_pbm=None):
     best_train_losses_std = {name: {} for name in names}
     best_constraint_violations_std = {name: {} for name in names}
     best_max_viol_std = {name: {} for name in names}
+    row_order = []  # preserves first-seen order of methods actually selected across specs
 
-    for name in names: 
-        
+    for name in names:
+
         spec = specs[name]
         # for methods - store the tail of the losses and the tail of the max violation
         inputs = build_plot_inputs(spec, methods, split="",
                                     best_validation_lastK=best_validation_window,
-                                    cond_pbm=cond_pbm)
+                                    cond_pbm=cond_pbm, pool_subtypes=pool_subtypes,
+                                    select_metric=select_metric)
 
-        expanded_methods, resolver = expand_methods(methods, cond_pbm) 
-
-        for idx, method in enumerate(expanded_methods): 
+        # zip against inputs["methods"], NOT enumerate(expanded_methods): a method with
+        # no feasible config (or no trajectory) is simply absent from inputs' lists, so
+        # positional indexing by expanded_methods would silently misattribute entries
+        # to the wrong method as soon as ANY method is dropped for this spec.
+        for idx, method in enumerate(inputs["methods"]):
+            if method not in row_order:
+                row_order.append(method)
 
             # get the losses and the constraints
             loss = np.array(inputs['train_losses_list'][idx])
@@ -340,11 +418,21 @@ def print_table(specs, methods, names, cond_pbm=None):
             loss_std = np.array(inputs["train_losses_std_list"][idx])
             constraints_std = np.array(inputs["train_constraints_std_list"][idx])
 
-            # tail the loss and the constraints
-            loss_tail = loss[-best_validation_window:].mean()
-            loss_std_tail = loss_std[-best_validation_window:].mean()
-            constraints_tail = constraints[:, -best_validation_window:].mean(axis=-1)
-            constraints_std_tail = constraints_std[:, -best_validation_window:].mean(axis=-1)
+            # tail-mean, or (report_running_average) the point at the epoch minimizing
+            # a rolling window mean of the train loss -- same mechanism select_metric
+            # uses to pick a config (aggregate_results._rolling_min_per_config), just
+            # applied here to the already-selected winner's own reloaded trajectory.
+            if report_running_average:
+                pick = _rolling_argmin(loss, best_validation_window)
+                loss_tail = loss[pick]
+                loss_std_tail = loss_std[pick]
+                constraints_tail = constraints[:, pick]
+                constraints_std_tail = constraints_std[:, pick]
+            else:
+                loss_tail = loss[-best_validation_window:].mean()
+                loss_std_tail = loss_std[-best_validation_window:].mean()
+                constraints_tail = constraints[:, -best_validation_window:].mean(axis=-1)
+                constraints_std_tail = constraints_std[:, -best_validation_window:].mean(axis=-1)
 
             # compute the max violation
             worst_idx = constraints_tail.argmax()
@@ -360,7 +448,7 @@ def print_table(specs, methods, names, cond_pbm=None):
             best_max_viol_std[name][method] = max_viol_std
     
     def rank_format(values_by_method, stds_by_method, methods,
-                    precision=3, mark=True, tol=1e-5):
+                    precision=4, mark=True, tol=1e-5):
         """{method: formatted cell}, best bold, second-best brown (lower is better).
         Appends ± std. mark=False disables highlighting."""
 
@@ -398,7 +486,7 @@ def print_table(specs, methods, names, cond_pbm=None):
     lines = [ r"\begin{table}[h]",
             r"\centering",
             r"\caption{Comparison of Adam, SSL-ALM, and SPBM on experiments \Exp{7} and \Exp{8}. We report the best test loss, together with the corresponding constraint violations (averaged over runs).}",
-            r"\label{tab:best_results_pinns}",
+            r"\label{tab:best_results}",
         r"\begin{tabular}{l l c c c}",
         r"\toprule",
         r"Exp. & Method & Best loss & Max constraint viol. & Mean constraint \\",
@@ -408,20 +496,25 @@ def print_table(specs, methods, names, cond_pbm=None):
         lines.append(r"\midrule")
         exp_id = name.split('E')[1]
 
+        rows = [m for m in row_order if m in best_train_losses[name]]
+        if not rows:
+            print(f"  [{name}] no method had a selectable config -- skipping this row")
+            continue
+
         loss_cells = rank_format(best_train_losses[name],
-                                best_train_losses_std[name], expanded_methods,
+                                best_train_losses_std[name], rows,
                                 precision=3)
         mean_cells = rank_format(best_constraint_violations[name],
-                                best_constraint_violations_std[name], expanded_methods,
-                                precision=4, mark=False)
+                                best_constraint_violations_std[name], rows,
+                                precision=10, mark=False)
         maxv_cells = rank_format(best_max_viol[name],
-                                best_max_viol_std[name], expanded_methods, precision=4)
+                                best_max_viol_std[name], rows, precision=10)
 
-        for i, method in enumerate(expanded_methods):
-            multirow = (r"\multirow{" + str(len(expanded_methods)) + r"}{*}{\Exp{" + exp_id + r"}}"
+        for i, method in enumerate(rows):
+            multirow = (r"\multirow{" + str(len(rows)) + r"}{*}{\Exp{" + exp_id + r"}}"
                         if i == 0 else "")
             lines.append(
-                f"{multirow} & {METHOD_LABELS[method]} & "
+                f"{multirow} & {METHOD_LABELS.get(method, method)} & "
                 f"{loss_cells[method]} & "
                 f"{maxv_cells[method]} & "
                 f"{mean_cells[method]} " + r"\\"
@@ -439,11 +532,21 @@ def print_table(specs, methods, names, cond_pbm=None):
 
 if __name__ == "__main__":
 
+    # select configs on train loss rather than val (no rerun needed -- "loss" is
+    # already in runs_{method}.csv; see select_best_configs's select_metric)
+    select_metric = "train"
     # True is a running window mean; False is a tail
     best_validation_window = 50
+    report_running_average = False
+    pool_subtypes = True
 
-    names = ["E7", "E8", "E9"]
-    names = ["E8"]
+    names = [
+        # "E7",
+        # "E8",
+        "E9"
+    ]
+
+
     specs = {
         "E7": ExperimentSpec(name="E7", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
@@ -456,36 +559,45 @@ if __name__ == "__main__":
                               results_root="results"),
     }
 
-    # cond_pbm = [{'mu': 0.0},
-    #             {'penalty_mult': 0.1},
-    #             {'gamma': 0.1},
-    #             None] # 4 options in total
 
-    cond_pbm =  None
-
-    # TODO: put best config and just change the variable one at a time  
+    cond_pbm = [
+        {'penalty_update': "dimin_adapt"},
+        {'penalty_update': "alm"},
+        # # {"gamma": 0, "penalty_update": "dimin_adapt"},
+        # None
+    ]
 
     constraint_titles = ["Initial Condition", "Boundary Condition", "Boundary Condition 2"]
+    methods = [
+        "adam",
+        "alm_proj",
+        "ssg",
+        "pbm"
+    ]
     # methods = [
-    #     "adam",
-    #     "alm_proj",
-    #     "ssg",
-    #     "pbm"
+    #     "pbm",
+    #     "pbm_gamma0",
+    #     "pbm_kappa0",
+    #     "pbm_mu0",
     # ]
-    methods = ["pbm_mu0", "pbm_gamma0", "pbm_kappa0", "pbm"]
 
-    # iterate and plot all single plot for each experiment
-    for name in names:
-        spec = specs[name]
-        plot_PINNs(spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf", 
-                constraint_titles=constraint_titles, 
-                best_validation_lastK=best_validation_window,
-                cond_pbm=cond_pbm,
-                methods=methods)
 
-    
+    # # iterate and plot all single plot for each experiment
+    # for name in names:
+    #     spec = specs[name]
+    #     plot_PINNs( spec = spec, save_path=f"./results/plots/pinn_{spec.data}.pdf",
+    #             constraint_titles=constraint_titles,
+    #             best_validation_lastK=best_validation_window,
+    #             cond_pbm=cond_pbm, select_metric=select_metric,
+    #             pool_subtypes=True)
+
+
     # print the latex table
-    print_table(specs, methods, names, cond_pbm)
+    print_table(specs, methods, names, cond_pbm,
+        select_metric=select_metric,
+        report_running_average=report_running_average,
+        pool_subtypes=pool_subtypes
+    )
 
     # plot a single plot - combined all PINN experiments
     # plot_PINNs_single(specs, names, save_path=f"./results/plots/pinns_single.pdf", 
