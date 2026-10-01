@@ -13,9 +13,12 @@ experiments/data
 benchmark/results/plots/
 selection
 benchmark/new_bench/multirun
-*.out
-*.svg
-*.png
+*/\*.out
+*/\*.svg
+*/\*.pdf
+*/\*.jpg
+*/\*.png
+*/plots/
 docs/source/tutorials/*.ipynb
 outputs/
 rci_jupyter_setup.txt
