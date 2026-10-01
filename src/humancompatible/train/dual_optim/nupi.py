@@ -10,66 +10,12 @@ from .base import DualOptimizer
 
 
 class nuPI(DualOptimizer):
-    r"""
-    A Dual Optimizer that updates the dual variables with a proportional-integral
-    (PI) controller on the constraint violation, which damps the oscillation and
-    overshoot of plain dual gradient ascent. Creates and updates dual variables.
-    Reference: https://doi.org/10.48550/arXiv.2406.04558
-
-    With error :math:`\mathbf{c}_t` and error buffer :math:`\pmb{\xi}_t`, the first
-    step applies (Lemma 2, eq. 15a)
-
-    .. math::
-        \pmb{\lambda}_{1} \leftarrow \pmb{\lambda}_0 + \kappa_i \mathbf{c}_0 + \kappa_p \pmb{\xi}_0
-
-    and every later step the general recursion (Lemma 2, eq. 15c)
-
-    .. math::
-        \pmb{\lambda}_{t+1} & \leftarrow \pmb{\lambda}_t + \left( \kappa_i + \kappa_p (1 - \nu) \right) \mathbf{c}_t - \kappa_p (1 - \nu) \pmb{\xi}_t
-
-        \pmb{\xi}_{t+1} & \leftarrow \nu \pmb{\xi}_t + (1 - \nu) \mathbf{c}_t
-
-        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
-
-    Note that :math:`\nu = 0, \kappa_p = 0` recovers plain dual gradient ascent.
-
-    The reference method defines a multiplier update, not an augmented surrogate,
-    so ``penalty`` defaults to 0 and the quadratic term above is absent unless it is
-    set explicitly. When it is set, and for groups registered with ``is_ineq=True``,
-    the term acts on the violation :math:`[\mathbf{c}_t(\theta_t)]_+`.
-
-    :param m: Number of constraints (determines the number of dual variables to create)
-    :type m: int
-    :param nu: Error-buffer decay of the PI controller.
-    :type nu: float
-    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
-    :type init_duals: float | Tensor
-    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`0.`
-    :type penalty: float
-    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
-    :type dual_range: Tuple[float, float]
-    :param ki: Integral gain (the dual step size of plain gradient ascent).
-    :type ki: float
-    :param kp: Proportional gain.
-    :type kp: float
-    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
-    :type is_ineq: bool
-    :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
-    :type process_group: dist.ProcessGroup, optional
-
-    .. note::
-        Constraint values may be passed to :meth:`forward` / :meth:`update` /
-        :meth:`forward_update` as a flat tensor, as one tensor per constraint
-        group, or as a mapping from group name to tensor. See
-        :meth:`~humancompatible.train.dual_optim.base.DualOptimizer._gather_constraints`.
-    """
-
+    
     def __init__(
         self,
         m: int = None,
         nu: float = 0.01,
         init_duals: float | Tensor = None,
-        penalty: float = 0.,
         *,
         dual_range: Tuple[float, float] = (-100.0, 100.0),
         ki: float = 0.01,
@@ -79,7 +25,6 @@ class nuPI(DualOptimizer):
         process_group: Optional[dist.ProcessGroup] = None,
     ) -> None:
 
-        self.penalty = penalty
         params, settings = self._make_group(
             m, nu, ki, kp, init_duals, dual_range, is_ineq, device
         )
@@ -197,17 +142,7 @@ class nuPI(DualOptimizer):
         lagrangian.add_(snapshot @ c)
 
     def _add_global_terms(self, lagrangian: Tensor, constraints: Tensor) -> None:
-        if self.penalty == 0:
-            return
-        # Violations only for inequality groups; see _penalty_constraints.
-        c = self._penalty_constraints(constraints)
-        lagrangian.add_(0.5 * self.penalty * torch.dot(c, c))
-
-    def _extra_state(self) -> dict[str, Any]:
-        return {"penalty": self.penalty}
-
-    def _load_extra_state(self, state: dict[str, Any]) -> None:
-        self.penalty = state["penalty"]
+        return
 
 
 def _update_c_buffers(
@@ -229,3 +164,53 @@ def _update_duals(
 ) -> None:
     """Update duals with the PI controller recursion."""
     duals.add_( constraints, alpha=ki + kp * (1-nu) ).add_( buffer, alpha = -kp * (1-nu) )
+
+
+nuPI.__doc__ = (
+    r"""
+    A Dual Optimizer that updates the dual variables with a proportional-integral
+    (PI) controller on the constraint violation, which damps the oscillation and
+    overshoot of plain dual gradient ascent. Creates and updates dual variables.
+    Reference: https://doi.org/10.48550/arXiv.2406.04558
+
+    With error :math:`\mathbf{c}_t` and error buffer :math:`\pmb{\xi}_t`, the first
+    step applies (Lemma 2, eq. 15a)
+
+    .. math::
+        \pmb{\lambda}_{1} \leftarrow \pmb{\lambda}_0 + \kappa_i \mathbf{c}_0 + \kappa_p \pmb{\xi}_0
+
+    and every later step the general recursion (Lemma 2, eq. 15c)
+
+    .. math::
+        \pmb{\lambda}_{t+1} & \leftarrow \pmb{\lambda}_t + \left( \kappa_i + \kappa_p (1 - \nu) \right) \mathbf{c}_t - \kappa_p (1 - \nu) \pmb{\xi}_t
+
+        \pmb{\xi}_{t+1} & \leftarrow \nu \pmb{\xi}_t + (1 - \nu) \mathbf{c}_t
+
+        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t})
+
+    Note that :math:`\nu = 0, \kappa_p = 0` recovers plain dual gradient ascent.
+
+    :param m: Number of constraints (determines the number of dual variables to create)
+    :type m: int
+    :param nu: Error-buffer decay of the PI controller.
+    :type nu: float
+    :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
+    :type init_duals: float | Tensor
+    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :type dual_range: Tuple[float, float]
+    :param ki: Integral gain (the dual step size of plain gradient ascent).
+    :type ki: float
+    :param kp: Proportional gain.
+    :type kp: float
+    :param is_ineq: Whether to treat the constraints as equality or inequality. If`True`, dual variables will be decreased on strict satisfaction and lower-bounded by `max(dual_range[0], 0)`.
+    :type is_ineq: bool
+    :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
+    :type process_group: dist.ProcessGroup, optional
+
+    .. note::
+        Constraint values may be passed to :meth:`forward` / :meth:`update` /
+        :meth:`forward_update` as a flat tensor, as one tensor per constraint
+        group, or as a mapping from group name to tensor. See
+        :meth:`~humancompatible.train.dual_optim.base.DualOptimizer._gather_constraints`.
+    """
+)

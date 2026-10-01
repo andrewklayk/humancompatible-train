@@ -9,20 +9,19 @@ class TestnuPI(unittest.TestCase):
         self.constraints = torch.tensor([1.0, 2.0, 3.0])
 
     def test_nupi_initialization(self):
-        opt = nuPI(m=3, nu=0.9, ki=0.01, kp=0.01, penalty=1.0)
+        opt = nuPI(m=3, nu=0.9, ki=0.01, kp=0.01)
         self.assertEqual(len(opt.duals), 3)
 
     def test_nupi_forward(self):
-        opt = nuPI(m=3, nu=0.9, ki=0.01, kp=0.01, penalty=1.0)
+        opt = nuPI(m=3, nu=0.9, ki=0.01, kp=0.01)
         lagrangian = opt.forward(self.loss, self.constraints)
         expected = (self.loss
-                    + opt.duals @ self.constraints
-                    + 0.5 * opt.penalty * torch.dot(self.constraints, self.constraints))
+                    + opt.duals @ self.constraints)
         self.assertTrue(torch.allclose(lagrangian, expected))
 
     def test_nupi_update(self):
         # With zero buffer (initial state) and kp=0, update is purely integral: λ += ki * c
-        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.0, penalty=1.0)
+        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.0)
         opt.update(self.constraints)
         self.assertTrue(torch.allclose(opt.duals, 0.1 * self.constraints))
 
@@ -40,8 +39,8 @@ class TestnuPIFixes(unittest.TestCase):
     def test_forward_does_not_corrupt_ema_buffer(self):
         # Calling forward() then update() must give the same duals as update() alone.
         c = torch.tensor([1.0, 2.0, 3.0])
-        opt_direct = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05, penalty=1.0)
-        opt_via_forward = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05, penalty=1.0)
+        opt_direct = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05)
+        opt_via_forward = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05)
 
         opt_direct.update(c)
 
@@ -52,8 +51,8 @@ class TestnuPIFixes(unittest.TestCase):
 
     def test_forward_update_and_separate_forward_update_agree(self):
         c = torch.tensor([1.0, 2.0, 3.0])
-        opt_combined = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05, penalty=1.0)
-        opt_separate = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05, penalty=1.0)
+        opt_combined = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05)
+        opt_separate = nuPI(m=3, nu=0.9, ki=0.01, kp=0.05)
 
         opt_combined.forward_update(self.loss, c)
         opt_separate.forward(self.loss, c)
@@ -65,7 +64,7 @@ class TestnuPIFixes(unittest.TestCase):
 
     def test_multi_group_update_slices_correctly(self):
         # kp=0 so update is purely λ += ki * c, easy to verify
-        opt = nuPI(m=2, nu=0.9, ki=0.1, kp=0.0, penalty=1.0)
+        opt = nuPI(m=2, nu=0.9, ki=0.1, kp=0.0)
         opt.add_constraint_group(m=3, nu=0.9, ki=0.2, kp=0.0)
 
         c = torch.tensor([1.0, 2.0, 10.0, 20.0, 30.0])
@@ -77,7 +76,7 @@ class TestnuPIFixes(unittest.TestCase):
     def test_multi_group_forward_lagrangian_correct(self):
         init0 = torch.tensor([1.0, 1.0])
         init1 = torch.tensor([1.0, 1.0, 1.0])
-        opt = nuPI(m=2, nu=0.9, ki=0.1, kp=0.0, penalty=1.0, init_duals=init0)
+        opt = nuPI(m=2, nu=0.9, ki=0.1, kp=0.0, init_duals=init0)
         opt.add_constraint_group(m=3, nu=0.9, ki=0.2, kp=0.0, init_duals=init1)
 
         c = torch.tensor([1.0, 2.0, 10.0, 20.0, 30.0])
@@ -85,12 +84,11 @@ class TestnuPIFixes(unittest.TestCase):
 
         expected = (self.loss
                     + init0 @ c[:2]
-                    + init1 @ c[2:]
-                    + 0.5 * opt.penalty * torch.dot(c, c))
+                    + init1 @ c[2:])
         self.assertTrue(torch.allclose(lagrangian, expected))
 
     def test_multi_group_forward_update_slices_correctly(self):
-        opt = nuPI(m=2, nu=0.9, ki=0.1, kp=0.0, penalty=1.0)
+        opt = nuPI(m=2, nu=0.9, ki=0.1, kp=0.0)
         opt.add_constraint_group(m=3, nu=0.9, ki=0.2, kp=0.0)
 
         c = torch.tensor([1.0, 2.0, 10.0, 20.0, 30.0])
@@ -110,7 +108,7 @@ class TestnuPIFirstStep(unittest.TestCase):
         # With ξ₀=0 (default) the paper says θ₁ = θ₀ + κᵢe₀ + κₚ·0 = θ₀ + κᵢe₀.
         # The old code wrongly applied the t≥1 formula: θ₁ = θ₀ + (κᵢ + κₚ(1−ν))e₀.
         c = torch.tensor([1.0, 2.0, 3.0])
-        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5, penalty=1.0)
+        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5)
         opt.update(c)
         self.assertTrue(torch.allclose(opt.duals, 0.1 * c))
 
@@ -121,7 +119,7 @@ class TestnuPIFirstStep(unittest.TestCase):
         #   step 2: θ₂ = θ₁ + (ki + kp*(1-nu))*c - kp*(1-nu)*ξ₁
         c = torch.tensor([1.0, 2.0, 3.0])
         ki, kp, nu = 0.1, 0.5, 0.9
-        opt = nuPI(m=3, nu=nu, ki=ki, kp=kp, penalty=1.0)
+        opt = nuPI(m=3, nu=nu, ki=ki, kp=kp)
         opt.update(c)   # step 1
         theta1 = opt.duals.clone()  # = ki*c
         xi1 = (1 - nu) * c          # buffer after step 1
@@ -130,14 +128,14 @@ class TestnuPIFirstStep(unittest.TestCase):
         self.assertTrue(torch.allclose(opt.duals, expected))
 
     def test_initialized_flag_set_after_first_update(self):
-        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5, penalty=1.0)
+        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5)
         self.assertFalse(opt.param_groups[0].get("_momentum_initialized", False))
         opt.update(torch.tensor([1.0, 2.0, 3.0]))
         self.assertTrue(opt.param_groups[0]["_momentum_initialized"])
 
     def test_forward_does_not_set_initialized_flag(self):
         # forward() must not advance state; the flag must remain False after a Lagrangian call.
-        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5, penalty=1.0)
+        opt = nuPI(m=3, nu=0.9, ki=0.1, kp=0.5)
         opt.forward(self.loss, torch.tensor([1.0, 2.0, 3.0]))
         self.assertFalse(opt.param_groups[0].get("_momentum_initialized", False))
 
