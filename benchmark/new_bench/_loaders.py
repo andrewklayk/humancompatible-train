@@ -57,7 +57,7 @@ def _cv_indices(n, strat, cv_seed, n_folds, fold, test_size):
 
 def _cv_load(features, groups, labels, *, batch_size, device, cv_seed, n_folds, fold,
              init_seed, test_size, dtype=torch.float32, balanced=True,
-             extend_groups=False, val_test_batch=None, approach="opt"):
+             extend_groups=None, val_test_batch=None, approach="opt"):
     """Shared tabular tail: stratified test hold-out + K-fold dev split + loaders.
 
     Returns the standard 4-tuple
@@ -80,9 +80,8 @@ def _cv_load(features, groups, labels, *, batch_size, device, cv_seed, n_folds, 
         g = torch.Generator(device=device)
         g.manual_seed(init_seed)
         if balanced:
-            eg = list(range(gtr.shape[1])) if extend_groups else None
             sampler = BalancedBatchSampler(group_onehot=gtr, batch_size=batch_size,
-                                           drop_last=True, extend_groups=eg, generator=g)
+                                           drop_last=True, extend_groups=extend_groups, generator=g)
             dl_tr = torch.utils.data.DataLoader(ds_tr, batch_sampler=sampler, generator=g)
         else:
             dl_tr = torch.utils.data.DataLoader(ds_tr, batch_size=batch_size, shuffle=True, generator=g)
@@ -112,9 +111,8 @@ def _cv_load(features, groups, labels, *, batch_size, device, cv_seed, n_folds, 
     g.manual_seed(init_seed)
     vtb = val_test_batch or batch_size
     if balanced:
-        eg = list(range(gtr.shape[1])) if extend_groups else None
         sampler = BalancedBatchSampler(group_onehot=gtr, batch_size=batch_size,
-                                       drop_last=True, extend_groups=eg, generator=g)
+                                       drop_last=True, extend_groups=extend_groups, generator=g)
         dl_tr = torch.utils.data.DataLoader(ds_tr, batch_sampler=sampler, generator=g)
     else:
         dl_tr = torch.utils.data.DataLoader(ds_tr, batch_size=batch_size, shuffle=True, generator=g)
@@ -175,7 +173,7 @@ def load_data_norm(batch_size, device, *, cv_seed, n_folds, fold, init_seed, tes
 
 
 def load_data_FT(batch_size, device, sens_attrs, states=['FL'], group_size_threshold=0,
-                 sens_groups=None, extend_groups=False, dtype=torch.float32,
+                 sens_groups=None, extend_groups=None, dtype=torch.float32,
                  *, cv_seed, n_folds, fold, init_seed, test_size=0.2, approach="opt"):
     # load folktables data
     data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
@@ -231,7 +229,7 @@ def load_data_FT(batch_size, device, sens_attrs, states=['FL'], group_size_thres
                     extend_groups=extend_groups, approach=approach)
 
 
-def load_data_DUTCH(batch_size, device='cpu', extend_groups=False,
+def load_data_DUTCH(batch_size, device='cpu', extend_groups=None,
                     *, cv_seed, n_folds, fold, init_seed, test_size=0.4, approach="opt"):
     features, groups, labels, _ = get_data_dutch(drop_small_groups=True, print_stats=True)
     return _cv_load(features, groups, labels, batch_size=batch_size, device=device,
@@ -302,6 +300,23 @@ def _balanced_subsample(X, targets, eye, num_classes, size, seed, device):
     return X[idx], eye[targets[idx]], targets[idx]
 
 
+_CIFAR_TRAIN_CACHE = {}  # (ds_cls, device) -> (X, targets, eye); decoded once per process.
+# Only helps callers that build the same CIFAR split repeatedly within one process (e.g.
+# cifar100_runtime.py's algo x constraint-count x seed sweep) -- run.py/tune.py each load
+# it once per job anyway, so the cache is a no-op (one dict lookup) for them.
+
+
+def _load_cifar_train_tensors(ds_cls, num_classes, device, transform):
+    key = (ds_cls, device)
+    if key not in _CIFAR_TRAIN_CACHE:
+        trainset = ds_cls(root='./data', train=True, download=True, transform=transform)
+        X = torch.stack([item[0] for item in trainset]).to(device)
+        targets = torch.tensor([item[1] for item in trainset]).to(device)
+        eye = torch.eye(num_classes).to(device)
+        _CIFAR_TRAIN_CACHE[key] = (X, targets, eye)
+    return _CIFAR_TRAIN_CACHE[key]
+
+
 def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
                     balanced=False, device='cpu', approach="opt", opt_eval_size=10000):
     """CIFAR-10 / CIFAR-100 with K-fold over the training set; the canonical
@@ -317,15 +332,11 @@ def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
 
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    batch_size = 120 if num_classes == 10 else 200
+    batch_size = 40 if num_classes == 10 else 200
 
     ds_cls = torchvision.datasets.CIFAR10 if num_classes == 10 else torchvision.datasets.CIFAR100
-    trainset = ds_cls(root='./data', train=True, download=True, transform=transform)
-
-    X = torch.stack([item[0] for item in trainset]).to(device)
-    targets = torch.tensor([item[1] for item in trainset]).to(device)
-    eye = torch.eye(num_classes).to(device)
-
+    X, targets, eye = _load_cifar_train_tensors(ds_cls, num_classes, device, transform)
+    
     g = torch.Generator(device=device)
     g.manual_seed(init_seed)
 

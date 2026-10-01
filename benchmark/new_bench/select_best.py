@@ -23,6 +23,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from aggregate import read_curves
+
 
 
 def _cell_name(cell, cond=None):
@@ -93,11 +95,11 @@ def _select(items, filt, tol, tail, last_epoch, split=None, tolerance_decimal=No
     sel = items[0]["sel_split"] if split is None else split
 
     if cond is None:
-        rows = [{"config_index": it["index"],
+        rows = [{"config_index": it["index"], "source_algorithm": it["source_algorithm"],
                 "n_seeds": int(it["splits"][sel]["n_seeds"].max()),
                 **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
-    else: 
-        rows = [{"config_index": it["index"],
+    else:
+        rows = [{"config_index": it["index"], "source_algorithm": it["source_algorithm"],
             "n_seeds": int(it["splits"][sel]["n_seeds"].max()),
             **{k: _find_hparam(it["hyperparameters"], k) for k in cond.keys()},
             **collapse(it["splits"][sel], tail, last_epoch)} for it in items]
@@ -129,18 +131,21 @@ def _select(items, filt, tol, tail, last_epoch, split=None, tolerance_decimal=No
     return feasible.loc[feasible["loss_mean"].idxmin()].to_dict()
 
 
-def _load_cells(agg_dir):
+def _load_cells(agg_dir, skip=["cifar100_loss", "cifar10_loss"]):
     """Read aggregate.py's per-cell CSV+JSON into {(task, data, algo): [item, ...]}.
 
-    Each ``<cell>.json`` holds per-config metadata; the sibling ``<cell>.csv`` holds
-    all curves (long: one row per config/split/epoch). Each item carries its split
-    curves as DataFrames plus the fields selection needs.
+    Each ``<cell>.json`` holds per-config metadata; the sibling ``<cell>.parquet``
+    holds all curves (long: one row per config/split/epoch). Each item carries its
+    split curves as DataFrames plus the fields selection needs.
     """
     cells = {}
     for jpath in sorted(glob.glob(os.path.join(agg_dir, "*.json"))):
         with open(jpath) as f:
             meta = json.load(f)
-        long = pd.read_csv(jpath[:-5] + ".csv")
+        if meta["task"] in skip:
+            print(f"skipping {meta['task']}")
+            continue
+        long = read_curves(jpath[:-5])
         items = []
         for cfg in meta["configs"]:
             idx = int(cfg["config_index"])
@@ -151,6 +156,7 @@ def _load_cells(agg_dir):
                 "filter": meta["select_filter"],
                 "bound": meta["bound"],
                 "hyperparameters": cfg["hyperparameters"],
+                "source_algorithm": meta["algorithm"],
                 "agg_file": os.path.basename(jpath),
                 "splits": {s: g.drop(columns=["config", "split"]).sort_values("epoch").reset_index(drop=True)
                            for s, g in sub.groupby("split")},
@@ -159,13 +165,33 @@ def _load_cells(agg_dir):
     return cells
 
 
+def _pool_subtypes_into_base(cells, mapping):
+    """For each (task, data) where a subtype in `mapping` is present, merge its
+    items into the base cell (e.g. cells[(task, data, "pbm")] gains pbm_gamma0/
+    kappa0/mu0's items too, so best_..._pbm.json is selected over the pooled set).
+    The subtype's own cell is left untouched, so it still produces its own
+    standalone best_<subtype>.json.
+    """
+    bases = set(mapping.values())
+    by_task_data = {}
+    for (task, data, algo), items in cells.items():
+        by_task_data.setdefault((task, data), {})[algo] = items
+    for (task, data), by_algo in by_task_data.items():
+        for base in bases:
+            subtypes = [algo for algo in by_algo if algo != base and mapping.get(algo) == base]
+            if not subtypes:
+                continue  # no actual subtype present for this (task, data); nothing to pool
+            base_items = by_algo.get(base, [])
+            cells[(task, data, base)] = base_items + [it for algo in subtypes for it in by_algo[algo]]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--agg", default="selection/aggregated/",
                     help="dir of aggregate.py's per-config JSONs (run aggregate.py first)")
     ap.add_argument("--out", default="selection", help="output directory for best_*.json")
     # ap.add_argument("--tols", default="1.0,1.1,1.25",
-    ap.add_argument("--tols", default="1.0",
+    ap.add_argument("--tols", default="1.1",
                     help="comma-separated feasibility-slack multipliers (tol = bound * mult); "
                          "one pick each. Ignored for select_filter='none' (adam).")
     ap.add_argument("--tail", type=int, default=5,
@@ -174,26 +200,57 @@ def main():
                     help="instead select the epoch minimising the rolling-`tail` mean loss")
     ap.add_argument("--selection_split", default="opt",
                     help="which split to select by; defaults to opt.")
+    ap.add_argument("--pool_subtypes", action="store_true",
+                    help="also merge pbm subtype cells (pbm_gamma0/kappa0/mu0) into pbm's own "
+                         "selection pool, so best_..._pbm.json may pick a subtype's config; "
+                         "subtypes still also get their own standalone best_*.json; "
+                         "see SUBTYPE_TO_BASE")
 
     # define the ablation study here - for pbm - select none if none
-    cond_pbm = [{'mu': 0, 'penalty_mult': 0}, {'penalty_mult': 0}, {'mu': 0}, None] # 4 options in total
+    cond_pbm = [
+        # {'mu': 0, 'penalty_mult': 0},
+        # {'penalty_mult': 0},
+        # {'mu': 0},
+        None] # 4 options in total
+
+    # subtype algorithm -> base algorithm it also gets pooled into, when --pool_subtypes is set
+    SUBTYPE_TO_BASE = {
+        "pbm_gamma0": "pbm",
+        "pbm_kappa0": "pbm",
+        "pbm_mu0": "pbm",
+        "alm_proj_fix": "alm_proj"
+    }
 
     args = ap.parse_args()
     tol_mults = [float(x) for x in args.tols.split(",") if x.strip()]
     last_epoch = not args.rolling
     os.makedirs(args.out, exist_ok=True)
 
-    cells = _load_cells(args.agg)
+    skip = [
+        # "weight_norm",
+        "folktables_positive_rate_pair",
+        "dutch_positive_rate_pair",
+        "cifar10_loss",
+        "cifar100_loss"
+    ]
+
+    cells = _load_cells(args.agg, skip=skip)
     if not cells:
         print(f"No aggregated configs (*.json) found under {args.agg}; run aggregate.py first.")
         return
+    if args.pool_subtypes:
+        _pool_subtypes_into_base(cells, SUBTYPE_TO_BASE)
 
     summary = []
     for cell, items in sorted(cells.items(), key=lambda kv: tuple(map(str, kv[0]))):
-        items.sort(key=lambda it: it["index"])
-        by_index = {it["index"]: it for it in items}
+        items.sort(key=lambda it: (it["source_algorithm"], it["index"]))
+        by_index = {(it["source_algorithm"], it["index"]): it for it in items}
         filt, bound = items[0]["filter"], items[0]["bound"]
-
+        if any((it["filter"], it["bound"]) != (filt, bound) for it in items):
+            raise ValueError(f"mismatched filter/bound among pooled items in cell {cell}")
+        print(cell[0])
+        if cell[0] in skip:
+            continue
         def process(cell, items, by_index, filt, bound, cond, args, tol_mults, last_epoch, summary):
             # One feasibility-first pick per slack multiplier (filter='none' -> single pick).
             for mult in ([None] if filt == "none" else tol_mults):
@@ -203,9 +260,9 @@ def main():
                 # define the decimal tolerance based on the experiment
                 task = cell[0]
                 if 'weight' in task: # 1 decimal point tolerance
-                    tolerance_decimal = 0.1
+                    tolerance_decimal = 0.0
                 else: 
-                    tolerance_decimal = 0.01
+                    tolerance_decimal = 0.0
 
                 best = _select(items, filt, tol, args.tail, last_epoch,
                                 args.selection_split, tolerance_decimal=tolerance_decimal,
@@ -216,7 +273,7 @@ def main():
                     continue
 
                 epoch = int(best["epoch"])
-                winner = by_index[int(best["config_index"])]
+                winner = by_index[(best["source_algorithm"], int(best["config_index"]))]
                 test_stats = (_stats_at(winner["splits"]["test"], epoch, "test")
                             if "test" in winner["splits"] else {})
                 record = {
@@ -225,6 +282,8 @@ def main():
                     "tail": args.tail, "select_mode": "rolling" if args.rolling else "last_mean",
                     "config_index": int(best["config_index"]), "best_epoch": epoch,
                     "n_seeds": int(best["n_seeds"]), "sel_split": winner["sel_split"],
+                    "source_algorithm": best["source_algorithm"],
+                    "pooled_algorithms": sorted(set(it["source_algorithm"] for it in items)),
                     **_prefix_collapse(best, args.selection_split), **test_stats,
                     "aggregated_file": winner["agg_file"],
                     "best_hyperparameters": winner["hyperparameters"],

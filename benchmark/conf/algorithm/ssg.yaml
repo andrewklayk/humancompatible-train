@@ -1,0 +1,15 @@
+name: ssg
+updater: switching
+select_filter: upper
+constraint_tol: 0.0
+primal:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.01
+# Independent optimizer for the constraint (dual) step; both are Moreau-wrapped.
+dual:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.01
+moreau:
+  mu: 1.0

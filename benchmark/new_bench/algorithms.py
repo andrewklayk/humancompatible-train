@@ -6,8 +6,11 @@ from ``cfg.algorithm`` into an ``Algorithm`` whose ``.step()`` performs ONE
 per-batch update. The single training loop in ``train.py`` calls ``.step()`` and
 knows nothing about which algorithm it runs.
 
-Three update strategies cover all five algorithms:
+Four update strategies cover all algorithms:
   * plain        -> adam            (loss.backward(); primal.step())
+  * reg          -> adam_reg        (fixed-penalty regularized adam: backprops
+                    loss + reg_const * max(c - bound) every step, one bare Adam,
+                    no dual state)
   * primal_dual  -> pbm, alm_proj, alm_max
                     (lgr = dual.forward_update(loss, c_eq); lgr.backward(); primal.step())
   * switching    -> ssg             (step dual on max violation, else primal on loss)
@@ -27,11 +30,12 @@ class Algorithm:
     name: str
     primal: object                       # primal optimizer (possibly Moreau-wrapped)
     dual: Optional[object]               # dual optimizer / second primal (ssg), or None
-    updater: str                         # 'plain' | 'primal_dual' | 'switching'
+    updater: str                         # 'plain' | 'reg' | 'primal_dual' | 'switching'
     constraints_to_eq: bool
     select_filter: str                   # used downstream by select_best.py (saved in config)
     passes_loss_to_constraints: bool     # whether the unreduced loss is fed to the constraint fn
     constraint_tol: float = 0.0          # switching method only
+    reg_const: float = 0.0               # 'reg' method only: fixed penalty weight
     grad_clip: Optional[float] = None    # max grad-norm; None disables clipping
 
     def zero_grad(self):
@@ -55,13 +59,20 @@ class Algorithm:
             loss_mean.backward()
             self._clip()
             self.primal.step()
+        elif self.updater == "reg":
+            # Fixed-penalty regularized adam: no dual ascent, no gating -- every step
+            # backprops loss + reg_const * (worst violation), even when already feasible.
+            penalized = loss_mean + self.reg_const * torch.sum(torch.abs(constraints_bounded_eq))
+            penalized.backward()
+            self._clip()
+            self.primal.step()
         elif self.updater == "primal_dual":
             lgr = self.dual.forward_update(loss_mean, constraints_bounded_eq)
             lgr.backward()
             self._clip()
             self.primal.step()
         elif self.updater == "switching":
-            max_c = max(constraints_bounded_eq)
+            max_c = torch.max(constraints_bounded_eq)
             if max_c > self.constraint_tol:
                 max_c.backward()
                 self._clip()
@@ -95,6 +106,18 @@ def build_algorithm(cfg_algo, model, m, epoch_length) -> Algorithm:
             constraints_to_eq=bool(cfg_algo.get("constraints_to_eq", False)),
             select_filter=cfg_algo.get("select_filter", "none"),
             passes_loss_to_constraints=True,
+            grad_clip=grad_clip,
+        )
+
+    if updater == "reg":
+        # adam_reg: bare primal, no dual, no Moreau envelope -- same shape as 'plain',
+        # just backprops loss + reg_const * max(c - bound) every step (see step()).
+        return Algorithm(
+            name=name, primal=primal_opt, dual=None, updater=updater,
+            constraints_to_eq=bool(cfg_algo.get("constraints_to_eq", False)),
+            select_filter=cfg_algo.get("select_filter", "none"),
+            passes_loss_to_constraints=True,
+            reg_const=float(cfg_algo.get("reg_const", 1.0)),
             grad_clip=grad_clip,
         )
 

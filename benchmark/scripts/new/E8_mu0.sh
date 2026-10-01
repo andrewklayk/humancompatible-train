@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=grid_klein_gordon
-#SBATCH --error=./results/logs/grid_klein_gordon_%a.err
-#SBATCH --output=./results/logs/grid_klein_gordon_%a.out
+#SBATCH --job-name=grid_burgers
+#SBATCH --error=./results/logs/grid_burgers_%a.err
+#SBATCH --output=./results/logs/grid_burgers_%a.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
@@ -16,4 +16,4 @@ ml Hydra/1.3.2-GCCcore-14.3.0
 ml torchvision/0.25.0-foss-2025b-CUDA-12.9.1
 source ../env_humancompatible/bin/activate
 
-python3 -u run_klein_gordon.py task=klein_gordon seed=$SLURM_ARRAY_TASK_ID algorithms="[alm_max]"
+python3 -u run_burgers.py seed=$SLURM_ARRAY_TASK_ID algorithms="[pbm_mu0]"

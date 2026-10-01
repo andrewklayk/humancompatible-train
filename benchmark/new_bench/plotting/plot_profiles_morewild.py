@@ -20,9 +20,10 @@ from plot_style import TEXT_WIDTH
 
 
 _PANELS = [("objective", "Loss"),
-           ("max_viol", r"Feasibility $\max_j(c_j-b)_+$"),
-           ("grad_norm", r"Stationarity $\|\nabla_x L\|$"),
-           ("compl", r"Complementarity $\sum_j|\lambda_j g_j|$")]
+           ("max_viol", r"Feasibility"),
+        #    ("grad_norm", r"Stationarity $\|\nabla_x L\|$"),
+        #    ("compl", r"Complementarity $\sum_j|\lambda_j g_j|$")
+           ]
 
 
 def _base(method):
@@ -30,6 +31,35 @@ def _base(method):
     if "__" in method:
         b, k = method.split("__"); return b, int(k)
     return method, 1
+
+# subtype method -> base method it also gets pooled into when pool_subtypes=True.
+# Mirrors select_best.py / plot_PINNS.py's SUBTYPE_TO_BASE.
+SUBTYPE_TO_BASE = {
+    "pbm_gamma0": "pbm",
+    # "pbm_kappa0": "pbm",
+    "pbm_mu0": "pbm",
+    "alm_proj_fix": "alm_proj"
+}
+
+
+def _pooled_members(base):
+    return [base] + [s for s, b in SUBTYPE_TO_BASE.items() if b == base]
+
+
+def _pooled_rows(fetch, spec, m, *args, pool_subtypes=False, **kwargs):
+    """Call fetch(spec, src, *args, **kwargs) once per pooled source of `m`
+    (just `m` itself if pool_subtypes is off or m's base isn't a pooling base),
+    concatenating results -- so e.g. 'pbm' also picks up pbm_mu0's rows. Any
+    '__<cutoff>' suffix on `m` (see _base) is preserved on every source."""
+    base, _ = _base(m)
+    suffix = m[len(base):]
+    sources = _pooled_members(base) if pool_subtypes else [base]
+    rows = []
+    for src in sources:
+        r = fetch(spec, src + suffix, *args, **kwargs)
+        if r:
+            rows.extend(r)
+    return rows
 
 def _tol(spec, cutoff):
     """Relative feasibility slack off the bound (cutoff=1 loose, 2 tight)."""
@@ -55,12 +85,12 @@ def _pairs(spec, method, metric, tail, feas_only):
 
 
 def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
-                       taus=None, out="plots/profiles_fair.pdf"):
+                       taus=None, out="plots/profiles_fair.pdf", pool_subtypes=False):
     assert configs in ("all", "best")
     set_neurips_style()
     taus = np.logspace(-5, 0, 60) if taus is None else np.asarray(taus)
     
-    fig, axes = plt.subplots(2, 2, figsize=(TEXT_WIDTH * 0.7, TEXT_WIDTH * 0.6),
+    fig, axes = plt.subplots(1, 2, figsize=(TEXT_WIDTH * 0.7, TEXT_WIDTH * 0.33),
                          sharex=True, sharey=True)
     axes = axes.ravel()
 
@@ -72,7 +102,8 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
         scores = {m: [] for m in panel_methods}
 
         for spec in specs:
-            per_method = {m: _pairs(spec, m, metric, tail, feas_only) for m in panel_methods}
+            per_method = {m: _pooled_rows(_pairs, spec, m, metric, tail, feas_only,
+                                          pool_subtypes=pool_subtypes) for m in panel_methods}
             # f_L over BASE methods only (no __k duplicates)
             base_finals = {}
             for m, rows in per_method.items():
@@ -101,7 +132,7 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
                   f"frac(tau=1e-1)={np.mean(s <= 1e-1):.2f}")
 
         ax.set_xscale("log")
-        ax.set_xlabel(r"accuracy $\tau$")
+        ax.set_xlabel(r"$\tau$")
         ax.set_ylim(-0.02, 1.02)
     axes[0].set_ylabel("fraction of configs")
     axes[1].set_ylabel("fraction of configs")
@@ -113,31 +144,50 @@ def plot_profiles_fair(specs, methods, configs="all", tail=5, tol_mult=1.0,
     print(f"wrote {out}")
 
 
+
 if __name__ == "__main__":
     
-    experiments = [ 'weight_norm',
-                    'folktables_positive_rate_vec',
-                    'folktables_positive_rate_pair', 
-                    'dutch_positive_rate_pair']
+    experiments = [
+        'weight_norm',
+        'folktables_positive_rate_pair', 
+        'dutch_positive_rate_pair',
+        "cifar10_loss",
+        "cifar100_loss"
+    ]
+
+    INCLUDE_ABLATION = False
 
     data_map = {    "weight_norm": "income_norm",
                     "folktables_positive_rate_vec": "income", 
                     "folktables_positive_rate_pair": "income",
-                    "dutch_positive_rate_pair": "dutch"
+                    "dutch_positive_rate_pair": "dutch",
+                    "cifar10_loss": "cifar10",
+                    "cifar100_loss": "cifar100"
     }
     bounds_map = {  "weight_norm": 2.0,
                     "folktables_positive_rate_vec": 0.2, 
                     "folktables_positive_rate_pair": 0.1,
-                    "dutch_positive_rate_pair": 0.1
+                    "dutch_positive_rate_pair": 0.1,
+                    "cifar10_loss": 0.1,
+                    "cifar100_loss": 0.1
     }
 
-    agg = "../selection/aggregated/"
+    if INCLUDE_ABLATION:
+        agg = "/mnt/data/optimization/current/best/aggregated/"
+        out = "/mnt/personal/kliacand/humancompatible-train/benchmark/new_bench/plotting/plots/profiles_fair_all.pdf"
+    else:
+        agg = "/mnt/data/optimization/current/best_noablation/aggregated/"
+        out = "/mnt/personal/kliacand/humancompatible-train/benchmark/new_bench/plotting/plots/noablation/profiles_fair_all.pdf"
     specs = [ExperimentSpec(name=e, task=e, data=data_map[e],
                             bound=bounds_map[e], agg_root=agg)
              for e in experiments]
-    methods = ["adam", "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"]
+    methods = [
+        "adam",
+        "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"
+        ]
 
+    # out = "../../results/plots/profiles_fair_all.pdf"
     plot_profiles_fair(specs, methods, configs="all",
-                       out="../../results/plots/profiles_fair_all.pdf")
+                       out=out, tail=5, pool_subtypes=INCLUDE_ABLATION)
     
     # plot the trade off

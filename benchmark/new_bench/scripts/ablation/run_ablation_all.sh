@@ -25,7 +25,7 @@ set -euo pipefail
 
 PARTITION=${PARTITION:-cpulong}
 DEP=${DEP:-afterany}
-ALGOS=${ALGOS:-"pbm pbm_alm pbm_kappa0 pbm_gamma0 pbm_gamma0_alm pbm_mu0 pbm_mu0_alm"}
+ALGOS=${ALGOS:-"pbm_kappa0 pbm_gamma0 pbm_gamma0_alm pbm_mu0 pbm_mu0_alm"}
 SELECT=${SELECT:-1}
 
 # sbatch options common to every DRIVER job (a lightweight blocking loop: 1 CPU, no GPU).
@@ -51,7 +51,7 @@ done
 
 # Final aggregate + select_best, after the last sweep (no GPU, quick).
 if [ "${SELECT}" = "1" ] && [ -n "${jid}" ]; then
-  sel_sb=(--parsable --cpus-per-task=1 --mem=4G --time=00:50:00
+  sel_sb=(--parsable --cpus-per-task=1 --mem=4G --time=02:00:00
           --job-name=E1_opt_select --dependency="${DEP}:${jid}")
   [ -n "${PARTITION}" ] && sel_sb+=(--partition="${PARTITION}")
   sel=$(sbatch "${sel_sb[@]}" --wrap="cd '${PWD}' && bash scripts/E1_opt_select.sh")

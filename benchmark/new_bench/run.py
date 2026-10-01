@@ -89,7 +89,8 @@ def main(cfg: DictConfig):
     # --- train ---
     h_train, h_val, h_test, h_opt = train(model, algorithm, task, bundle,
                                           n_epochs=int(cfg.n_epochs), device=device,
-                                          approach=approach, verbose=cfg.verbose)
+                                          approach=approach, verbose=cfg.verbose,
+                                          reweight_loss=task.reweight_loss)
 
     # --- write raw results to this job's output dir ---
     hc = HydraConfig.get()

@@ -384,6 +384,7 @@ def plot_losses_and_constraints_stochastic(
     METHOD_COLORS = {
     "SPBM": "#D1495B",            # crimson — your method, stands out
     "Adam": "#4C4C4C",           # grey, muted baseline
+    "ALM": "#2E86AB",
     "SSL-ALM (proj.)": "#2E86AB",
     "SSL-ALM (max)": "#5BC0BE",
     "SSw": "#E0A458",

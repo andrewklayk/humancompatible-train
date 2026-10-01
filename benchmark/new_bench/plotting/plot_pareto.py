@@ -40,7 +40,7 @@ def plot_scatter(spec, methods=None, out="pareto.pdf", tail=1, split="train", pa
     set_neurips_style()
     agg = aggregate_experiment(spec, tail=tail, split=split)
     if methods is None:
-        methods = [m for m in ["pbm", "alm_proj", "alm_max", "ssg"] if m in agg]
+        methods = [m for m in ["pbm", "alm_proj"] if m in agg]
     if not methods:
         print("no methods to plot")
         return None
@@ -85,8 +85,8 @@ if __name__ == "__main__":
     ap.add_argument("--task", default="folktables_positive_rate_pair")
     ap.add_argument("--data", default="income")
     ap.add_argument("--bound", type=float, default=0.1)
-    ap.add_argument("--split", default="train", choices=["train", "val", "test"])
-    ap.add_argument("--tail", type=int, default=1)
+    ap.add_argument("--split", default="train", choices=["train", "val", "test", "opt"])
+    ap.add_argument("--tail", type=int, default=5)
     ap.add_argument("--pareto", action="store_true", help="keep only non-dominated configs per method")
     ap.add_argument("--out", default="plots/pareto.pdf")
     args = ap.parse_args()

@@ -27,6 +27,7 @@ benchmark/data
 data/
 benchmark/new_bench/multirun
 benchmark/new_bench/selection
+benchmark/new_bench/env_empty
 
 
 NOTES.txt

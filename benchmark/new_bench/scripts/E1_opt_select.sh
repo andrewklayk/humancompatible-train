@@ -5,8 +5,8 @@
 #   Run from benchmark/new_bench/:   bash scripts/E1_opt_select.sh
 #   Custom slack levels:             TOLS=1.0,1.05,1.1 bash scripts/E1_opt_select.sh
 set -euo pipefail
-if [ -f ../env_humancompatible/bin/activate ]; then
-  source ../env_humancompatible/bin/activate
+if [ -f ../env_empty/bin/activate ]; then
+  source ../env_empty/bin/activate
 fi
 
 if command -v ml >/dev/null 2>&1; then
