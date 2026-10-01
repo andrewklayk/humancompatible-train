@@ -16,6 +16,7 @@ benchmark/new_bench/multirun
 *.out
 *.svg
 *.pdf
+*.pt
 *.jpg
 *.png
 */plots/
