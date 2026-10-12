@@ -107,7 +107,7 @@ class HardConcreteGate(nn.Module):
 
 @dataclass
 class GateParamGroup:
-    """One gate vector, the module it gates, and the bookkeeping the density needs.
+    """Contains the gate parameters together with the corresponding module.
 
     :param module: The module whose *input* this group scales. :class:`GateSet` registers
         :meth:`pre_hook` on it; nothing else reads it.
@@ -181,7 +181,7 @@ def _partition(groups: Sequence[GateParamGroup], granularity: str):
 
 
 class GateSet:
-    """All gates attached to a model, plus the constraint calculation over them.
+    """All gates (GateParamGroup) attached to a model, plus the constraint calculation over them.
 
     The gate modules are registered as a submodule of ``model`` (default name
     ``l0_gates``), so they appear in ``model.parameters()`` and are synchronised by
