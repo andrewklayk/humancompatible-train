@@ -4,7 +4,7 @@
 # limit E0a measured, not a tuning artifact.
 name: pbm
 label: "PBM"
-method: null            # commented out of run_llm.METHODS
+method: pbm
 primal:
   lr: 1.0e-3
 dual:

@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 ARGS=("$@")
 
-for arg in "${ARGS[@]:-}"; do
+for arg in "${ARGS[@]+"${ARGS[@]}"}"; do
   if [[ "$arg" == "--quick" ]]; then
     export HC_PAPER_RESULTS="${TMPDIR:-/tmp}/hc_paper_results_smoke"
     echo "smoke mode: artifacts -> $HC_PAPER_RESULTS"
@@ -28,11 +28,11 @@ status=0
 for script in paper/e3/sweep.py paper/e3/scaling.py; do
   echo
   echo "=============================================================="
-  echo "  $script ${ARGS[*]:-}"
+  echo "  $script ${ARGS[*]+"${ARGS[*]}"}"
   echo "=============================================================="
   # Keep going after a failure so one broken configuration does not hide the rest,
   # then exit non-zero at the end.
-  if ! python "$script" "${ARGS[@]:-}"; then
+  if ! python "$script" "${ARGS[@]+"${ARGS[@]}"}"; then
     status=1
     echo "!! $script reported a failure"
   fi

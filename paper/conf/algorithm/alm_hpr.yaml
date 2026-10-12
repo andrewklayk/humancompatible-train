@@ -2,7 +2,7 @@
 # requires penalty > 0 -- ALM's constructor rejects penalty=0 here.
 name: alm_hpr
 label: "ALM (HPR)"
-method: alm_quad
+method: alm_hpr
 primal:
   lr: 1.0e-3
 dual:

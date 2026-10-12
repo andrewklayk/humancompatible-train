@@ -1,7 +1,7 @@
 # `beta` is iALM's dual step size; there is no `lr`.
 name: ialm
 label: "iALM"
-method: null            # commented out of run_llm.METHODS
+method: ialm
 primal:
   lr: 1.0e-3
 dual:

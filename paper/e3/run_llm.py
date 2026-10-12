@@ -10,7 +10,7 @@ and the artifact writing.
 
 **This file is one run.** The experiment is the two drivers on top of it:
 ``sweep.py`` (methods x target density, plus the fixed-penalty baseline) and ``scaling.py``
-(tokens/s over the 1->2->4 GPU ladder). Both build their configurations from
+(tokens/s over the 1->2 GPU ladder). Both build their configurations from
 :func:`build_parser`, so a default added here reaches them.
 
 **What E3 asks.** On a large multi-GPU LM job: do the dual methods deliver a requested
@@ -94,25 +94,29 @@ METHODS = {
         m=m, lr=lr, penalty=0.0, init_duals=0.0, is_ineq=True, restart=True,
         device=device, process_group=pg,
     ),
-    "alm_quad": lambda m, device, pg, lr: ALM(
+    # Hestenes-Powell-Rockafellar, not the quadratic augmentation. The name has to say
+    # which one it is: it is written verbatim into the `method` column of every artifact,
+    # and `augmentation="hpr"` is what the constructor is handed.
+    "alm_hpr": lambda m, device, pg, lr: ALM(
         m=m, lr=lr, penalty=1.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg, augmentation='hpr', restart=True
+        device=device, process_group=pg, augmentation="hpr", restart=True,
     ),
-    # "ialm": lambda m, device, pg, lr: iALM(
-    #     m=m, beta=lr, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True,
-    #     device=device, process_group=pg,
-    # ),
-    # "nupi": lambda m, device, pg, lr: nuPI(
-    #     m=m, ki=lr, kp=lr, nu=0.0, penalty=0.0, init_duals=0.0, is_ineq=True,
-    #     device=device, process_group=pg,
-    # ),
+    "ialm": lambda m, device, pg, lr: iALM(
+        m=m, beta=lr, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True,
+        device=device, process_group=pg,
+    ),
+    # nuPI dropped its `penalty` argument; passing it raises TypeError.
+    "nupi": lambda m, device, pg, lr: nuPI(
+        m=m, ki=lr, kp=lr, nu=0.0, init_duals=0.0, is_ineq=True,
+        device=device, process_group=pg,
+    ),
     # Annealing is switched off explicitly: it defaults on and then makes `epoch_length`
-    # mandatory, so PBM(m=...) alone raises. Recorded as a blocker in the plan.
-    # "pbm": lambda m, device, pg, lr: PBM(
-    #     m=m, gamma=0.5, penalty_mult=lr, delta=1.0, penalty_update="dimin_adapt",
-    #     gamma_annealing=False, penalty_annealing=False,
-    #     device=device, process_group=pg,
-    # ),
+    # mandatory, so PBM(m=...) alone raises.
+    "pbm": lambda m, device, pg, lr: PBM(
+        m=m, gamma=0.5, penalty_mult=lr, delta=1.0, penalty_update="dimin_adapt",
+        gamma_annealing=False, penalty_annealing=False,
+        device=device, process_group=pg,
+    ),
 }
 
 CONSTRAINED = tuple(name for name, build in METHODS.items() if build is not None)
@@ -183,8 +187,13 @@ def comm_accounting(model: nn.Module, m: int, world: int, dtype_bytes: int = 4) 
 # --------------------------------------------------------------------------- #
 
 
-def build_model(name: str, *, device, dtype, seed: int, vocab_size: int = None):
-    """The stand-in model, or a HuggingFace causal LM.
+def build_model(name: str, *, device, seed: int, vocab_size: int = None):
+    """The stand-in model, or a HuggingFace causal LM, in float32.
+
+    Parameters are float32 whatever ``--dtype`` says; that flag picks the *autocast*
+    dtype. Holding master weights in bfloat16 drops a large share of the AdamW updates
+    outright -- at ``lr=1e-4`` on weights of magnitude 1e-2 the update is around one
+    bf16 ULP -- and the moment buffers would be bfloat16 too.
 
     ``transformers`` is imported lazily and only for a real model name, so the whole smoke
     path runs without it installed — which is the situation both on this machine and on the
@@ -195,7 +204,7 @@ def build_model(name: str, *, device, dtype, seed: int, vocab_size: int = None):
 
         kwargs = {} if vocab_size is None else {"vocab_size": vocab_size}
         model = tiny_causal_lm(seed=seed, **kwargs)
-        return model.to(device=device, dtype=dtype)
+        return model.to(device=device, dtype=torch.float32)
 
     try:
         from transformers import AutoModelForCausalLM
@@ -205,7 +214,7 @@ def build_model(name: str, *, device, dtype, seed: int, vocab_size: int = None):
             f"`--model stub` for the smoke path, or install transformers on the cluster "
             f"(no EasyBuild module provides it)."
         ) from exc
-    model = AutoModelForCausalLM.from_pretrained(name, dtype=dtype)
+    model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.float32)
     model.config.use_cache = False  # incompatible with training, and wastes memory
     return model.to(device)
 
@@ -215,7 +224,8 @@ def build_model(name: str, *, device, dtype, seed: int, vocab_size: int = None):
 # --------------------------------------------------------------------------- #
 
 
-def evaluate(model, shard, first_block, n_blocks, *, batch_size, device, rank, world):
+def evaluate(model, shard, first_block, n_blocks, *, batch_size, device, rank, world,
+             amp=None):
     """Mean cross-entropy over held-out blocks, at whatever gates are installed.
 
     Blocks are handed out contiguously per rank and truncated to an equal count, so the
@@ -230,7 +240,8 @@ def evaluate(model, shard, first_block, n_blocks, *, batch_size, device, rank, w
         for b in range(batches):
             start = first_block + rank * per_rank + b * batch_size
             ids = shard.batch(range(start, start + batch_size), device=device)
-            total += float(model(input_ids=ids, labels=ids).loss)
+            with (amp() if amp is not None else nullcontext()):
+                total += float(model(input_ids=ids, labels=ids).loss)
     mean = torch.tensor(total / batches, device=device)
     if world > 1:
         dist.all_reduce(mean, op=dist.ReduceOp.AVG)
@@ -240,12 +251,18 @@ def evaluate(model, shard, first_block, n_blocks, *, batch_size, device, rank, w
 def train(args, *, rank: int, world: int, device, process_group) -> dict:
     """Run ``args.steps`` steps; return per-step rows plus a summary."""
     set_seed(args.seed)
-    dtype = torch.float32 if device.type == "cpu" else getattr(torch, args.dtype)
+    # Parameters stay float32; --dtype is the autocast dtype, and only on GPU. A fresh
+    # context per use rather than one reused instance, which is not re-entrant.
+    amp_dtype = getattr(torch, args.dtype) if device.type == "cuda" else None
+
+    def autocast():
+        if amp_dtype is None:
+            return nullcontext()
+        return torch.autocast(device_type="cuda", dtype=amp_dtype)
 
     shard = tokens_mod.TokenShard(args.tokens, args.seq_len)
     model = build_model(
-        args.model, device=device, dtype=dtype, seed=args.seed,
-        vocab_size=args.vocab_size,
+        args.model, device=device, seed=args.seed, vocab_size=args.vocab_size,
     )
 
     gates = None
@@ -283,8 +300,12 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
          "lr": args.lr},
     ]
     if gate_ids:
+        # No weight decay on log_alpha. AdamW's default 0.01 at the gate step size shrinks
+        # it by a factor 0.82 over 2000 steps, a standing pull toward
+        # sigmoid(-beta*log(-gamma/zeta)) = 0.83 density -- an unintended regulariser on
+        # exactly the parameters the constraint controls.
         groups.append({"params": [p for p in wrapped.parameters() if id(p) in gate_ids],
-                       "lr": args.gate_lr})
+                       "lr": args.gate_lr, "weight_decay": 0.0})
     primal = torch.optim.AdamW(groups, lr=args.lr)
     dual = None
     build = METHODS[args.method]
@@ -313,6 +334,9 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
     batches = sampler.stream(args.steps)
 
     comm = comm_accounting(model, m, world)
+    if device.type == "cuda":
+        # Per configuration, not per process: sweep.py runs the whole grid in one.
+        torch.cuda.reset_peak_memory_stats(device)
     rows = []
     for step, indices in enumerate(batches):
         timer = StepTimer(device)
@@ -325,14 +349,16 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
             # passes raises from autograd.
             gates.resample(gate_gen)
 
-        loss = wrapped(input_ids=ids, labels=ids).loss
+        with autocast():
+            loss = wrapped(input_ids=ids, labels=ids).loss
         timer.mark("forward")
 
-        constraints = None
-        if gates is not None:
-            constraints = gates.constraints(args.eps, args.granularity)
+        # Only a method that uses a constraint pays for evaluating one. `adam` is
+        # scaling.py's control, and charging the dual layer with work the control did too
+        # would make `ms dual` and the throughput ratio measure different things.
         if dual is not None:
-            objective = dual.forward_update(loss, constraints)
+            objective = dual.forward_update(
+                loss, gates.constraints(args.eps, args.granularity))
         elif args.method == "penalty":
             # Their penalized formulation, Eq. (1)-(2): a fixed multiple of the expected
             # L0 added to the loss. The sweep over `--penalty` is the comparison their
@@ -407,11 +433,21 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
     # The test-time model is the median gate (their Appendix A.1), not a fresh sample:
     # what a user ships is one deterministic network, and its perplexity is what says
     # whether the density the constraint delivered was worth having.
+    report = []
     if gates is not None:
         gates.use_median()
+        report = gates.median_report()
+        # What the *shipped* network realises, parameter-counted the way the constraint
+        # is. `final_density_mean` is the expected density the constraint acts on, while
+        # the perplexity below is measured at the median gates -- without this the table
+        # would pair a perplexity with the density of a different network.
+        summary["final_median_density"] = (
+            sum(r["params_active"] for r in report)
+            / sum(r["params_total"] for r in report)
+        )
     eval_loss = evaluate(
         model, shard, n_train, held_out, batch_size=args.batch_size,
-        device=device, rank=rank, world=world,
+        device=device, rank=rank, world=world, amp=autocast,
     )
     if eval_loss is not None:
         summary["eval_loss"] = eval_loss
@@ -426,7 +462,6 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
     if device.type == "cuda":
         summary["peak_mem_bytes"] = torch.cuda.max_memory_allocated(device)
 
-    report = [] if gates is None else gates.median_report()
     return {"rows": rows, "summary": summary, "median_report": report, "names": names}
 
 
@@ -444,8 +479,14 @@ def _dist_env() -> tuple[int, int, int]:
     )
 
 
-def _pick_device(local_rank: int) -> torch.device:
-    if torch.cuda.is_available():
+def _pick_device(local_rank: int, world: int = 1) -> torch.device:
+    """CUDA when every rank can have a device of its own, else CPU on all of them.
+
+    The test is on ``world``, not on ``local_rank``: the decision has to come out the
+    same on every rank, or they also choose different collective backends (nccl against
+    gloo) and the job deadlocks instead of falling back.
+    """
+    if torch.cuda.is_available() and world <= torch.cuda.device_count():
         torch.cuda.set_device(local_rank)
         return torch.device(f"cuda:{local_rank}")
     return torch.device("cpu")
@@ -492,7 +533,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dual-lr", type=float, default=1e-2)
     parser.add_argument("--grad-clip", type=float, default=0.0)
     parser.add_argument("--dtype", default="bfloat16",
-                        help="model dtype on GPU; CPU always runs float32")
+                        help="autocast dtype on GPU; parameters are always float32, and "
+                             "CPU runs without autocast")
     parser.add_argument("--init-open", type=float, default=0.95)
     parser.add_argument("--no-gates", action="store_true",
                         help="the plain LM: no hooks, no constraints")
@@ -541,7 +583,7 @@ def main(argv=None) -> None:
 
     # Already under torchrun: be a worker.
     if rank >= 0:
-        device = _pick_device(local_rank)
+        device = _pick_device(local_rank, world)
         dist.init_process_group("nccl" if device.type == "cuda" else "gloo")
         group = None if args.no_process_group else dist.group.WORLD
         try:

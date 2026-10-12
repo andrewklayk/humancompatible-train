@@ -124,6 +124,11 @@ class TinyDecoder(nn.Module):
     def __init__(self, config: TinyConfig):
         super().__init__()
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
+        # nn.Embedding initialises to N(0, 1). With tied weights that is also the
+        # lm_head, so logits would come out with std sqrt(hidden_size) and the initial
+        # loss would be ~21 rather than log(vocab_size) -- which is the sanity signal
+        # paper/problems/tokens.py promises for a run on random tokens.
+        nn.init.normal_(self.embed_tokens.weight, std=config.hidden_size ** -0.5)
         self.embed_positions = nn.Embedding(
             config.max_position_embeddings, config.hidden_size
         )

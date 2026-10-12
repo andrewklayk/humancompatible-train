@@ -2,9 +2,10 @@
 Tokenize a FineWeb-Edu slice into the flat shard E3 trains on.
 
 Run **once, on a login node** — compute nodes have no network access, and the training
-path imports neither ``datasets`` nor ``transformers``. That split is deliberate: a
-multi-GPU job that dies at hour three because an HTTP fetch failed is an expensive way to
-learn that streaming is fragile.
+path imports no ``datasets`` and reaches no network. That split is deliberate: a multi-GPU
+job that dies at hour three because an HTTP fetch failed is an expensive way to learn that
+streaming is fragile. (``transformers`` *is* needed at training time, for any ``--model``
+that is not the stub; it is ``datasets`` and the network that stay on the login node.)
 
 The shard format and its ``.meta.json`` sidecar are :mod:`paper.problems.tokens`'s;
 :func:`~paper.problems.tokens.write_shard` picks the narrowest safe integer width from the

@@ -1,7 +1,7 @@
 # a_fairness.METHODS["ALM"]. Quadratic augmentation, no restart.
 name: alm
 label: "ALM"
-method: alm_quad
+method: null            # run_llm.METHODS has no quadratic-augmentation variant
 primal:
   lr: 1.0e-3
 dual:

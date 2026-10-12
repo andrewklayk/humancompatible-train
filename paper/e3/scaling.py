@@ -1,10 +1,12 @@
 """
-E3 — what the dual layer costs in throughput, over the 1 -> 2 -> 4 GPU ladder.
+E3 — what the dual layer costs in throughput, over the 1 -> 2 GPU ladder.
 
 Runs ``run_llm.py`` at each world size in a fresh ``torchrun`` job and reads back the
 summary it writes. Two configurations per rung, **both with gates attached**:
 
-* ``adam`` — the gated model with no constraint and no multipliers;
+* ``adam`` — the gated model with no constraint and no multipliers. It does not
+  evaluate the constraint either, so the difference below is the whole dual layer and
+  not just the multiplier update;
 * ``alm_gda_restart`` — the same, plus the constraint and the dual update.
 
 The difference between them is the dual layer. Timing a constrained run against the
@@ -56,7 +58,8 @@ def _run(args, method: str, world: int, tag: str) -> dict:
         "--model", args.model, "--method", method, "--granularity", args.granularity,
         "--eps", str(args.eps), "--steps", str(args.steps),
         "--seq-len", str(args.seq_len), "--batch-size", str(args.batch_size),
-        "--lr", str(args.lr), "--dual-lr", str(args.dual_lr), "--dtype", args.dtype,
+        "--lr", str(args.lr), "--gate-lr", str(args.gate_lr),
+        "--dual-lr", str(args.dual_lr), "--dtype", args.dtype,
         "--eval-batches", "0", "--seed", str(args.seed),
         "--ranks", str(world), "--tag", tag,
     ]
@@ -158,7 +161,7 @@ def main(argv=None) -> None:
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--worlds", default=None,
-                        help="comma-separated ladder; default 1,2,4 capped at the "
+                        help="comma-separated ladder; default 1,2 capped at the "
                              "visible GPU count")
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--check", action="store_true",
@@ -169,7 +172,7 @@ def main(argv=None) -> None:
         args.worlds = [int(w) for w in args.worlds.split(",")]
     else:
         available = max(1, torch.cuda.device_count())
-        args.worlds = [w for w in (1, 2, 4) if w <= available] or [1]
+        args.worlds = [w for w in (1, 2) if w <= available] or [1]
     if args.quick:
         args.steps = 6
 

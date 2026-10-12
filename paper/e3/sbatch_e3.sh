@@ -17,9 +17,14 @@
 # copies of the driver. This is the opposite of what submitit wants, which is why E3 uses
 # plain sbatch and no Hydra.
 #
-# Prerequisites, both on a login node (compute nodes have no network):
-#   1. python paper/e3/prepare_data.py --model Qwen/Qwen2.5-0.5B --out "$SHARD"
-#   2. huggingface-cli download Qwen/Qwen2.5-0.5B     # ungated, Apache-2.0, ~1 GB
+# Prerequisites, all three on a login node (compute nodes have no network):
+#   1. python -m venv --system-site-packages ~/venv-e3   # after `ml PyTorch/...`
+#      ~/venv-e3/bin/pip install transformers datasets
+#   2. python paper/e3/prepare_data.py --model Qwen/Qwen2.5-0.5B --out paper/results/e3/tokens.bin
+#   3. huggingface-cli download Qwen/Qwen2.5-0.5B     # ungated, Apache-2.0, ~1 GB
+#
+# `transformers` is needed at *training* time too, not only to prepare the shard:
+# run_llm.build_model imports it for any --model that is not `stub`.
 set -euo pipefail
 
 # SLURM exports these into child processes, where they collide with any per-job memory
@@ -33,8 +38,9 @@ ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
 # module (--system-site-packages keeps the module's torch, which is the CUDA-matched one).
 VENV="${VENV:-$HOME/venv-e3}"
 if [ ! -d "$VENV" ]; then
-  python -m venv --system-site-packages "$VENV"
-  "$VENV/bin/pip" install -q transformers datasets
+  # Creating it here cannot work: pip needs the network and this is a compute node.
+  echo "no venv at $VENV -- create it on a login node first, see the header" >&2
+  exit 1
 fi
 source "$VENV/bin/activate"
 
@@ -43,7 +49,13 @@ export HF_HUB_OFFLINE=1
 export OMP_NUM_THREADS=8
 export TOKENIZERS_PARALLELISM=false
 
-cd "$(dirname "$0")/../.."
+# NOT `dirname $0`: SLURM runs a spooled copy of this script out of
+# /var/spool/slurmd/job<N>/, so $0 does not point into the repository.
+cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/../..}"
+if [ ! -f paper/e3/run_llm.py ]; then
+  echo "not at the repository root (cwd=$PWD); submit from the repo root" >&2
+  exit 1
+fi
 
 MODEL="${MODEL:-Qwen/Qwen2.5-0.5B}"
 SHARD="${SHARD:-paper/results/e3/tokens.bin}"

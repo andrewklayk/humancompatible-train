@@ -34,7 +34,7 @@ Usage::
     python paper/e3/run_cifar.py --quick --synthetic
     python paper/e3/run_cifar.py --data ~/cifar_exp/data --method alm_gda_restart --eps 0.3
     python paper/e3/run_cifar.py --data ~/cifar_exp/data --epochs 100 \
-        --method alm_gda_restart,alm_quad,nupi,pbm --eps 0.1,0.3,0.5
+        --method alm_gda_restart,alm_hpr,nupi,pbm --eps 0.1,0.3,0.5
 """
 
 from __future__ import annotations
