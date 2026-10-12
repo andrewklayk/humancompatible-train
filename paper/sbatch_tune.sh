@@ -21,9 +21,11 @@
 #
 # It blocks until every array task finishes (then reports), so run it under tmux/nohup.
 #
-# Trailing arguments are passed to tune.py as extra Hydra overrides:
+# Trailing arguments are passed to tune.py as extra Hydra overrides, and come last, so
+# they win over everything this script sets:
 #
 #   sbatch paper/sbatch_tune.sh ++experiment.steps=1000 ++experiment.eps=0.3
+#   MODEL=stub sbatch paper/sbatch_tune.sh          # or ++experiment.model=stub
 #
 # E3-LM tuning is SINGLE-RANK, and this script pins `experiment.ranks=1`. tune.py drives
 # run_llm.train() directly -- a config object cannot cross the torchrun re-exec that
@@ -113,6 +115,11 @@ fi
 # resolves its default shard path, so an unset `tokens` makes every cell look for the
 # shard inside its own job directory and fail.
 SHARD="${SHARD:-$PWD/paper/results/e3/tokens.bin}"
+# conf/experiment/e3_llm.yaml defaults to `model: stub` so that tune.py is runnable on a
+# laptop, but this script requires a real token shard -- and feeding Qwen-range ids to
+# the stub's 256-row embedding is a device-side assert, not a clear error. Default to the
+# model the shard was tokenized for, as paper/e3/sbatch_e3.sh does.
+MODEL="${MODEL:-Qwen/Qwen2.5-0.5B}"
 
 OVERRIDES=(-m "+sweep=$SWEEP" "seed=$SEEDS")
 if [ -n "$LAUNCHER" ]; then
@@ -124,7 +131,8 @@ if [[ "$SWEEP" == e3_llm* ]]; then
     exit 1
   fi
   # ranks is pinned, not configurable: see the header.
-  OVERRIDES+=("++experiment.tokens=$SHARD" "++experiment.ranks=1")
+  OVERRIDES+=("++experiment.model=$MODEL" "++experiment.tokens=$SHARD"
+              "++experiment.ranks=1")
 fi
 
 # Informational, and absent on a login node, hence the guard.
