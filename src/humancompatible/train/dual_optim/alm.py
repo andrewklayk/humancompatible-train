@@ -32,13 +32,16 @@ class ALM(DualOptimizer):
         # Unset + a nonzero penalty means "augment"; HPR is the better default surrogate.
         if augmentation is None and penalty > 0:
             augmentation = "hpr"
+        
+        if augmentation is not None and penalty == 0:
+            augmentation = None
 
         if augmentation not in AUGMENTATIONS:
             raise ValueError(
                 f"Unknown augmentation: {augmentation!r}; expected one of "
                 f"{AUGMENTATIONS}"
             )
-        if augmentation == "hpr" and penalty <= 0:
+        if augmentation == "hpr" and penalty < 0:
             raise ValueError(
                 f"The 'hpr' augmentation divides by the penalty, so it requires "
                 f"penalty > 0; got {penalty}"
