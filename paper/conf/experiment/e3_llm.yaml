@@ -16,9 +16,15 @@ vocab_size: null
 eps: 0.5                  # target density
 penalty: 1.0              # only used by method=penalty
 granularity: layer        # model | layer | layer_split
-steps: 2000
+steps: 5000
 warmup: 5
-eval_batches: 16
+eval_batches: 16          # batches per rank per evaluation; 0 = the whole split
+
+# train | val | test, as fractions of the shard. tune.py scores `val_ppl`; `test_ppl` is
+# reported but nothing selects on it.
+val_frac: 0.01
+test_frac: 0.01
+eval_every: 100           # steps between curve points; 0 = endpoints only
 seq_len: 1024
 batch_size: 8             # per rank
 dtype: bfloat16

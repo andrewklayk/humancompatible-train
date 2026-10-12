@@ -61,6 +61,9 @@ def _run(args, method: str, world: int, tag: str) -> dict:
         "--lr", str(args.lr), "--gate-lr", str(args.gate_lr),
         "--dual-lr", str(args.dual_lr), "--dtype", args.dtype,
         "--eval-batches", "0", "--seed", str(args.seed),
+        # No split and no curve: this is a timing run, the whole shard is training data,
+        # and an evaluation pass would add wall clock for nothing it measures.
+        "--val-frac", "0", "--test-frac", "0", "--eval-every", "0",
         "--ranks", str(world), "--tag", tag,
     ]
     if args.tokens:
@@ -150,7 +153,7 @@ def main(argv=None) -> None:
     parser.add_argument("--model", default="stub")
     parser.add_argument("--tokens", default=None)
     parser.add_argument("--synthetic", action="store_true")
-    parser.add_argument("--granularity", default="layer")
+    parser.add_argument("--granularity", default="block")
     parser.add_argument("--eps", type=float, default=0.5)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--seq-len", type=int, default=1024)

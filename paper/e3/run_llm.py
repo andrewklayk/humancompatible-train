@@ -31,7 +31,7 @@ Usage::
     # the real thing, under torchrun (see sbatch_e3.sh)
     torchrun --standalone --nproc_per_node=4 paper/e3/run_llm.py \
         --model Qwen/Qwen2.5-0.5B --tokens paper/results/e3/tokens.bin \
-        --method alm_gda_restart --granularity layer --eps 0.5
+        --method alm_gda_restart --granularity block --eps 0.5
 """
 
 from __future__ import annotations
@@ -225,17 +225,23 @@ def build_model(name: str, *, device, seed: int, vocab_size: int = None):
 
 
 def evaluate(model, shard, first_block, n_blocks, *, batch_size, device, rank, world,
-             amp=None):
-    """Mean cross-entropy over held-out blocks, at whatever gates are installed.
+             amp=None, max_batches=None):
+    """Mean cross-entropy over a split's blocks, at whatever gates are installed.
 
     Blocks are handed out contiguously per rank and truncated to an equal count, so the
     ``ReduceOp.AVG`` over ranks is the mean over all of them. Returns ``None`` when the
-    shard is too small to give every rank a batch, which is the ``--quick`` case.
+    split is too small to give every rank a batch, which is the ``--quick`` case.
+
+    ``max_batches`` caps the batches *per rank*, always taking the split's first blocks,
+    so every point on a curve is measured on identical data. ``None`` or ``0`` means the
+    whole split -- the convention ``run_cifar.py`` already uses for ``--eval-batches``.
     """
     per_rank = n_blocks // world
     if per_rank < batch_size:
         return None
     total, batches = 0.0, per_rank // batch_size
+    if max_batches:
+        batches = min(batches, max_batches)
     with torch.no_grad():
         for b in range(batches):
             start = first_block + rank * per_rank + b * batch_size
@@ -323,15 +329,57 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
         gate_gen = torch.Generator(device=device)
         gate_gen.manual_seed(args.seed if args.sync_gates else args.seed + 9973 * rank)
 
-    # The last blocks of the shard are held out. Training never sees them, so the
-    # perplexity reported at the median gates is a number about the model rather than
-    # about how much of the shard it memorised.
-    held_out = min(args.eval_batches * args.batch_size * world, len(shard) // 4)
-    n_train = len(shard) - held_out
+    # Three-way split, as fractions of the shard: train | val | test, in that order, so
+    # test sits furthest from the training data in stream order. Fractions rather than a
+    # block count derived from `eval_batches * batch_size * world`, which would move the
+    # split boundary whenever parallelism or batch size changed -- the split has to be a
+    # property of the shard alone if runs are to be comparable.
+    #
+    # val is what hyperparameter selection may look at (tune.py scores it); test is
+    # touched by nothing that chooses anything, and its headline number is the final
+    # iterate. That is why there is a `best_val_ppl` below and deliberately no
+    # `best_test_ppl`.
+    n_val = int(len(shard) * args.val_frac)
+    n_test = int(len(shard) * args.test_frac)
+    n_train = len(shard) - n_val - n_test
+    if n_train <= 0:
+        raise SystemExit(
+            f"val_frac={args.val_frac} + test_frac={args.test_frac} leaves no training "
+            f"blocks in a shard of {len(shard)}"
+        )
+    val_start, test_start = n_train, n_train + n_val
     sampler = tokens_mod.BlockSampler(
         n_train, args.batch_size, rank=rank, world=world, seed=args.seed
     )
     batches = sampler.stream(args.steps)
+    tokens_per_step = args.batch_size * args.seq_len * world
+
+    def eval_point(step: int, *, with_test: bool) -> dict:
+        """One curve point, at the median (test-time) gates.
+
+        Consumes no RNG and touches no optimizer state, and the next iteration resamples
+        the gates before its forward pass -- so the training trajectory is identical
+        whether or not the curve is switched on.
+        """
+        if gates is not None:
+            gates.use_median()
+        point = {"step": step, "tokens_seen": (step + 1) * tokens_per_step}
+        for name, start, count, wanted in (
+            ("val", val_start, n_val, True),
+            ("test", test_start, n_test, with_test),
+        ):
+            if not wanted:
+                continue
+            loss = evaluate(
+                model, shard, start, count, batch_size=args.batch_size, device=device,
+                rank=rank, world=world, amp=autocast, max_batches=args.eval_batches,
+            )
+            if loss is not None:
+                point[f"{name}_loss"] = loss
+                point[f"{name}_ppl"] = float(np.exp(loss))
+        return point
+
+    eval_rows = []
 
     comm = comm_accounting(model, m, world)
     if device.type == "cuda":
@@ -353,9 +401,6 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
             loss = wrapped(input_ids=ids, labels=ids).loss
         timer.mark("forward")
 
-        # Only a method that uses a constraint pays for evaluating one. `adam` is
-        # scaling.py's control, and charging the dual layer with work the control did too
-        # would make `ms dual` and the throughput ratio measure different things.
         if dual is not None:
             objective = dual.forward_update(
                 loss, gates.constraints(args.eps, args.granularity))
@@ -407,6 +452,10 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
             note = f"  density={row.get('density_mean', float('nan')):.4f}" if gates else ""
             print(f"  step {step:>5d}  loss={row['loss']:.4f}"
                   f"  {row['ms_total']:.1f} ms{note}", flush=True)
+        # Outside the StepTimer region, so `tokens_per_s` is unaffected -- the wall clock
+        # is not, which is why scaling.py leaves this off.
+        if args.eval_every and step % args.eval_every == 0:
+            eval_rows.append(eval_point(step, with_test=args.test_curve))
 
     warmup = min(args.warmup, max(0, len(rows) - 1))
     steady = rows[warmup:] or rows
@@ -435,7 +484,6 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
     # whether the density the constraint delivered was worth having.
     report = []
     if gates is not None:
-        gates.use_median()
         report = gates.median_report()
         # What the *shipped* network realises, parameter-counted the way the constraint
         # is. `final_density_mean` is the expected density the constraint acts on, while
@@ -445,14 +493,20 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
             sum(r["params_active"] for r in report)
             / sum(r["params_total"] for r in report)
         )
-    eval_loss = evaluate(
-        model, shard, n_train, held_out, batch_size=args.batch_size,
-        device=device, rank=rank, world=world, amp=autocast,
-    )
-    if eval_loss is not None:
-        summary["eval_loss"] = eval_loss
-        summary["eval_ppl"] = float(np.exp(eval_loss))
-        summary["eval_blocks"] = held_out
+    # The headline is the final iterate on both splits, always -- including test, even
+    # when the test *curve* is switched off.
+    final = eval_point(len(rows) - 1, with_test=True) if rows else {}
+    if args.eval_every and final:
+        eval_rows.append(final)
+    for key in ("val_loss", "val_ppl", "test_loss", "test_ppl"):
+        if key in final:
+            summary[key] = final[key]
+    summary["val_blocks"], summary["test_blocks"] = n_val, n_test
+    scored = [r for r in eval_rows if "val_ppl" in r]
+    if scored:
+        best = min(scored, key=lambda r: r["val_ppl"])
+        summary["best_val_ppl"] = best["val_ppl"]
+        summary["best_val_step"] = best["step"]
 
     if gates is not None:
         summary["final_density_mean"] = rows[-1]["density_mean"]
@@ -462,7 +516,8 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
     if device.type == "cuda":
         summary["peak_mem_bytes"] = torch.cuda.max_memory_allocated(device)
 
-    return {"rows": rows, "summary": summary, "median_report": report, "names": names}
+    return {"rows": rows, "summary": summary, "median_report": report,
+            "eval_rows": eval_rows, "names": names}
 
 
 # --------------------------------------------------------------------------- #
@@ -515,7 +570,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="write a random-token shard if --tokens does not exist")
     parser.add_argument("--vocab-size", type=int, default=None)
     parser.add_argument("--method", default="alm_gda_restart", choices=sorted(METHODS))
-    parser.add_argument("--granularity", default="layer",
+    parser.add_argument("--granularity", default="block",
                         choices=sparsity_gates.GRANULARITIES)
     parser.add_argument("--eps", type=float, default=0.5, help="target density")
     parser.add_argument("--penalty", type=float, default=1.0,
@@ -524,7 +579,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--warmup", type=int, default=5,
                         help="steps dropped before the throughput average")
     parser.add_argument("--eval-batches", type=int, default=16,
-                        help="held-out batches per rank for the median-gate perplexity")
+                        help="batches per rank per evaluation; 0 means the whole split")
+    parser.add_argument("--val-frac", type=float, default=0.01,
+                        help="fraction of the shard held out for validation")
+    parser.add_argument("--test-frac", type=float, default=0.01,
+                        help="fraction of the shard held out for test; nothing selects "
+                             "on it")
+    parser.add_argument("--eval-every", type=int, default=0,
+                        help="steps between curve points; 0 evaluates only at the end")
+    parser.add_argument("--test-curve", action="store_true", default=True)
+    parser.add_argument("--no-test-curve", dest="test_curve", action="store_false",
+                        help="curve on val only; test is still measured at the end")
     parser.add_argument("--seq-len", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=4, help="per rank")
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -567,6 +632,7 @@ def finalize(args):
         args.batch_size = min(args.batch_size, 2)
         args.warmup = 1
         args.eval_batches = min(args.eval_batches, 2)
+        args.eval_every = min(args.eval_every, 2) if args.eval_every else 0
         args.synthetic = True
     if args.tokens is None:
         args.tokens = str(RESULTS / EXPERIMENT / ("tokens_quick.bin" if args.quick
@@ -625,6 +691,8 @@ def _rebuild_argv(args) -> list[str]:
         "--granularity", args.granularity, "--eps", str(args.eps),
         "--penalty", str(args.penalty), "--steps", str(args.steps),
         "--warmup", str(args.warmup), "--eval-batches", str(args.eval_batches),
+        "--val-frac", str(args.val_frac), "--test-frac", str(args.test_frac),
+        "--eval-every", str(args.eval_every),
         "--seq-len", str(args.seq_len),
         "--batch-size", str(args.batch_size), "--lr", str(args.lr),
         "--gate-lr", str(args.gate_lr),
@@ -639,6 +707,7 @@ def _rebuild_argv(args) -> list[str]:
         ("--no-mlp-gates", args.no_mlp_gates),
         ("--no-head-gates", args.no_head_gates),
         ("--no-process-group", args.no_process_group),
+        ("--no-test-curve", not args.test_curve),
         ("--synthetic", args.synthetic),
         ("--quick", args.quick),
     ):
@@ -669,6 +738,8 @@ def _write(args, result: dict, world: int) -> None:
     write_table([result["summary"]], f"e3_summary_{slug}", EXPERIMENT,
                 title=f"E3: {args.method} on {args.model}, "
                       f"{args.granularity} granularity, eps={args.eps:g}")
+    if result["eval_rows"]:
+        write_csv(result["eval_rows"], f"e3_eval_{slug}", EXPERIMENT)
     if result["median_report"]:
         write_table(result["median_report"], f"e3_density_{slug}", EXPERIMENT,
                     title="E3: per-group density at the median gates")
@@ -682,7 +753,8 @@ def _make_figure(result: dict, slug: str) -> None:
     rows = result["rows"]
     if len(rows) < 2 or "density_mean" not in rows[0]:
         return
-    fig, axes, plt = figure(1, 2, row_height=2.2)
+    curve = [r for r in result.get("eval_rows", []) if "val_ppl" in r]
+    fig, axes, plt = figure(1, 3 if curve else 2, row_height=2.2)
     steps = [r["step"] for r in rows]
     axes[0].plot(steps, [r["loss"] for r in rows], lw=1.0)
     axes[0].set_xlabel("step")
@@ -694,6 +766,16 @@ def _make_figure(result: dict, slug: str) -> None:
     axes[1].set_xlabel("step")
     axes[1].set_ylabel("expected density")
     axes[1].legend()
+    if curve:
+        axes[2].plot([r["step"] for r in curve], [r["val_ppl"] for r in curve],
+                     lw=1.0, marker="o", ms=2, label="val")
+        held = [r for r in curve if "test_ppl" in r]
+        if held:
+            axes[2].plot([r["step"] for r in held], [r["test_ppl"] for r in held],
+                         lw=1.0, marker="s", ms=2, label="test")
+        axes[2].set_xlabel("step")
+        axes[2].set_ylabel("perplexity (median gates)")
+        axes[2].legend(fontsize="x-small")
     fig.tight_layout()
     save_figure(fig, f"e3_{slug}", EXPERIMENT)
     plt.close(fig)

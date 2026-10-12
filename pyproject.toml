@@ -49,7 +49,7 @@ benchmark = ["fairret", "matplotlib", "pandas", "folktables", "pot", "hydra-core
 # hydra/launcher=slurm` needs; the basic sweeper covers the local case with no plugin.
 # hydra-optuna-sweeper is deliberately absent: its 1.2.0 release requires optuna<3.0.0.
 paper = ["hydra-core", "omegaconf", "hydra-submitit-launcher"]
-ghost = ["qpsolvers", "scipy"]
+ghost = ["qpsolvers[osqp]", "scipy"]
 # Cross-validation against another library (paper/e0/e_cooper.py,
 # tests/test_cooper_parity.py). Pinned to a floor because E0e's claims are about
 # specific update orderings in Cooper's optimizer classes.

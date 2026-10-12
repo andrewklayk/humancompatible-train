@@ -12,5 +12,4 @@ hydra:
     params:
       algorithm.dual.ki: choice(0.005, 0.01, 0.05, 0.1)
       algorithm.dual.kp: choice(0.005, 0.01, 0.05, 0.1)
-      algorithm.dual.nu: choice(0.0, 0.01, 0.1)
-      algorithm.dual.penalty: choice(0.0, 1.0)
+      algorithm.dual.nu: choice(0.0)

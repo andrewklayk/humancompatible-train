@@ -9,9 +9,11 @@ that their Fig. 1 compares against. Three numbers per run:
 
 * ``achieved - eps`` — did the method land on the density that was asked for, with the
   spread over seeds beside it;
-* ``eval_ppl`` — what the model is worth there, at the median (test-time) gates on
-  held-out blocks, reported next to ``median density``, which is what that network
-  actually realises (the constraint acts on the *expected* density, which differs);
+* ``val_ppl`` / ``test_ppl`` — what the model is worth there, at the median (test-time)
+  gates, reported next to ``median density``, which is what that network actually
+  realises (the constraint acts on the *expected* density, which differs). The shard is
+  split train | val | test; ``tune.py`` scores val, so test is a number nothing has
+  selected on. ``--eval-every`` also writes both as curves over training;
 * ``tokens_per_s`` and the step-time breakdown — what the dual layer cost to get it.
 
 The headline is the **final iterate**, not an average over a tail of steps. E2a averages,
@@ -93,7 +95,7 @@ def _make_args(args, overrides):
     for key in ("model", "tokens", "synthetic", "vocab_size", "granularity", "steps",
                 "seq_len", "batch_size", "lr", "gate_lr", "dual_lr", "dtype",
                 "quick",
-                "eval_batches"):
+                "eval_batches", "val_frac", "test_frac", "eval_every", "test_curve"):
         setattr(one, key, getattr(args, key))
     for key, value in overrides.items():
         setattr(one, key, value)
@@ -101,7 +103,7 @@ def _make_args(args, overrides):
 
 
 def run_grid(args, *, rank, world, device, process_group):
-    runs, trajectories, medians = [], [], []
+    runs, trajectories, medians, curves = [], [], [], []
     configs = _configs(args)
     for index, (label, overrides) in enumerate(configs, start=1):
         seed = overrides["seed"]
@@ -125,13 +127,15 @@ def run_grid(args, *, rank, world, device, process_group):
                 trajectories.append({"label": label, "seed": seed, **row})
             for row in result["median_report"]:
                 medians.append({"label": label, "seed": seed, **row})
+            for row in result["eval_rows"]:
+                curves.append({"label": label, "seed": seed, **row})
         # The next configuration builds a fresh model; without this the previous one's
         # activations and optimizer state stay resident until the allocator is pressured.
         del result
         gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
-    return runs, trajectories, medians
+    return runs, trajectories, medians, curves
 
 
 # --------------------------------------------------------------------------- #
@@ -166,7 +170,8 @@ def _summaries(runs):
             # perplexity beside it was measured on.
             "median density": _mean([r.get("final_median_density", float("nan"))
                                      for r in rows]),
-            "eval ppl": _mean([r.get("eval_ppl", float("nan")) for r in rows]),
+            "val ppl": _mean([r.get("val_ppl", float("nan")) for r in rows]),
+            "test ppl": _mean([r.get("test_ppl", float("nan")) for r in rows]),
             "tokens/s": _mean([r["tokens_per_s"] for r in rows]),
         }
         if method in REFERENCES:
@@ -188,7 +193,8 @@ def _summaries(runs):
                 "median density": shared["median density"],
                 "per-layer min": _mean([r["final_density_min"] for r in rows]),
                 "per-layer max": _mean([r["final_density_max"] for r in rows]),
-                "eval ppl": shared["eval ppl"],
+                "val ppl": shared["val ppl"],
+                "test ppl": shared["test ppl"],
                 "tokens/s": shared["tokens/s"],
                 "ms/step": _mean([r["ms_per_step"] for r in rows]),
                 "ms dual": _mean([r["ms_dual"] for r in rows]),
@@ -261,11 +267,52 @@ def _figures(runs, trajectories, eps_values, seeds):
     plt.close(fig)
 
 
-def write_artifacts(runs, trajectories, medians, eps_values, seeds):
+def _curve_figure(curves, eps_values, seeds):
+    """Validation and test perplexity over training, one panel per target.
+
+    Step-indexed, like the density trajectory it is meant to be read beside: at 5000
+    steps the sweep covers about two epochs of the shard, so this is also where a
+    constraint that costs the model something shows up.
+    """
+    by_key = {}
+    for row in curves:
+        if "val_ppl" in row:
+            by_key.setdefault((row["label"], row["seed"]), []).append(row)
+    shown = seeds[0]
+    fig, axes, plt = figure(1, len(eps_values), row_height=2.4)
+    for ax, eps in zip(axes, eps_values):
+        for (label, seed), rows in sorted(by_key.items()):
+            if seed != shown or not label.endswith(f"@{eps:g}"):
+                continue
+            rows = sorted(rows, key=lambda r: r["step"])
+            line, = ax.plot([r["step"] for r in rows], [r["val_ppl"] for r in rows],
+                            lw=1.0, label=label.split("@")[0])
+            held = [r for r in rows if "test_ppl" in r]
+            if held:
+                ax.plot([r["step"] for r in held], [r["test_ppl"] for r in held],
+                        lw=0.8, ls=":", color=line.get_color())
+        for (label, seed), rows in sorted(by_key.items()):
+            # The unconstrained reference, as a flat comparison on every panel.
+            if seed == shown and label in REFERENCES:
+                rows = sorted(rows, key=lambda r: r["step"])
+                ax.plot([r["step"] for r in rows], [r["val_ppl"] for r in rows],
+                        lw=1.0, color="k", ls="--", label=label)
+        ax.set_title(f"$\\varepsilon$ = {eps:g}")
+        ax.set_xlabel("step")
+    axes[0].set_ylabel(f"perplexity, median gates (seed {shown})")
+    axes[-1].legend(fontsize="x-small")
+    fig.tight_layout()
+    save_figure(fig, "e3_sweep_curves", EXPERIMENT)
+    plt.close(fig)
+
+
+def write_artifacts(runs, trajectories, medians, curves, eps_values, seeds):
     write_csv(trajectories, "e3_sweep_trajectories", EXPERIMENT)
     write_csv(runs, "e3_sweep_runs", EXPERIMENT)
     if medians:
         write_csv(medians, "e3_sweep_median_density", EXPERIMENT)
+    if curves:
+        write_csv(curves, "e3_sweep_curves", EXPERIMENT)
     constrained, penalty, reference = _summaries(runs)
     if constrained:
         write_table(constrained, "e3_sweep", EXPERIMENT,
@@ -280,16 +327,20 @@ def write_artifacts(runs, trajectories, medians, eps_values, seeds):
         write_table(penalty, "e3_penalty", EXPERIMENT,
                     title="E3: the fixed-penalty baseline, one coefficient per run")
     _figures(runs, trajectories, eps_values, seeds)
+    if curves:
+        _curve_figure(curves, eps_values, seeds)
     print()
     for row in reference:
         print(f"  {row['method']:<17} (no target)  "
               f"density {row['achieved density']:.4f}             "
-              f"ppl {row['eval ppl']:.2f}  {row['tokens/s']:.0f} tok/s")
+              f"val {row['val ppl']:.2f}  test {row['test ppl']:.2f}  "
+              f"{row['tokens/s']:.0f} tok/s")
     for row in constrained:
         print(f"  {row['method']:<17} eps={row['eps']:.2f}  "
               f"achieved {row['achieved density']:.4f} "
               f"(+/-{row['achieved +/-']:.4f}, {row['achieved - eps']:+.4f})  "
-              f"ppl {row['eval ppl']:.2f}  {row['tokens/s']:.0f} tok/s")
+              f"val {row['val ppl']:.2f}  test {row['test ppl']:.2f}  "
+              f"{row['tokens/s']:.0f} tok/s")
 
 
 # --------------------------------------------------------------------------- #
@@ -303,10 +354,10 @@ def main(argv=None) -> None:
     parser.add_argument("--tokens", default=None)
     parser.add_argument("--synthetic", action="store_true")
     parser.add_argument("--vocab-size", type=int, default=None)
-    parser.add_argument("--granularity", default="layer")
+    parser.add_argument("--granularity", default="block")
     parser.add_argument("--eps", type=float, nargs="+", default=list(EPS))
     parser.add_argument("--lambdas", type=float, nargs="+", default=list(LAMBDAS))
-    parser.add_argument("--steps", type=int, default=2000)
+    parser.add_argument("--steps", type=int, default=5000)
     parser.add_argument("--seq-len", type=int, default=1024)
     parser.add_argument("--batch-size", type=int, default=8, help="per rank")
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -314,6 +365,12 @@ def main(argv=None) -> None:
     parser.add_argument("--dual-lr", type=float, default=1e-2)
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--eval-batches", type=int, default=16)
+    parser.add_argument("--val-frac", type=float, default=0.01)
+    parser.add_argument("--test-frac", type=float, default=0.01)
+    parser.add_argument("--eval-every", type=int, default=100,
+                        help="steps between val/test curve points; 0 for endpoints only")
+    parser.add_argument("--test-curve", action="store_true", default=True)
+    parser.add_argument("--no-test-curve", dest="test_curve", action="store_false")
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS),
                         help="one full grid per seed; the table reports the spread")
     parser.add_argument("--ranks", type=int, default=None,
@@ -335,12 +392,13 @@ def main(argv=None) -> None:
         device = run_llm._pick_device(local_rank, world)
         dist.init_process_group("nccl" if device.type == "cuda" else "gloo")
         try:
-            runs, trajectories, medians = run_grid(
+            runs, trajectories, medians, curves = run_grid(
                 args, rank=rank, world=world, device=device,
                 process_group=dist.group.WORLD,
             )
             if rank == 0:
-                write_artifacts(runs, trajectories, medians, args.eps, args.seeds)
+                write_artifacts(runs, trajectories, medians, curves,
+                                args.eps, args.seeds)
         finally:
             dist.barrier()
             dist.destroy_process_group()
@@ -365,9 +423,9 @@ def main(argv=None) -> None:
     device = run_llm._pick_device(0)
     run_llm._ensure_tokens(
         _make_args(args, {"method": "adam", "seed": args.seeds[0]}))
-    runs, trajectories, medians = run_grid(args, rank=0, world=1, device=device,
-                                           process_group=None)
-    write_artifacts(runs, trajectories, medians, args.eps, args.seeds)
+    runs, trajectories, medians, curves = run_grid(args, rank=0, world=1, device=device,
+                                                   process_group=None)
+    write_artifacts(runs, trajectories, medians, curves, args.eps, args.seeds)
 
 
 def _rebuild_argv(args) -> list[str]:
@@ -378,6 +436,8 @@ def _rebuild_argv(args) -> list[str]:
         "--gate-lr", str(args.gate_lr),
         "--dual-lr", str(args.dual_lr), "--dtype", args.dtype,
         "--eval-batches", str(args.eval_batches),
+        "--val-frac", str(args.val_frac), "--test-frac", str(args.test_frac),
+        "--eval-every", str(args.eval_every),
         "--seeds", *[str(s) for s in args.seeds],
         "--eps", *[str(e) for e in args.eps],
         "--lambdas", *[str(l) for l in args.lambdas],
@@ -390,6 +450,8 @@ def _rebuild_argv(args) -> list[str]:
         out.append("--synthetic")
     if args.quick:
         out.append("--quick")
+    if not args.test_curve:
+        out.append("--no-test-curve")
     return out
 
 

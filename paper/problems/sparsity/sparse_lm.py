@@ -105,11 +105,11 @@ def attach_gates(
     generator = torch.Generator().manual_seed(seed)
     groups: list[GateParamGroup] = []
 
-    def make(name, layer, kind, module, n_gates, params_per_gate, repeat=1) -> None:
+    def make(name, block, kind, module, n_gates, params_per_gate, repeat=1) -> None:
         groups.append(
             GateParamGroup(
                 name=name,
-                layer=layer,
+                block=block,
                 kind=kind,
                 module=module,
                 gate=HardConcreteGate(
@@ -130,17 +130,17 @@ def attach_gates(
             down = block.mlp.down_proj
             # One gate per intermediate channel; it owns a gate_proj row, an up_proj row
             # and a down_proj column.
-            make(f"layer{index:02d}.mlp", index, "mlp", down,
+            make(f"block{index:02d}.mlp", index, "mlp", down,
                  down.in_features, 3 * hidden)
         if gate_heads:
             out_proj = block.self_attn.o_proj
             if out_proj.in_features != n_heads * head_dim:
                 raise ValueError(
-                    f"layer {index}: o_proj.in_features={out_proj.in_features} does not "
+                    f"block {index}: o_proj.in_features={out_proj.in_features} does not "
                     f"match num_attention_heads*head_dim={n_heads * head_dim}"
                 )
             # One gate per query head; it owns q_proj rows and o_proj columns.
-            make(f"layer{index:02d}.attn", index, "attn", out_proj,
+            make(f"block{index:02d}.attn", index, "attn", out_proj,
                  n_heads, 2 * head_dim * hidden, repeat=head_dim)
 
     if not groups:

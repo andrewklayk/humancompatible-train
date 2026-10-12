@@ -19,7 +19,7 @@ BETA, GAMMA, ZETA = 2.0 / 3.0, -0.1, 1.1
 # which is the ``-beta*log(-gamma/zeta)`` term in Louizos et al. Eq. (12).
 _OPEN_SHIFT = -BETA * math.log(-GAMMA / ZETA)  # = (2/3)*log(11) = +1.5985968...
 
-GRANULARITIES = ("model", "layer", "layer_split")
+GRANULARITIES = ("model", "block", "block_split")
 
 
 # --------------------------------------------------------------------------- #
@@ -122,7 +122,7 @@ class GateParamGroup:
     """
 
     name: str
-    layer: int
+    block: int
     kind: str  # "mlp" | "attn" | "conv<n>"
     gate: HardConcreteGate
     module: nn.Module = field(repr=False)
@@ -160,8 +160,8 @@ class GateParamGroup:
 def _partition(groups: Sequence[GateParamGroup], granularity: str):
     """Group the gate groups into constraints; returns ``[(name, [group, ...])]``.
 
-    ``model`` gives ``m = 1`` and ``layer``/``layer_split`` give ``m = n_layers`` and
-    ``m = 2*n_layers`` — the model-wise and layer-wise granularities of their Fig. 1.
+    ``model`` gives ``m = 1`` and ``block``/``block_split`` give ``m = n_blocks`` and
+    ``m = 2*n_blocks``.
     """
     if granularity not in GRANULARITIES:
         raise ValueError(
@@ -169,12 +169,13 @@ def _partition(groups: Sequence[GateParamGroup], granularity: str):
         )
     if granularity == "model":
         return [("model", list(groups))]
-    if granularity == "layer":
+    if granularity == "block":
         cells: dict[int, list[GateParamGroup]] = {}
         for group in groups:
-            cells.setdefault(group.layer, []).append(group)
-        return [(f"layer{layer:02d}", cells[layer]) for layer in sorted(cells)]
-    ordered = sorted(groups, key=lambda g: (g.layer, g.kind))
+            # look up the block's list, creating it if necessary, and append this group to it
+            cells.setdefault(group.block, []).append(group)
+        return [(f"block{block:02d}", cells[block]) for block in sorted(cells)]
+    ordered = sorted(groups, key=lambda g: (g.block, g.kind))
     return [(group.name, [group]) for group in ordered]
 
 
@@ -250,7 +251,7 @@ class GateSet:
 
     # -- density and constraints -------------------------------------------- #
 
-    def densities(self, granularity: str = "layer") -> Tensor:
+    def densities(self, granularity: str = "block") -> Tensor:
         """Parameter-counted expected density per constraint cell.
 
         ``density_g = sum_j n_j P(z_j != 0) / sum_j n_j``, the left-hand side of Eq. (3).
@@ -268,10 +269,10 @@ class GateSet:
             out.append(numerator / denominator)
         return torch.stack(out)
 
-    def constraint_names(self, granularity: str = "layer") -> list[str]:
+    def constraint_names(self, granularity: str = "block") -> list[str]:
         return [name for name, _ in _partition(self.groups, granularity)]
 
-    def constraints(self, eps, granularity: str = "layer") -> Tensor:
+    def constraints(self, eps, granularity: str = "block") -> Tensor:
         """``c = density - eps``, in the package's ``c <= 0`` convention.
 
         :param eps: A scalar target density, or one per constraint cell. Their section
@@ -288,7 +289,7 @@ class GateSet:
             )
         return density - target
 
-    def m(self, granularity: str = "layer") -> int:
+    def m(self, granularity: str = "block") -> int:
         return len(_partition(self.groups, granularity))
 
     # -- reporting ---------------------------------------------------------- #
@@ -312,7 +313,7 @@ class GateSet:
             rows.append(
                 {
                     "group": group.name,
-                    "layer": group.layer,
+                    "block": group.block,
                     "kind": group.kind,
                     "n_gates": group.n_gates,
                     "params_per_gate": group.params_per_gate,

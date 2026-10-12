@@ -464,7 +464,7 @@ is 0.5 B parameters and the step is real work.
 | script | question | runtime |
 |---|---|---|
 | [e3/sweep.py](e3/sweep.py) | does each method land on a requested density, what is the model worth there, and what did it cost | hours (`--quick`: ~1 min) |
-| [e3/scaling.py](e3/scaling.py) | how throughput and the dual layer's share move over 1 → 2 → 4 GPUs | ~20 min (`--quick`: ~1 min) |
+| [e3/scaling.py](e3/scaling.py) | how throughput and the dual layer's share move over 1 → 2 GPUs | ~20 min (`--quick`: ~1 min) |
 
 The formulation is Eq. (3) of Gallego-Posada, Ramirez, Erraqabi, Bengio &
 Lacoste-Julien, *Controlled Sparsity via Constrained Optimization* (NeurIPS 2022,
@@ -477,7 +477,7 @@ vision (CIFAR, TinyImageNet, ImageNet), they assert *"negligible computational o
 without measuring it, and their "Choice of optimizers" names the multiplier update as open
 future work — which is exactly the axis `iALM`, `nuPI` and `PBM` sit on.
 
-Three choices worth stating because they change the numbers:
+Six choices worth stating because they change the numbers:
 
 - **The density denominator runs over gated groups only.** Qwen2.5-0.5B's tied
   151936 x 896 embedding is 27.5 % of the model and cannot be gated, so a whole-model
@@ -494,9 +494,37 @@ Three choices worth stating because they change the numbers:
 - **Timing is against the *gated* model, not the plain one.** `scaling.py`'s control is
   `adam` with gates attached and no constraint, so the difference is the dual layer; the
   gates are a property of the sparsity formulation, not of any optimizer. Same control
-  design as E2a. Phases are timed with `torch.cuda.Event` around an explicit
+  design as E2a. The control also does not *evaluate* a constraint — `run_llm.train` builds
+  the constraint vector only for a method that consumes one, so `ms dual` and the
+  throughput ratio charge the dual layer with the same work rather than two different
+  subsets of it. Phases are timed with `torch.cuda.Event` around an explicit
   `synchronize()` — the per-epoch `time` columns elsewhere in this repo wrap asynchronous
   launches and so measure launch time.
+- **Parameters are float32; `--dtype` is the autocast dtype.** Keeping master weights in
+  bfloat16 is what a 0.5 B fine-tune usually does for memory, and here it would quietly
+  decide the result: at `lr=1e-4` on weights of magnitude 1e-2 the AdamW update is about
+  one bf16 ULP, so a sizeable share of updates round away and the moment buffers are
+  bf16 too. The gates are unaffected (float32, `gate_lr=1e-2`), so this is a threat to
+  `eval_ppl` specifically — the one number that says whether the delivered density was
+  worth having.
+- **No weight decay on `log_alpha`.** AdamW's default 0.01 at the gate step size shrinks
+  the gate logits by a factor 0.82 over 2000 steps, a standing pull toward 0.83 density.
+  That is an unintended regulariser on exactly the parameters the constraint controls, so
+  the gate parameter group sets `weight_decay=0.0` and the model group keeps the default.
+- **The shard is split three ways: train | val | test**, as fractions
+  (`--val-frac`, `--test-frac`, 1 % each ≈ 400 k tokens), so the boundary is a property
+  of the shard rather than of `batch_size × world`. `tune.py` scores `val_ppl`, which is
+  what makes `test_ppl` a number nothing has selected on. `--eval-every` writes both as
+  curves over training — step-indexed, because at 5000 steps the run covers about two
+  epochs and there is no epoch loop to hang a curve on. There is a `best_val_ppl` and
+  deliberately no `best_test_ppl`.
+- **Three seeds, and the table reports the spread.** The constraint carries no sampling
+  noise, but the primal iterate does: a single run's final density oscillates around the
+  target by roughly the margin that separates the methods. `achieved +/-` is half the
+  range over seeds, so a method ordering can be read off the table honestly or not at
+  all. Note `achieved density` is the *expected* density the constraint acts on, while
+  `eval ppl` is measured at the median gates — `median density`, beside it, is what that
+  network realises.
 
 **What E3 does not show: correctness under data parallelism.** The density constraint is a
 closed form in the gate parameters with no data in it, and DDP keeps those parameters

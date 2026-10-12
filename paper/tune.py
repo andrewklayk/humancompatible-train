@@ -309,6 +309,8 @@ _E3_LLM_FLAGS = (
     ("model", "--model"), ("granularity", "--granularity"), ("eps", "--eps"),
     ("penalty", "--penalty"), ("steps", "--steps"), ("warmup", "--warmup"),
     ("eval_batches", "--eval-batches"), ("seq_len", "--seq-len"),
+    ("val_frac", "--val-frac"), ("test_frac", "--test-frac"),
+    ("eval_every", "--eval-every"),
     ("batch_size", "--batch-size"), ("lr", "--lr"), ("gate_lr", "--gate-lr"),
     ("dual_lr", "--dual-lr"), ("grad_clip", "--grad-clip"), ("dtype", "--dtype"),
     ("init_open", "--init-open"), ("ranks", "--ranks"),
@@ -352,7 +354,9 @@ def _run_e3_llm(cfg) -> dict:
 
     row = {"method": str(method), "eps": float(cfg.experiment.eps), "seed": seed, **summary}
     row["objective"] = _density_objective(
-        summary.get("eval_ppl"), summary.get("final_density_mean"),
+        # val, never test: test is the number the paper reports, and tuning against
+        # it would make it a selection set.
+        summary.get("val_ppl"), summary.get("final_density_mean"),
         float(cfg.experiment.eps), method in run_llm.CONSTRAINED,
     )
     return row

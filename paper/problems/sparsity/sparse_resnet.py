@@ -75,7 +75,7 @@ def attach_gates(
     groups = [
         GateParamGroup(
             name=f"block{index:02d}.conv{position}",
-            layer=index,
+            block=index,
             kind=f"conv{position}",
             module=conv,
             dim=1,  # NCHW: the gates index the channel axis
