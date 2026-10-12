@@ -34,7 +34,7 @@ dtype: bfloat16
 quick: false
 
 # One submitit task per node, `ranks` GPUs beneath it -- run_llm re-execs torchrun itself.
-# See conf/hydra/launcher/slurm_gpu.yaml.
+# See conf/hydra/launcher/slurm_h200.yaml.
 ranks: 1
 
 # --- swept by conf/sweep/e3_llm_*.yaml ---
