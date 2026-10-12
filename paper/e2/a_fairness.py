@@ -244,7 +244,10 @@ def train(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_
     Named to match ``run_cifar.py``/``run_llm.py``'s ``train()``, which is what
     ``paper/tune.py``'s adapters call into for every experiment.
 
-    :param dual_factory: ``m -> DualOptimizer``, overriding ``METHODS[method]``.
+    :param dual_factory: ``(m, *, device, process_group) -> DualOptimizer``, overriding
+        ``METHODS[method]``. The same signature every driver in ``paper/`` takes, so one
+        factory built from a config works everywhere; this problem is CPU-only and both
+        keywords arrive as ``None``.
         The registry's builders close over ``DUAL_LR``, so without this no dual
         hyperparameter is reachable from outside the module -- which is what the
         sweep in ``paper/tune.py`` needs. ``method`` then only names the row.
@@ -271,9 +274,10 @@ def train(problem, method, seed, epochs, *, dual_factory=None, primal_lr=PRIMAL_
     primal = torch.optim.Adam(model.parameters(), lr=primal_lr)
     if dual_factory is None:
         build, evaluates_constraint = METHODS[method]
+        dual = None if build is None else build(problem.m)
     else:
-        build, evaluates_constraint = dual_factory, True
-    dual = None if build is None else build(problem.m)
+        evaluates_constraint = True
+        dual = dual_factory(problem.m, device=None, process_group=None)
 
     group_weights = None
     if reweight_loss:

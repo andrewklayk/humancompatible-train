@@ -91,7 +91,7 @@ def train(problem, seed, epochs, *, primal_lr, dual_lr, cadence):
     multirun, picking a winner) lives outside it, in the Hydra configs and
     ``tune_apply.py``.
     """
-    factory = lambda m: ALM(m=m, lr=dual_lr, penalty=1.0, is_ineq=True)
+    factory = lambda m, **_: ALM(m=m, lr=dual_lr, penalty=1.0, is_ineq=True)
     return a_fairness.train(
         problem, "ALM", seed, epochs, dual_factory=factory,
         primal_lr=primal_lr, cadence=cadence, reweight_loss=True,
@@ -127,7 +127,9 @@ def _tuned(problem_name, per_group, cadence):
 
 def _dual_factory(method, dual_lr):
     kwargs = ALM_FAMILY_KWARGS[method]
-    return lambda m: ALM(m=m, lr=dual_lr, penalty=1.0, is_ineq=True, **kwargs)
+    # `**_` swallows the device/process_group every driver now passes; this problem
+    # is CPU-only and single-process.
+    return lambda m, **_: ALM(m=m, lr=dual_lr, penalty=1.0, is_ineq=True, **kwargs)
 
 
 # --------------------------------------------------------------------------- #

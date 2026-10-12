@@ -1,10 +1,13 @@
 # E3 (LM half) -- sparsity-constrained LM fine-tuning.
 #
-# UNLIKE the other two adapters this one goes through ARGV, not `_target_`: run_llm.main()
-# has a three-way dispatch (torchrun worker / re-exec self under torchrun / plain single
-# process) and a config object cannot cross the re-exec boundary. So the sweepable surface
-# here is exactly run_llm.build_parser()'s flag set, and `algorithm.dual` is ignored --
-# only `algorithm.method` is read. Sweep `dual_lr` here, not `algorithm.dual.lr`.
+# Like the other adapters, this one drives its per-run function directly -- tune.py calls
+# run_llm.train(), not run_llm.main(), so `algorithm.dual`'s `_target_` block is live and
+# any constructor argument is sweepable. Sweep the dual through `algorithm.dual.*`.
+#
+# The consequence is that E3-LM tuning is SINGLE-RANK: main()'s torchrun re-exec is what a
+# config object cannot cross, and train() sits underneath it. `ranks` must stay 1 here;
+# raise `batch_size` to the effective batch of the multi-rank run you are tuning for, and
+# use paper/e3/sweep.py for multi-rank runs themselves.
 
 target: e3_llm
 
@@ -15,7 +18,7 @@ vocab_size: null
 
 eps: 0.5                  # target density
 penalty: 1.0              # only used by method=penalty
-granularity: layer        # model | layer | layer_split
+granularity: block        # model | block | block_split
 steps: 5000
 warmup: 5
 eval_batches: 16          # batches per rank per evaluation; 0 = the whole split
@@ -37,6 +40,9 @@ ranks: 1
 # --- swept by conf/sweep/e3_llm_*.yaml ---
 lr: 1.0e-4
 gate_lr: 1.0e-2
-dual_lr: 1.0e-2
+# The dual's own hyperparameters live in conf/algorithm/<name>.yaml under `dual:` and are
+# swept as `algorithm.dual.<key>`. There is no shared dual step size: it is `lr` for the
+# alm_* methods, `beta` for ialm, `ki`/`kp` for nupi and `penalty_mult` for pbm, and the
+# sweep names whichever one it varies.
 grad_clip: 0.0
 init_open: 0.95

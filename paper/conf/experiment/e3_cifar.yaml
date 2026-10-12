@@ -14,7 +14,7 @@ synthetic: false          # true runs the whole path with no dataset on disk
 
 eps: 0.3                  # target density
 penalty: 1.0              # only used by method=penalty
-granularity: model        # model | layer | layer_split
+granularity: model        # model | block | block_split
 depth: 18
 epochs: 100
 batch_size: 128

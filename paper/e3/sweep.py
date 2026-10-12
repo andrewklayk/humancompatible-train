@@ -93,9 +93,10 @@ def _make_args(args, overrides):
     """A single-run namespace: run_llm's defaults, this driver's flags, the overrides."""
     one = run_llm.build_parser().parse_args([])
     for key in ("model", "tokens", "synthetic", "vocab_size", "granularity", "steps",
-                "seq_len", "batch_size", "lr", "gate_lr", "dual_lr", "dtype",
+                "seq_len", "batch_size", "lr", "gate_lr", "dtype",
                 "quick",
-                "eval_batches", "val_frac", "test_frac", "eval_every", "test_curve"):
+                "eval_batches", "val_frac", "test_frac", "eval_every", "test_curve",
+                "dual_opt"):
         setattr(one, key, getattr(args, key))
     for key, value in overrides.items():
         setattr(one, key, value)
@@ -362,7 +363,8 @@ def main(argv=None) -> None:
     parser.add_argument("--batch-size", type=int, default=8, help="per rank")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gate-lr", type=float, default=1e-2)
-    parser.add_argument("--dual-lr", type=float, default=1e-2)
+    parser.add_argument("--dual-opt", action="append", default=[], metavar="KEY=VALUE",
+                        help="passed to every method; see run_llm.METHODS")
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--eval-batches", type=int, default=16)
     parser.add_argument("--val-frac", type=float, default=0.01)
@@ -434,7 +436,7 @@ def _rebuild_argv(args) -> list[str]:
         "--steps", str(args.steps), "--seq-len", str(args.seq_len),
         "--batch-size", str(args.batch_size), "--lr", str(args.lr),
         "--gate-lr", str(args.gate_lr),
-        "--dual-lr", str(args.dual_lr), "--dtype", args.dtype,
+        "--dtype", args.dtype,
         "--eval-batches", str(args.eval_batches),
         "--val-frac", str(args.val_frac), "--test-frac", str(args.test_frac),
         "--eval-every", str(args.eval_every),
@@ -452,6 +454,8 @@ def _rebuild_argv(args) -> list[str]:
         out.append("--quick")
     if not args.test_curve:
         out.append("--no-test-curve")
+    for item in args.dual_opt:
+        out += ["--dual-opt", str(item)]
     return out
 
 

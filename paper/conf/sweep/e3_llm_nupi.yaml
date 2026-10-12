@@ -1,0 +1,17 @@
+# @package _global_
+
+# NOTE the primal step for E3-LM is `experiment.lr` (weights) and `experiment.gate_lr`
+# (gate log-alphas). `algorithm.primal.lr` exists in the algorithm group but is read only
+# by the E2a and E2c adapters -- sweeping it here would silently do nothing.
+defaults:
+  - override /experiment: e3_llm
+  - override /algorithm: nupi
+
+hydra:
+  sweeper:
+    params:
+      experiment.lr: choice(0.0001, 0.0005)
+      experiment.gate_lr: choice(0.01, 0.05)
+      algorithm.dual.ki: choice(0.1, 1.0)
+      algorithm.dual.kp: choice(1., 10.)
+      algorithm.dual.nu: choice(0.0)

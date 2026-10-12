@@ -82,15 +82,20 @@ OmegaConf.register_new_resolver("cfg_hash", _cfg_hash, replace=True)
 
 
 def _dual_factory(cfg):
-    """``m -> DualOptimizer`` from ``cfg.algorithm.dual``, or ``None`` for a reference.
+    """``(m, *, device, process_group) -> DualOptimizer`` from ``cfg.algorithm.dual``.
 
-    ``_partial_: true`` in the yaml means :func:`instantiate` returns the constructor with
-    its hyperparameters already bound; only ``m`` (and, on GPU, ``device``) is left.
+    ``None`` for a reference with no duals. ``_partial_: true`` in the yaml means
+    :func:`instantiate` returns the constructor with its hyperparameters already bound;
+    only the three runtime arguments are left, and every ``train()`` in ``paper/`` takes
+    the factory in this one shape -- so the returned object goes straight to any of them
+    with no per-adapter wrapper.
     """
     if cfg.algorithm.get("dual") is None:
         return None
     partial = instantiate(cfg.algorithm.dual)
-    return lambda m, **kwargs: partial(m=m, **kwargs)
+    return lambda m, *, device=None, process_group=None: partial(
+        m=m, device=device, process_group=process_group
+    )
 
 
 def _setup(cfg) -> Path:
@@ -270,19 +275,10 @@ def _run_e3_cifar(cfg) -> dict:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_loader, test_loader, n_classes = run_cifar.build_loaders(args)
 
-    # run_cifar's registry calls its builders as (m, device, process_group, lr); `lr` is
-    # dropped because the step size is already bound into the config's partial, wherever
-    # the class happens to call it (lr / beta / ki+kp / penalty_mult).
-    if factory is None:
-        dual_factory = None
-    else:
-        def dual_factory(m, dev, process_group, _lr):
-            return factory(m, device=dev, process_group=process_group)
-
     epochs, summary, report = run_cifar.train(
         args, label=label, method=args.method[0], eps=eps,
         penalty=args.penalty[0], train_loader=train_loader, test_loader=test_loader,
-        n_classes=n_classes, device=device, dual_factory=dual_factory,
+        n_classes=n_classes, device=device, dual_factory=factory,
     )
 
     _harness.write_csv(epochs, "e3_cifar_epochs", "e3")
@@ -301,65 +297,80 @@ def _run_e3_cifar(cfg) -> dict:
 # adapter: E3 -- LM
 # --------------------------------------------------------------------------- #
 
-# (config key, flag). Deliberately argv rather than a config object: run_llm.main() may
-# re-exec itself under torch.distributed.run, and a DictConfig cannot cross that boundary.
-# So the sweepable surface here is exactly build_parser()'s flag set, and
-# `algorithm.dual` is ignored -- only `algorithm.method` is read.
-_E3_LLM_FLAGS = (
-    ("model", "--model"), ("granularity", "--granularity"), ("eps", "--eps"),
-    ("penalty", "--penalty"), ("steps", "--steps"), ("warmup", "--warmup"),
-    ("eval_batches", "--eval-batches"), ("seq_len", "--seq-len"),
-    ("val_frac", "--val-frac"), ("test_frac", "--test-frac"),
-    ("eval_every", "--eval-every"),
-    ("batch_size", "--batch-size"), ("lr", "--lr"), ("gate_lr", "--gate-lr"),
-    ("dual_lr", "--dual-lr"), ("grad_clip", "--grad-clip"), ("dtype", "--dtype"),
-    ("init_open", "--init-open"), ("ranks", "--ranks"),
+# run_llm's own defaults, then this config on top -- the idiom e3/sweep.py already uses,
+# so a default added to build_parser() still reaches the sweep. `ranks` is read separately
+# (it decides whether this adapter can run at all) and `method` comes from the algorithm
+# group, so neither is here.
+_E3_LLM_KEYS = (
+    "model", "tokens", "synthetic", "vocab_size", "granularity", "eps", "penalty",
+    "steps", "warmup", "eval_batches", "val_frac", "test_frac", "eval_every",
+    "seq_len", "batch_size", "lr", "gate_lr", "grad_clip", "dtype", "init_open", "quick",
 )
 
 
 def _run_e3_llm(cfg) -> dict:
+    """One E3-LM cell, calling ``run_llm.train`` directly.
+
+    ``run_llm.main()`` has a three-way dispatch and may re-exec itself under
+    ``torch.distributed.run``, which a config object cannot cross -- so this calls the
+    rank-0 path underneath it, exactly as the E3-CIFAR adapter calls ``run_cifar.train``.
+    That is what makes ``algorithm.dual`` live here: a ``_target_`` block reaches the dual
+    optimizer through the factory, where an argv flag could only reach a method name.
+    """
     from paper.e3 import run_llm
 
-    method = cfg.algorithm.get("method")
-    if method is None:
+    ranks = int(cfg.experiment.get("ranks", 1))
+    if ranks > 1:
         raise SystemExit(
-            f"algorithm={cfg.algorithm.name} has no run_llm.METHODS counterpart "
-            f"(method: null). The E3-LM adapter drives run_llm through argv, so it can "
-            f"only select a method that registry defines; choose from "
-            f"{sorted(run_llm.METHODS)} or add the entry."
+            f"E3-LM tuning is single-rank, but experiment.ranks={ranks}. A config object "
+            f"cannot cross run_llm.main()'s torchrun re-exec, so this adapter drives "
+            f"run_llm.train() directly. Raise experiment.batch_size to the effective "
+            f"batch of the multi-rank run you are tuning for, and use paper/e3/sweep.py "
+            f"for multi-rank runs themselves."
         )
 
     seed = int(cfg.seed)
-    argv = ["--method", str(method), "--seed", str(seed)]
-    for key, flag in _E3_LLM_FLAGS:
-        argv += [flag, str(cfg.experiment[key])]
-    if cfg.experiment.get("tokens"):
-        argv += ["--tokens", str(cfg.experiment.tokens)]
-    if cfg.experiment.get("vocab_size") is not None:
-        argv += ["--vocab-size", str(cfg.experiment.vocab_size)]
-    for key, flag in (("synthetic", "--synthetic"), ("quick", "--quick")):
-        if cfg.experiment.get(key):
-            argv.append(flag)
+    factory = _dual_factory(cfg)
+    label = str(cfg.algorithm.label)
+    eps = float(cfg.experiment.eps)
 
-    run_llm.main(argv)
+    args = run_llm.build_parser().parse_args([])
+    for key in _E3_LLM_KEYS:
+        setattr(args, key, cfg.experiment[key])
+    args.seed = seed
+    # With a factory the registry is bypassed and `method` only labels the row; without
+    # one this must be a real key, and `adam` is the gated model with no duals.
+    name = cfg.algorithm.get("method")
+    args.method = name if name in run_llm.METHODS else "adam"
+    run_llm.finalize(args)
+    run_llm._ensure_tokens(args)
 
-    # Read the summary back off disk rather than out of main(), which returns nothing --
-    # and cannot, on the multi-rank path where the result lives in a child process. This is
-    # the read-back scaling.py already does. `_slug` omits seed/lr/dual_lr, so two tuning
-    # runs share a filename; the per-job results dir is what keeps them apart.
-    args = run_llm.finalize(run_llm.build_parser().parse_args(argv))
-    slug = run_llm._slug(args, int(cfg.experiment.ranks))
-    path = _harness.RESULTS / run_llm.EXPERIMENT / f"e3_summary_{slug}.json"
-    summary = json.loads(path.read_text())[0]
+    device = run_llm._pick_device(0)
+    result = run_llm.train(args, rank=0, world=1, device=device, process_group=None,
+                           dual_factory=factory)
+    summary = result["summary"]
 
-    row = {"method": str(method), "eps": float(cfg.experiment.eps), "seed": seed, **summary}
+    _harness.write_csv(result["rows"], "e3_llm_steps", "e3")
+    if result["eval_rows"]:
+        _harness.write_csv(result["eval_rows"], "e3_llm_eval", "e3")
+    if result["median_report"]:
+        _harness.write_csv(result["median_report"], "e3_llm_density", "e3")
+
+    row = {"method": label, "eps": eps, "seed": seed, **summary}
     row["objective"] = _density_objective(
-        # val, never test: test is the number the paper reports, and tuning against
-        # it would make it a selection set.
-        summary.get("val_ppl"), summary.get("final_density_mean"),
-        float(cfg.experiment.eps), method in run_llm.CONSTRAINED,
+        # val, never test: test is the number the paper reports, and tuning against it
+        # would make it a selection set.
+        summary.get("val_ppl"), summary.get("final_density_mean"), eps, factory is not None,
     )
+    print(f"  val ppl {summary.get('val_ppl', float('nan')):.3f}  "
+          f"density {summary.get('final_density_mean', float('nan')):.4f} "
+          f"(eps {eps})  -> objective {row['objective']:.4f}")
     return row
+
+
+# --------------------------------------------------------------------------- #
+# scoring
+# --------------------------------------------------------------------------- #
 
 
 def _density_objective(quality, achieved, eps, constrained: bool) -> float:

@@ -141,7 +141,7 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
           dual_factory=None):
     """Train one configuration; return per-epoch rows plus a summary.
 
-    :param dual_factory: ``(m, device, process_group, lr) -> DualOptimizer``, overriding
+    :param dual_factory: ``(m, *, device, process_group) -> DualOptimizer``, overriding
         ``METHODS[method]``. The registry fixes every dual hyperparameter but the step
         size, so this is what lets ``paper/tune.py`` sweep the rest.
     """
@@ -161,8 +161,15 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
         lr=args.lr, momentum=0.9, weight_decay=args.weight_decay, nesterov=True,
     ) 
     gate_optim = torch.optim.Adam(gates.gate_parameters(), lr=args.gate_lr)
-    build = METHODS[method] if dual_factory is None else dual_factory
-    dual = None if build is None else build(m, device, None, args.dual_lr)
+    if dual_factory is not None:
+        dual = dual_factory(m, device=device, process_group=None)
+    elif METHODS[method] is None:
+        dual = None
+    else:
+        dual = run_llm.build_dual(
+            method, m, device=device, process_group=None,
+            overrides=run_llm.parse_dual_opts(args.dual_opt),
+        )
 
     rows = []
     print("Starting")
@@ -311,7 +318,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=5e-4)
     parser.add_argument("--gate-lr", type=float, default=1e-2)
-    parser.add_argument("--dual-lr", type=float, default=1e-2)
+    parser.add_argument("--dual-opt", action="append", default=[], metavar="KEY=VALUE",
+                        help="override a method's dual hyperparameters; repeatable")
     parser.add_argument("--init-open", type=float, default=0.95)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)

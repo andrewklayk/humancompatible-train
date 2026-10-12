@@ -1,8 +1,8 @@
 # @package _global_
-#
-# The dual step is `experiment.dual_lr`, NOT `algorithm.dual.lr`: this adapter drives
-# run_llm through argv (a DictConfig cannot cross its torchrun re-exec), so only
-# `algorithm.method` is read from the algorithm group. See conf/experiment/e3_llm.yaml.
+
+# NOTE the primal step for E3-LM is `experiment.lr` (weights) and `experiment.gate_lr`
+# (gate log-alphas). `algorithm.primal.lr` exists in the algorithm group but is read only
+# by the E2a and E2c adapters -- sweeping it here would silently do nothing.
 defaults:
   - override /experiment: e3_llm
   - override /algorithm: alm_hpr
@@ -12,4 +12,5 @@ hydra:
     params:
       experiment.lr: choice(0.0001, 0.0005)
       experiment.gate_lr: choice(0.01, 0.05)
-      experiment.dual_lr: choice(0.01, 0.05)
+      algorithm.dual.lr: choice(0.01, 0.05)
+      algorithm.dual.penalty: choice(0.0, 0.5)

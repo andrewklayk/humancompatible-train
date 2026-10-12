@@ -1,5 +1,3 @@
-# penalty=0 is the published nuPI; penalty=1 is what E0a recommends, and the difference is
-# an E0a finding worth re-testing -- so sweep `algorithm.dual.penalty` alongside ki/kp.
 name: nupi
 label: "nuPI"
 method: nupi
@@ -8,7 +6,7 @@ primal:
 dual:
   _target_: humancompatible.train.dual_optim.nuPI
   _partial_: true
-  ki: 0.05
-  kp: 0.05
-  nu: 0.01
+  ki: 0.1
+  kp: 10.0
+  nu: 0.0
   is_ineq: true

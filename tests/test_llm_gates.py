@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from paper.problems import tokens as tokens_mod
-from paper.problems.sparsity.sparsity_gates import BETA, GAMMA, ZETA, HardConcreteGate
+from paper.problems.sparsity.sparsity_gates import BETA, GAMMA, ZETA, HardConcreteGate, GRANULARITIES, _OPEN_SHIFT
 from paper.problems.sparsity.sparse_lm import attach_gates
 from paper.problems.tiny_lm import tiny_causal_lm
 
@@ -49,21 +49,21 @@ class TestHardConcreteGate(unittest.TestCase):
 
         z = gate.sample(torch.Generator().manual_seed(1))
         empirical = (z > 0).double().view(values.numel(), repeats).mean(dim=1)
-        closed = gate.open_prob().view(values.numel(), repeats)[:, 0].double()
+        closed = gate.open_proba().view(values.numel(), repeats)[:, 0].double()
 
         # 3 sigma of a Bernoulli mean at n=40000 is at most 3*0.5/200 = 0.0075.
         torch.testing.assert_close(empirical, closed, atol=0.008, rtol=0.0)
 
     def test_open_shift_constant(self):
         expected = -BETA * math.log(-GAMMA / ZETA)
-        self.assertAlmostEqual(sparse_lm._OPEN_SHIFT, expected, places=12)
+        self.assertAlmostEqual(_OPEN_SHIFT, expected, places=12)
         # (2/3)*log(11), spelled out so a transcription slip in either direction shows up.
-        self.assertAlmostEqual(sparse_lm._OPEN_SHIFT, 1.5985968, places=6)
+        self.assertAlmostEqual(_OPEN_SHIFT, 1.5985968, places=6)
 
     def test_init_open_is_honoured(self):
         for target in (0.5, 0.9, 0.99):
             gate = HardConcreteGate(4096, init_open=target, init_std=0.0)
-            self.assertAlmostEqual(float(gate.open_prob().mean()), target, places=5)
+            self.assertAlmostEqual(float(gate.open_proba().mean()), target, places=5)
 
     def test_median_is_the_sample_median(self):
         """`median()` must be the 50th percentile of `sample()`, not merely close to it."""
@@ -129,9 +129,9 @@ class TestDensityConstraints(unittest.TestCase):
     def test_granularity_shapes(self):
         n_layers = self.model.config.num_hidden_layers
         self.assertEqual(self.gates.m("model"), 1)
-        self.assertEqual(self.gates.m("layer"), n_layers)
-        self.assertEqual(self.gates.m("layer_split"), 2 * n_layers)
-        for granularity in sparse_lm.GRANULARITIES:
+        self.assertEqual(self.gates.m("block"), n_layers)
+        self.assertEqual(self.gates.m("block_split"), 2 * n_layers)
+        for granularity in GRANULARITIES:
             c = self.gates.constraints(0.5, granularity)
             self.assertEqual(c.shape, (self.gates.m(granularity),))
             self.assertEqual(
@@ -139,7 +139,7 @@ class TestDensityConstraints(unittest.TestCase):
             )
 
     def test_density_is_a_probability(self):
-        for granularity in sparse_lm.GRANULARITIES:
+        for granularity in GRANULARITIES:
             density = self.gates.densities(granularity).detach()
             self.assertGreaterEqual(float(density.min()), 0.0)
             self.assertLessEqual(float(density.max()), 1.0)
@@ -156,7 +156,7 @@ class TestDensityConstraints(unittest.TestCase):
         with torch.no_grad():
             for group in self.gates.groups:
                 group.gate.log_alpha.fill_(40.0)
-        for granularity in sparse_lm.GRANULARITIES:
+        for granularity in GRANULARITIES:
             self.assertLessEqual(
                 float(self.gates.constraints(1.0, granularity).detach().max()), 1e-6
             )
@@ -164,12 +164,12 @@ class TestDensityConstraints(unittest.TestCase):
     def test_parameter_weighting_collapses_when_gates_are_equal_sized(self):
         """With one gate group per cell the weights cancel, so density is the mean
         open probability. Any weighting bug that survives this is at least consistent."""
-        cell_density = self.gates.densities("layer_split")
-        names = self.gates.constraint_names("layer_split")
+        cell_density = self.gates.densities("block_split")
+        names = self.gates.constraint_names("block_split")
         for group in self.gates.groups:
             index = names.index(group.name)
             torch.testing.assert_close(
-                cell_density[index], group.gate.open_prob().mean()
+                cell_density[index], group.gate.open_proba().mean()
             )
 
     def test_parameter_weighting_is_not_a_plain_mean_across_groups(self):
@@ -178,15 +178,15 @@ class TestDensityConstraints(unittest.TestCase):
         with torch.no_grad():
             for group in self.gates.groups:
                 group.gate.log_alpha.fill_(2.0 if group.kind == "mlp" else -2.0)
-        layer0 = self.gates.densities("layer")[0]
-        groups0 = [g for g in self.gates.groups if g.layer == 0]
-        unweighted = sum(float(g.gate.open_prob().detach().mean()) for g in groups0) / len(groups0)
+        block0 = self.gates.densities("block")[0]
+        groups0 = [g for g in self.gates.groups if g.block == 0]
+        unweighted = sum(float(g.gate.open_proba().detach().mean()) for g in groups0) / len(groups0)
         weighted = sum(
-            float(g.gate.open_prob().detach().sum()) * g.params_per_gate
+            float(g.gate.open_proba().detach().sum()) * g.params_per_gate
             for g in groups0
         ) / sum(g.params_total for g in groups0)
-        self.assertAlmostEqual(float(layer0), weighted, places=6)
-        self.assertNotAlmostEqual(float(layer0), unweighted, places=3)
+        self.assertAlmostEqual(float(block0), weighted, places=6)
+        self.assertNotAlmostEqual(float(block0), unweighted, places=3)
 
     def test_per_gate_parameter_counts(self):
         config = self.model.config
@@ -211,18 +211,18 @@ class TestDensityConstraints(unittest.TestCase):
     def test_constraints_do_not_depend_on_the_gate_sample(self):
         """The closed form is why the constraint carries no minibatch or sampling noise —
         and also why a data-parallel reduction over it has nothing to pool."""
-        before = self.gates.constraints(0.5, "layer").detach().clone()
+        before = self.gates.constraints(0.5, "block").detach().clone()
         self.gates.resample(torch.Generator().manual_seed(11))
-        after = self.gates.constraints(0.5, "layer").detach()
+        after = self.gates.constraints(0.5, "block").detach()
         torch.testing.assert_close(before, after, atol=0.0, rtol=0.0)
 
     def test_per_cell_eps_vector(self):
         eps = [0.3, 0.7]
-        c = self.gates.constraints(eps, "layer")
-        density = self.gates.densities("layer")
+        c = self.gates.constraints(eps, "block")
+        density = self.gates.densities("block")
         torch.testing.assert_close(c, density - torch.tensor(eps))
         with self.assertRaises(ValueError):
-            self.gates.constraints([0.3], "layer")
+            self.gates.constraints([0.3], "block")
 
     def test_median_report_counts_purged_parameters(self):
         with torch.no_grad():
@@ -303,7 +303,7 @@ class TestAttachGates(unittest.TestCase):
             if group.kind != "attn":
                 continue
             expanded = group.expanded_z()
-            o_proj = sparse_lm.decoder_blocks(model)[group.layer].self_attn.o_proj
+            o_proj = sparse_lm.decoder_blocks(model)[group.block].self_attn.o_proj
             self.assertEqual(expanded.numel(), o_proj.in_features)
 
     def test_gate_only_flags(self):

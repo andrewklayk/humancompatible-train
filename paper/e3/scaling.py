@@ -59,7 +59,7 @@ def _run(args, method: str, world: int, tag: str) -> dict:
         "--eps", str(args.eps), "--steps", str(args.steps),
         "--seq-len", str(args.seq_len), "--batch-size", str(args.batch_size),
         "--lr", str(args.lr), "--gate-lr", str(args.gate_lr),
-        "--dual-lr", str(args.dual_lr), "--dtype", args.dtype,
+        "--dtype", args.dtype,
         "--eval-batches", "0", "--seed", str(args.seed),
         # No split and no curve: this is a timing run, the whole shard is training data,
         # and an evaluation pass would add wall clock for nothing it measures.
@@ -68,6 +68,8 @@ def _run(args, method: str, world: int, tag: str) -> dict:
     ]
     if args.tokens:
         command += ["--tokens", args.tokens]
+    for item in args.dual_opt:
+        command += ["--dual-opt", str(item)]
     if args.synthetic:
         command.append("--synthetic")
     if args.quick:
@@ -160,7 +162,7 @@ def main(argv=None) -> None:
     parser.add_argument("--batch-size", type=int, default=8, help="per rank")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gate-lr", type=float, default=1e-2)
-    parser.add_argument("--dual-lr", type=float, default=1e-2)
+    parser.add_argument("--dual-opt", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--worlds", default=None,

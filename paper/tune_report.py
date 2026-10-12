@@ -59,6 +59,14 @@ def varying(rows: list[dict]) -> list[str]:
     )
 
 
+def _label(key: str) -> str:
+    """A swept key without its config group, e.g. `algorithm.dual.lr` -> `dual.lr`."""
+    for prefix in ("algorithm.", "experiment."):
+        if key.startswith(prefix):
+            return key[len(prefix):]
+    return key
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="rank a paper/tune.py sweep")
     parser.add_argument("--runs", required=True, help="a multirun or outputs directory")
@@ -88,7 +96,9 @@ def main(argv=None) -> None:
     shown = table if args.top <= 0 else table[:args.top]
     print(f"\n{len(rows)} runs under {root}; swept: {', '.join(swept) or '(nothing)'}\n")
     for rank, row in enumerate(shown, start=1):
-        detail = "  ".join(f"{key.split('.')[-1]}={row[key]}" for key in swept)
+        # Strip only the config group, not the whole path: `algorithm.dual.lr` and
+        # `experiment.lr` are both swept and both end in "lr".
+        detail = "  ".join(f"{_label(key)}={row[key]}" for key in swept)
         print(f"  {rank:>3}. objective {float(row['objective']):<12.5g} {detail}")
 
     if args.out:

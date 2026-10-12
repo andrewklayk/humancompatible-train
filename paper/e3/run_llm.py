@@ -37,6 +37,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import subprocess
@@ -73,10 +74,17 @@ EXPERIMENT = "e3"
 # methods
 # --------------------------------------------------------------------------- #
 
-# Each builder takes (m, device, process_group) and returns a DualOptimizer, or None for
-# the two references that have no duals. Hyperparameter values are transcribed rather than
-# read from `benchmark/new_bench/conf/algorithm/*.yaml`, so this tree carries no Hydra
-# dependency -- the same choice `paper/e0/d_distributed.py` makes.
+# Each entry is ``(class, kwargs)``; ``None`` marks a reference with no duals.
+# Hyperparameter values are transcribed rather than read from
+# `benchmark/new_bench/conf/algorithm/*.yaml`, so this tree carries no Hydra dependency --
+# the same choice `paper/e0/d_distributed.py` makes.
+#
+# **Every hyperparameter is written out per method, the dual step size included.** There
+# is deliberately no shared `--dual-lr`: one number landing in ALM's `lr`, iALM's `beta`,
+# nuPI's two gains and PBM's `penalty_mult` reads as a common setting across methods and
+# is not one -- those are four different quantities, and a sweep over the shared knob was
+# really four unrelated sweeps sharing an axis label. Each is now set, and overridden, by
+# its own name: `--dual-opt lr=0.05`, `--dual-opt beta=0.05`, `--dual-opt penalty_mult=0.5`.
 #
 # `alm_gda` and `alm_gda_restart` are the reference method: ALM(penalty=0, is_ineq=True) is
 # the projected gradient descent-ascent of arXiv:2208.04425 Eq. (5), and restart=True is
@@ -86,40 +94,96 @@ METHODS = {
     "adam": None,
     # "penalty": None,
     # the reference method and its variants
-    "alm_gda": lambda m, device, pg, lr: ALM(
-        m=m, lr=lr, penalty=0.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg,
-    ),
-    "alm_gda_restart": lambda m, device, pg, lr: ALM(
-        m=m, lr=lr, penalty=0.0, init_duals=0.0, is_ineq=True, restart=True,
-        device=device, process_group=pg,
-    ),
+    "alm_gda": (ALM, dict(
+        lr=1e-2, penalty=0.0, init_duals=0.0, is_ineq=True,
+    )),
+    "alm_gda_restart": (ALM, dict(
+        lr=1e-2, penalty=0.0, init_duals=0.0, is_ineq=True, restart=True,
+    )),
     # Hestenes-Powell-Rockafellar, not the quadratic augmentation. The name has to say
     # which one it is: it is written verbatim into the `method` column of every artifact,
     # and `augmentation="hpr"` is what the constructor is handed.
-    "alm_hpr": lambda m, device, pg, lr: ALM(
-        m=m, lr=lr, penalty=1.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg, augmentation="hpr", restart=True,
-    ),
-    "ialm": lambda m, device, pg, lr: iALM(
-        m=m, beta=lr, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg,
-    ),
-    # nuPI dropped its `penalty` argument; passing it raises TypeError.
-    "nupi": lambda m, device, pg, lr: nuPI(
-        m=m, ki=lr, kp=lr, nu=0.0, init_duals=0.0, is_ineq=True,
-        device=device, process_group=pg,
-    ),
+    "alm_hpr": (ALM, dict(
+        lr=1e-2, penalty=1.0, init_duals=0.0, is_ineq=True,
+        augmentation="hpr", restart=True,
+    )),
+    "ialm": (iALM, dict(
+        beta=1e-2, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True,
+    )),
+    # nuPI dropped its `penalty` argument; passing it raises TypeError. `ki` and `kp`
+    # share a value here as a default, not as a property of the method.
+    "nupi": (nuPI, dict(
+        ki=1e-2, kp=1e-2, nu=0.0, init_duals=0.0, is_ineq=True,
+    )),
     # Annealing is switched off explicitly: it defaults on and then makes `epoch_length`
-    # mandatory, so PBM(m=...) alone raises.
-    "pbm": lambda m, device, pg, lr: PBM(
-        m=m, gamma=0.5, penalty_mult=lr, delta=1.0, penalty_update="dimin_adapt",
+    # mandatory, so PBM(m=...) alone raises. PBM is an inequality method by construction
+    # and takes no `is_ineq`.
+    "pbm": (PBM, dict(
+        gamma=0.5, penalty_mult=1e-2, delta=1.0, penalty_update="dimin_adapt",
         gamma_annealing=False, penalty_annealing=False,
-        device=device, process_group=pg,
-    ),
+    )),
 }
 
-CONSTRAINED = tuple(name for name, build in METHODS.items() if build is not None)
+
+def _coerce(text: str):
+    """argv is strings; constructors want floats, ints, bools and the odd name."""
+    lowered = text.strip().lower()
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    if lowered in ("none", "null"):
+        return None
+    for cast in (int, float):
+        try:
+            return cast(text)
+        except ValueError:
+            pass
+    return text
+
+
+def parse_dual_opts(items) -> dict:
+    """``["kp=0.5", "nu=0.1"]`` -> ``{"kp": 0.5, "nu": 0.1}``."""
+    out = {}
+    for item in items or []:
+        key, sep, value = str(item).partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"--dual-opt expects KEY=VALUE; got {item!r}")
+        out[key.strip()] = _coerce(value)
+    return out
+
+
+def _accepted(cls) -> set:
+    parameters = inspect.signature(cls.__init__).parameters.values()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters):
+        return set()  # takes **kwargs: nothing to validate against
+    return {p.name for p in parameters} - {"self"}
+
+
+def build_dual(method: str, m: int, *, device, process_group, overrides: dict = None):
+    """This method's dual optimizer, with ``overrides`` on top of its defaults.
+
+    Unknown keys are refused rather than ignored: a typo in ``--dual-opt`` would
+    otherwise silently run the untouched default and look like a null result.
+    """
+    spec = METHODS[method]
+    if spec is None:
+        return None
+    cls, defaults = spec
+    # A copy, always: METHODS holds one dict per method and sweep.py builds every
+    # configuration in a single process, so updating it in place would leak one cell's
+    # overrides into every later cell.
+    kwargs = dict(defaults)
+    kwargs.update(overrides or {})
+    accepted = _accepted(cls)
+    unknown = sorted(set(kwargs) - accepted) if accepted else []
+    if unknown:
+        raise SystemExit(
+            f"--dual-opt {', '.join(unknown)}: not {cls.__name__} argument(s). "
+            f"{method} accepts {sorted(accepted - {'m', 'device', 'process_group'})}"
+        )
+    return cls(m=m, device=device, process_group=process_group, **kwargs)
+
+
+CONSTRAINED = tuple(name for name, spec in METHODS.items() if spec is not None)
 
 
 # --------------------------------------------------------------------------- #
@@ -254,8 +318,15 @@ def evaluate(model, shard, first_block, n_blocks, *, batch_size, device, rank, w
     return float(mean)
 
 
-def train(args, *, rank: int, world: int, device, process_group) -> dict:
-    """Run ``args.steps`` steps; return per-step rows plus a summary."""
+def train(args, *, rank: int, world: int, device, process_group,
+          dual_factory=None) -> dict:
+    """Run ``args.steps`` steps; return per-step rows plus a summary.
+
+    :param dual_factory: ``(m, *, device, process_group) -> DualOptimizer``, overriding
+        ``METHODS[args.method]``. The hook ``paper/tune.py`` drives: a config's
+        ``_target_`` block reaches the dual optimizer this way, which an argv flag
+        cannot. Same signature as ``run_cifar.train``'s.
+    """
     set_seed(args.seed)
     # Parameters stay float32; --dtype is the autocast dtype, and only on GPU. A fresh
     # context per use rather than one reused instance, which is not re-entrant.
@@ -314,11 +385,18 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
                        "lr": args.gate_lr, "weight_decay": 0.0})
     primal = torch.optim.AdamW(groups, lr=args.lr)
     dual = None
-    build = METHODS[args.method]
-    if build is not None:
+    if dual_factory is not None or METHODS[args.method] is not None:
         if gates is None:
             raise SystemExit(f"--method {args.method} needs gates; drop --no-gates")
-        dual = build(m, device, process_group, args.dual_lr)
+        if dual_factory is not None:
+            # With a factory the registry is bypassed entirely and `--method` only
+            # labels the row.
+            dual = dual_factory(m, device=device, process_group=process_group)
+        else:
+            dual = build_dual(
+                args.method, m, device=device, process_group=process_group,
+                overrides=parse_dual_opts(args.dual_opt),
+            )
 
     # A generator seeded identically on every rank makes the objective's gate noise
     # shared, which is what makes a `world x B` run comparable to `1 x (world*B)`. Seeding
@@ -462,6 +540,7 @@ def train(args, *, rank: int, world: int, device, process_group) -> dict:
     seconds = sum(r["ms_total"] for r in steady) / 1e3
     summary = {
         "method": args.method,
+        "dual_opts": ",".join(args.dual_opt),
         "model": args.model,
         "world": world,
         "granularity": args.granularity if gates else "none",
@@ -595,7 +674,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gate-lr", type=float, default=1e-2,
                         help="step size for the gate parameters; see train()")
-    parser.add_argument("--dual-lr", type=float, default=1e-2)
+    parser.add_argument("--dual-opt", action="append", default=[], metavar="KEY=VALUE",
+                        help="override one of the method's fixed dual hyperparameters; "
+                             "repeatable, e.g. --dual-opt kp=0.5 --dual-opt nu=0.1")
     parser.add_argument("--grad-clip", type=float, default=0.0)
     parser.add_argument("--dtype", default="bfloat16",
                         help="autocast dtype on GPU; parameters are always float32, and "
@@ -696,12 +777,14 @@ def _rebuild_argv(args) -> list[str]:
         "--seq-len", str(args.seq_len),
         "--batch-size", str(args.batch_size), "--lr", str(args.lr),
         "--gate-lr", str(args.gate_lr),
-        "--dual-lr", str(args.dual_lr), "--grad-clip", str(args.grad_clip),
+        "--grad-clip", str(args.grad_clip),
         "--dtype", args.dtype, "--init-open", str(args.init_open),
         "--seed", str(args.seed),
     ]
     if args.vocab_size is not None:
         out += ["--vocab-size", str(args.vocab_size)]
+    for item in args.dual_opt:
+        out += ["--dual-opt", str(item)]
     for flag, on in (
         ("--no-gates", args.no_gates),
         ("--no-mlp-gates", args.no_mlp_gates),
