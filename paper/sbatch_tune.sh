@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=tune
-#SBATCH --partition=h200
+#SBATCH --partition=h200fast
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=08:00:00
 #SBATCH --output=slurm-tune-%j.out
 #
 # Run a paper/tune.py hyperparameter sweep inside ONE allocation.
