@@ -44,7 +44,8 @@ python3 -m pip install -q hydra-submitit-launcher
 # Each (fold, init_seed) is a separate basic-sweeper run over the SAME manual grid,
 # so every run produces identical configs and select_best can match them across
 # folds and inits.
-: "${INIT_SEEDS:=0 1 2 3 4}"
+: "${INIT_SEEDS:=0 1}"
+# : "${INIT_SEEDS:=4}"
 : "${N_FOLDS:=5}"
 : "${CV_SEED:=0}"
 # Training length. NOTE: this only sets the default value -- for it to reach a run,
