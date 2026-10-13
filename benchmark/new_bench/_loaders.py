@@ -300,6 +300,23 @@ def _balanced_subsample(X, targets, eye, num_classes, size, seed, device):
     return X[idx], eye[targets[idx]], targets[idx]
 
 
+_CIFAR_TRAIN_CACHE = {}  # (ds_cls, device) -> (X, targets, eye); decoded once per process.
+# Only helps callers that build the same CIFAR split repeatedly within one process (e.g.
+# cifar100_runtime.py's algo x constraint-count x seed sweep) -- run.py/tune.py each load
+# it once per job anyway, so the cache is a no-op (one dict lookup) for them.
+
+
+def _load_cifar_train_tensors(ds_cls, num_classes, device, transform):
+    key = (ds_cls, device)
+    if key not in _CIFAR_TRAIN_CACHE:
+        trainset = ds_cls(root='./data', train=True, download=True, transform=transform)
+        X = torch.stack([item[0] for item in trainset]).to(device)
+        targets = torch.tensor([item[1] for item in trainset]).to(device)
+        eye = torch.eye(num_classes).to(device)
+        _CIFAR_TRAIN_CACHE[key] = (X, targets, eye)
+    return _CIFAR_TRAIN_CACHE[key]
+
+
 def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
                     balanced=False, device='cpu', approach="opt", opt_eval_size=10000):
     """CIFAR-10 / CIFAR-100 with K-fold over the training set; the canonical
@@ -318,12 +335,8 @@ def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
     batch_size = 40 if num_classes == 10 else 200
 
     ds_cls = torchvision.datasets.CIFAR10 if num_classes == 10 else torchvision.datasets.CIFAR100
-    trainset = ds_cls(root='./data', train=True, download=True, transform=transform)
-
-    X = torch.stack([item[0] for item in trainset]).to(device)
-    targets = torch.tensor([item[1] for item in trainset]).to(device)
-    eye = torch.eye(num_classes).to(device)
-
+    X, targets, eye = _load_cifar_train_tensors(ds_cls, num_classes, device, transform)
+    
     g = torch.Generator(device=device)
     g.manual_seed(init_seed)
 

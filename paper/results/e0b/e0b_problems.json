@@ -1,0 +1,102 @@
+[
+  {
+    "problem": "maxq",
+    "convex": true,
+    "f(x0) computed": 2500.0,
+    "f(x0) closed form": 2500.0,
+    "f(x0) published": 2500.0,
+    "f* used": 0.0,
+    "f* published": 0.0,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "mxhilb",
+    "convex": true,
+    "f(x0) computed": 4.499205338329425,
+    "f(x0) closed form": 4.499205338329425,
+    "f(x0) published": 4.5,
+    "f* used": 0.0,
+    "f* published": 0.0,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "chained_lq",
+    "convex": true,
+    "f(x0) computed": 49.0,
+    "f(x0) closed form": 49.0,
+    "f(x0) published": 49.0,
+    "f* used": -69.29646455628166,
+    "f* published": -69.3,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "chained_cb3_1",
+    "convex": true,
+    "f(x0) computed": 980.0,
+    "f(x0) closed form": 980.0,
+    "f(x0) published": 980.0,
+    "f* used": 98.0,
+    "f* published": 98.0,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "chained_cb3_2",
+    "convex": true,
+    "f(x0) computed": 980.0,
+    "f(x0) closed form": 980.0,
+    "f(x0) published": 980.0,
+    "f* used": 98.0,
+    "f* published": 98.0,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "active_faces",
+    "convex": false,
+    "f(x0) computed": 3.9318256327243257,
+    "f(x0) closed form": 3.9318256327243257,
+    "f(x0) published": 3.9,
+    "f* used": 0.0,
+    "f* published": 0.0,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "brown_2",
+    "convex": false,
+    "f(x0) computed": 98.0,
+    "f(x0) closed form": 98.0,
+    "f(x0) published": 98.0,
+    "f* used": 0.0,
+    "f* published": 0.0,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "chained_mifflin_2",
+    "convex": false,
+    "f(x0) computed": 232.75,
+    "f(x0) closed form": 232.75,
+    "f(x0) published": 232.8,
+    "f* used": -34.8,
+    "f* published": -34.8,
+    "f* source": "published"
+  },
+  {
+    "problem": "chained_crescent_1",
+    "convex": false,
+    "f(x0) computed": 292.25,
+    "f(x0) closed form": 292.25,
+    "f(x0) published": 292.3,
+    "f* used": 0.0,
+    "f* published": 0.0,
+    "f* source": "closed form"
+  },
+  {
+    "problem": "chained_crescent_2",
+    "convex": false,
+    "f(x0) computed": 292.25,
+    "f(x0) closed form": 292.25,
+    "f(x0) published": 292.3,
+    "f* used": 0.0,
+    "f* published": 0.0,
+    "f* source": "closed form"
+  }
+]

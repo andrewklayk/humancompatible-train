@@ -1,0 +1,12 @@
+name: nupi
+label: "nuPI"
+method: nupi
+primal:
+  lr: 1.0e-3
+dual:
+  _target_: humancompatible.train.dual_optim.nuPI
+  _partial_: true
+  ki: 0.1
+  kp: 10.0
+  nu: 0.0
+  is_ineq: true

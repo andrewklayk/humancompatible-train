@@ -1,0 +1,23 @@
+# Slurm launcher for multirun, via the hydra-submitit-launcher plugin.
+# Requires:  pip install hydra-submitit-launcher   (already in hc-dev)
+#
+#   python paper/tune.py -m hydra/launcher=slurm +sweep=e2a_alm seed=0,1,2
+#
+# CPU partition -- this is the one for E2a, which runs an 808-64-32-1 MLP.
+# Extends the plugin's base `submitit_slurm` config and overrides the resources.
+defaults:
+  - submitit_slurm
+
+# --- resources (edit for your cluster) ---
+mem_per_cpu: 16G
+cpus_per_task: 4
+partition: amd
+timeout_min: 1440          # 24h wall clock per job
+# MUST stay 1: submitit runs the job's function ONCE PER TASK, so tasks_per_node > 1
+# launches N duplicate processes sharing one Hydra output dir, writing row.json
+# concurrently. To pack many jobs on a node use array_parallelism, not tasks.
+tasks_per_node: 1
+# array_parallelism: 50    # cap simultaneously-running array tasks
+# additional_parameters: { account: my_account }
+# setup:                   # shell lines run before each task (env activation, modules)
+#   - "source activate hc-dev"

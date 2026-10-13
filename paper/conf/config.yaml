@@ -1,0 +1,33 @@
+# Root config for `paper/tune.py` -- the hyperparameter sweep harness for E2 and E3.
+#
+# One invocation = ONE (experiment, algorithm, hyperparameter) combination. Hydra
+# multirun (`-m`) produces the cartesian product, each as its own job dir. Nothing here
+# runs a grid itself: `paper/e3/sweep.py` and `run_cifar.py`'s `grid()` still own the
+# *configuration* grids (method x eps), and this owns the *hyperparameter* grids.
+#
+#   python paper/tune.py experiment=e2a algorithm=alm
+#   python paper/tune.py -m experiment=e2a algorithm=alm +sweep=e2a_alm
+#   python paper/tune.py -m hydra/launcher=slurm experiment=e2a +sweep=e2a_alm
+
+defaults:
+  - experiment: e2a
+  - algorithm: alm
+  - _self_
+
+# Optimization randomness (model init + batch order). Sweep it as `seed=0,1,2`; it is a
+# top-level key rather than an experiment one because all three adapters take it.
+seed: 0
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: paper/outputs/${experiment.target}/${algorithm.name}/seed${seed}
+  sweep:
+    dir: paper/multirun/${experiment.target}/${algorithm.name}
+    # A hash of the config, not ${hydra.job.num}: job.num restarts on every `-m`, so
+    # distinct configs would collide and a re-run would not be idempotent. Same
+    # reasoning as benchmark/new_bench/run.py:_hp_hash. Preferred over
+    # ${hydra:job.override_dirname} because E3 sweeps values containing "/"
+    # (model=Qwen/Qwen2.5-0.5B), which would break the directory name.
+    subdir: seed${seed}/${cfg_hash:${experiment},${algorithm}}

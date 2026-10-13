@@ -1,0 +1,18 @@
+# @package _global_
+# E2a x PBM grid. 3 * 3 * 2 * 2 = 36 configs.
+#
+# Annealing stays off in both branches: switching it on makes `epoch_length` mandatory, so
+# the constructor raises. `dual_range`'s lower bound is PBM's floor on the multiplier --
+# lambda = 0 is unrepresentable, which E0a measured as a structural limit, and the two
+# values here bracket the uncommitted change that breaks 14 golden trajectories.
+defaults:
+  - override /experiment: e2a
+  - override /algorithm: pbm
+
+hydra:
+  sweeper:
+    params:
+      algorithm.dual.gamma: choice(0.5, 0.9, 0.99)
+      algorithm.dual.penalty_mult: choice(0.1, 0.5, 0.9)
+      algorithm.dual.pbf: choice("quadratic_logarithmic", "quadratic_reciprocal")
+      algorithm.primal.lr: choice(0.001, 0.01)

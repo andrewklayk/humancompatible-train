@@ -1,47 +1,101 @@
 import torch
 import torch.distributed as dist
-from torch.nn import Parameter
-from torch.optim import Optimizer
 from typing import Any, Optional, Tuple
-from torch import clamp_, Tensor
+from torch import Tensor
+
+from .base import DualOptimizer
 
 # cite: Stochastic Smoothed Primal-Dual Algorithms for Nonconvex Optimization with Linear Inequality Constraints
 # https://arxiv.org/pdf/2504.07607
 
+AUGMENTATIONS = ("quadratic", "hpr", None)
 
-class ALM(Optimizer):
+
+class ALM(DualOptimizer):
     def __init__(
         self,
         m: int = None,
         lr: float = 0.01,
         init_duals: float | Tensor = None,
-        penalty: float = 1.0,
+        penalty: float = 0.0,
         *,
         dual_range: Tuple[float, float] = (-100.0, 100.0),
         momentum: float = 0.0,
         dampening: Optional[float] = None,
         is_ineq: bool = False,
         restart: bool = False,
-        ctol: float = 0.,
+        augmentation: Optional[str] = None,
         device=None,
         process_group: Optional[dist.ProcessGroup] = None,
     ) -> None:
 
+        # Unset + a nonzero penalty means "augment"; HPR is the better default surrogate.
+        if augmentation is None and penalty > 0:
+            augmentation = "hpr"
+        
+        if augmentation is not None and penalty == 0:
+            augmentation = None
+
+        if augmentation not in AUGMENTATIONS:
+            raise ValueError(
+                f"Unknown augmentation: {augmentation!r}; expected one of "
+                f"{AUGMENTATIONS}"
+            )
+        if augmentation == "hpr" and penalty < 0:
+            raise ValueError(
+                f"The 'hpr' augmentation divides by the penalty, so it requires "
+                f"penalty > 0; got {penalty}"
+            )
+
         self.penalty = penalty
-        self.process_group = process_group
-        duals, defaults = _init_constraint_group(
+        self.augmentation = augmentation
+        params, settings = self._make_group(
             m, lr, momentum, dampening, init_duals, dual_range, is_ineq, restart, device
         )
+        super().__init__(
+            [{"params": params, **settings}],
+            self._scalar_defaults(settings),
+            process_group=process_group,
+        )
 
-        super().__init__(duals, defaults)
+    @classmethod
+    def _make_group(
+        cls,
+        m: int = None,
+        lr: float = None,
+        momentum: float = None,
+        dampening: float = None,
+        init_duals: float | Tensor = None,
+        dual_range: Tuple[float, float] = None,
+        is_ineq: bool = None,
+        restart: bool = None,
+        device=None,
+    ):
 
-    @property
-    def duals(self) -> Tensor:
-        """
-        :return: Dual variables, concatenated into a single tensor.
-        :rtype: Tensor
-        """
-        return torch.cat([group["params"][0] for group in self.param_groups])
+        # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.1
+        if dampening is None:
+            dampening = 0.0
+
+        if not isinstance(restart, bool):
+            raise ValueError(
+                f"Expected a Boolean value for restart, got {type(restart)}"
+            )
+
+        duals, settings = cls._base_group(
+            m, init_duals, dual_range, is_ineq, device
+        )
+        settings.update(
+            {
+                "lr": lr,
+                "momentum": momentum,
+                "dampening": dampening,
+                "momentum_buffer": torch.zeros_like(
+                    duals.data, requires_grad=False, device=device
+                ),
+                "restart": restart,
+            }
+        )
+        return [duals], cls._drop_none(settings)
 
     def add_constraint_group(
         self,
@@ -53,7 +107,10 @@ class ALM(Optimizer):
         dual_range: tuple[float, float] = None,
         is_ineq: bool = False,
         restart: bool = False,
-        device = None
+        device = None,
+        *,
+        name: str = None,
+        bound: float = None,
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
@@ -74,269 +131,86 @@ class ALM(Optimizer):
         :type is_ineq: bool
         :param restart: Whether to set the dual variables to zero immediately on strict satisfaction of corresponding constraints. Not recommended for stochastic constraints.
         :type restart: bool
+        :param name: Name for this group, used when passing constraints as a mapping. Defaults to `group<k>`.
+        :type name: str
+        :param bound: Right-hand side of this group's constraints, if any. Only used by :meth:`violation`.
+        :type bound: float
 
         .. note::
             Parameters here will default to values set when initializing the dual optimizer.
 
         """
-        duals, settings_dict = _init_constraint_group(
+        params, settings = self._make_group(
             m, lr, momentum, dampening, init_duals, dual_range, is_ineq, restart, device
         )
-        param_group_dict = {"params": duals, **settings_dict}
-        self.add_param_group(param_group_dict)
+        if bound is not None:
+            settings["bound"] = bound
+        if name is not None:
+            settings["name"] = name
+        self.add_param_group({"params": params, **settings})
 
-    def _add_penalty_term(self, lagrangian: Tensor, constraints: Tensor) -> None:
-        """Add penalty term to lagrangian in-place."""
-        if self.penalty == 0:
+    # ------------------------------------------------------------------ #
+    # hooks
+    # ------------------------------------------------------------------ #
+
+    def _ascent_direction(self, group: dict[str, Any], c: Tensor) -> Tensor:
+        """This group's dual ascent direction, i.e. the surrogate's gradient in the duals.
+        """
+        if self.augmentation in ("quadratic", None) or not group.get("is_ineq"):
+            return c
+        duals = group["params"][0]
+        return (torch.clamp(duals + self.penalty * c, min=0.0) - duals) / self.penalty
+
+    def _dual_update(self, group: dict[str, Any], c: Tensor) -> None:
+        momentum = group.get("momentum", 0.0)
+        buffer = group["momentum_buffer"]
+
+        d = self._ascent_direction(group, c)
+
+        if momentum > 0:
+            _update_c_buffers(d, momentum, group.get("dampening", 0.0), buffer)
+
+        _update_duals(
+            group["params"][0],
+            buffer if momentum > 0 else d,
+            group["lr"],
+            group.get("restart"),
+            raw_constraints=c,
+        )
+
+    def _add_constraint_contributions(
+        self, lagrangian: Tensor, group: dict[str, Any], snapshot: Any, c: Tensor
+    ) -> None:
+        if self.augmentation in ("quadratic", None):
+            lagrangian.add_(snapshot @ c)
             return
-        elif constraints.ndim > 0:
-            lagrangian.add_(
-                0.5
-                * self.penalty
-                * torch.dot(constraints, constraints)
-            )
-        else:
-            lagrangian.add_(
-                0.5
-                * self.penalty
-                * torch.square(constraints)
-            )
 
-
-    def forward(self, loss: Tensor, constraints: Tensor) -> Tensor:
-        """
-        Calculates and returns the Augmented Lagrangian.
-
-        Computes the augmented Lagrangian::
-
-            L = loss + sum(duals_i @ constraints_i for all groups) + 0.5 * penalty * ||constraints||^2
-
-        where `loss` is the objective value, `duals_i` are the dual variables, `constraints_i` are constraint values,
-        `penalty` is the penalty parameter, and the sum is over all constraint groups.
-
-        :param loss: Loss (objective function) value
-        :type loss: Tensor
-        :param constraints: Tensor of constraint values
-        :type constraints: Tensor
-        :return: Lagrangian
-        :rtype: Tensor
-        """
-        lagrangian = torch.zeros_like(loss)
-        lagrangian.add_(loss)
-
-        offset = 0
-        for group in self.param_groups:
-            duals, group_constraints = _process_constraint_group(group, offset, constraints, update_duals=False)
-            lagrangian.add_(duals @ group_constraints)
-            offset += len(duals)
-
-        self._add_penalty_term(lagrangian, constraints)
-        return lagrangian
-
-
-    def update(self, constraints: Tensor) -> None:
-        """
-        Updates the dual variables using constrained gradient ascent with optional momentum.
-
-        For each constraint group, performs the dual variable update.
-
-        First, update the momentum buffer (if momentum > 0)::
-
-            if momentum > 0:
-                buffer_i = momentum * buffer_i + (1 - dampening) * constraints_i
-            else:
-                buffer_i = constraints_i
-
-        Then, update the dual variables with clamping::
-
-            duals_i = clamp(duals_i + lr * buffer_i, lower_bound, upper_bound)
-
-        where `buffer_i` is the momentum buffer, `constraints_i` are constraint values, `duals_i` are dual variables,
-        and `clamp(x, lb, ub)` projects to the dual range.
-
-        :param constraints: Tensor of constraint values
-        :type constraints: Tensor
-        """
-        if self.process_group is not None:
+        rho = self.penalty
+        if group.get("is_ineq"):
             with torch.no_grad():
-                constraints = constraints.detach().clone()
-                dist.all_reduce(constraints, op=dist.ReduceOp.AVG, group=self.process_group)
-        offset = 0
-        for group in self.param_groups:
-            _process_constraint_group(group, offset, constraints, update_duals=True)
-            offset += len(group["params"][0])
+                lam_star = torch.clamp(snapshot + rho * c, min=0.0)
+                step = lam_star - snapshot
+            lagrangian.add_(lam_star @ c)
+            lagrangian.add_(step.dot(step), alpha=-1.0 / (2 * rho))
+        else:   
+            lagrangian.add_(snapshot @ c)
+            lagrangian.add_(0.5 * rho * torch.dot(c, c))
 
-    step = update
+    def _add_global_terms(self, lagrangian: Tensor, constraints: Tensor) -> None:
+        # Under HPR the quadratic already sits inside each group's term.
+        if self.augmentation == "hpr" or self.penalty == 0:
+            return
+        # Violations only for inequality groups; see _penalty_constraints.
+        c = self._penalty_constraints(constraints)
+        lagrangian.add_(0.5 * self.penalty * torch.dot(c, c))
 
-    # evaluate the Lagrangian and update the dual variables
-    def forward_update(self, loss: Tensor, constraints: Tensor) -> Tensor:
-        """
-        Combines `forward` and `update`; slightly faster than calling both separately.
-        
-        Updates dual variables::
+    def _extra_state(self) -> dict[str, Any]:
+        return {"penalty": self.penalty, "augmentation": self.augmentation}
 
-            duals_i = clamp(duals_i + lr * buffer_i, lower_bound, upper_bound)
-
-        Then computes the augmented Lagrangian::
-
-            L = loss + sum(duals_i @ constraints_i for all groups) + 0.5 * penalty * ||constraints||^2
-
-
-        where the momentum buffer is updated as in :meth:`update`.
-
-        :param loss: Loss (objective function) value
-        :type loss: Tensor
-        :param constraints: Tensor of constraint values
-        :type constraints: Tensor
-        :return: Lagrangian
-        :rtype: Tensor
-        """
-        if self.process_group is not None:
-            with torch.no_grad():
-                constraints_for_update = constraints.detach().clone()
-                dist.all_reduce(constraints_for_update, op=dist.ReduceOp.AVG, group=self.process_group)
-        else:
-            constraints_for_update = constraints
-
-        lagrangian = torch.zeros_like(loss)
-        lagrangian.add_(loss)
-
-        offset = 0
-        for group in self.param_groups:
-            duals, _ = _process_constraint_group(group, offset, constraints_for_update, update_duals=True)
-            # Always use the original (non-reduced) constraints for the Lagrangian term
-            # so that autograd can flow through ∂c/∂θ during backward().
-            n = len(duals)
-            group_constraints = constraints[offset : offset + n] if constraints.ndim > 0 else constraints.unsqueeze(0)
-            lagrangian.add_(duals @ group_constraints)
-            offset += n
-
-        self._add_penalty_term(lagrangian, constraints)
-        return lagrangian
-
-    def state_dict(self) -> dict[str, Any]:
-        """"""
-        state_dict = super().state_dict()
-        state_dict["state"]["penalty"] = self.penalty
-        # save params themselves in state_dict instead of param ID in default PyTorch
-        for id_pg, pg in enumerate(state_dict["param_groups"]):
-            pg["params"] = [
-                self.param_groups[id_pg]["params"][param_id]
-                for param_id in pg["params"]
-            ]
-        return state_dict
-
-    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        """"""
-        self.penalty = state_dict["state"]["penalty"]
-        # self.dual_range = state_dict["state"]["dual_range"]
-        params = state_dict["param_groups"]
-        self.param_groups = []
-        for param in params:
-            self.param_groups.append(param)
-
-
-def _process_constraint_group(
-    group: dict[str, Any],
-    offset: int,
-    constraints: Tensor,
-    update_duals: bool = False,
-) -> Tuple[Tensor, Tensor]:
-    """
-    Process a single constraint group: extract duals/constraints and optionally update duals.
-
-    :param group: The constraint group dictionary
-    :param offset: Start index of this group's slice within the full constraints tensor
-    :param constraints: Full constraints tensor
-    :param update_duals: Whether to update dual variables
-    :return: Tuple of (duals, group_constraints)
-    """
-    duals = group["params"][0]
-    n = len(duals)
-    group_constraints = constraints[offset : offset + n] if constraints.ndim > 0 else constraints.unsqueeze(0)
-
-    lr = group["lr"]
-    momentum = group.get("momentum", 0.0)
-    dampening = group.get("dampening", 0.0)
-    momentum_buffer = group["momentum_buffer"]
-    dual_lb = group.get("lower_bound")
-    dual_ub = group.get("upper_bound")
-    restart = group.get("restart")
-
-    with torch.no_grad():
-        if update_duals:
-            if momentum > 0:
-                _update_c_buffers(group_constraints, momentum, dampening, momentum_buffer)
-            _update_duals(
-                duals,
-                momentum_buffer if momentum > 0 else group_constraints,
-                lr,
-                restart,
-                raw_constraints=group_constraints,
-            )
-            clamp_(duals, min=dual_lb, max=dual_ub)
-
-    return duals, group_constraints
-
-
-def _init_constraint_group(
-    m: int = None,
-    lr: float = None,
-    momentum: float = None,
-    dampening: float = None,
-    init_duals: float | Tensor = None,
-    dual_range: Tuple[float, float] = None,
-    is_ineq: bool = None,
-    restart: bool = None,
-    device = None,
-):
-    ## checks ##
-    if init_duals is None and m is None:
-        raise ValueError("At least one of m, init_duals must be set")
-
-    if momentum is not None and (momentum < 0 or momentum > 1):
-        raise ValueError(f"momentum must be within [0,1]; got {momentum}")
-
-    # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.
-    if dampening is None:
-        dampening = momentum if (momentum is not None and momentum > 0) else 0.0
-
-    if not isinstance(is_ineq, bool):
-        raise ValueError(f"Expected a Boolean value for is_ineq, got {type(is_ineq)}")
-    
-    if not isinstance(restart, bool):
-        raise ValueError(f"Expected a Boolean value for restart, got {type(restart)}")
-
-    m = m if m is not None else len(init_duals)
-
-    if init_duals is None:  # initialize duals if not set or set to scalar
-        init_duals = torch.zeros(m, requires_grad=False, device=device)
-    elif isinstance(init_duals, float):
-        init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
-
-    duals = Parameter(init_duals, requires_grad=False)
-
-    if dual_range is None and not is_ineq:
-        dual_range = (None, None)
-    elif dual_range is None and is_ineq:
-        dual_range = (0, None)
-
-    settings_dict = {
-        "lr": lr,
-        "momentum": momentum,
-        "dampening": dampening,
-        "momentum_buffer": torch.zeros_like(
-            init_duals, requires_grad=False, device=device
-        ),
-        "lower_bound": max(dual_range[0], 0) if is_ineq else dual_range[0],
-        "upper_bound": dual_range[1],
-        "is_ineq": is_ineq,
-        "restart": restart
-    }
-    settings_dict = {k: v for k, v in settings_dict.items() if v is not None}
-
-    param_group = ([duals], settings_dict)
-    return param_group
+    def _load_extra_state(self, state: dict[str, Any]) -> None:
+        self.penalty = state["penalty"]
+        # Checkpoints written before the augmentation option lack the key.
+        self.augmentation = state.get("augmentation", "quadratic")
 
 
 def _update_c_buffers(
@@ -366,17 +240,69 @@ def _update_duals(
 
 
 ALM.__doc__ = (
-
-        # \textbf{input}: \gamma \text{ (lr) }, \pmb{\lambda}_t \text{ (dual variables, created by method) }, \\
-        # \mathbf{c}(\theta) \text{ (constraints) }, f(\theta) \text{ (objective) }, \rho \text{ (penalty coefficient) } \\
     r"""
-    A Dual Optimizer that works on the dual maximization tasks according to the Augmented Lagrangian rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2504.07607
-    
+    A Dual Optimizer that works on the dual maximization tasks according to the (Augmented) Lagrangian rule. Creates and updates dual variables. Reference: https://doi.org/10.48550/arXiv.2504.07607
+
+    By default (``augmentation=None``, ``penalty=0``), this is dual ascent on the
+    plain Lagrangian:
+
     .. math::
-                
+
+        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t})
+
         \pmb{\lambda}_{t+1} & \leftarrow \pmb{\lambda}_t + \gamma \mathbf{c}_t(\theta_{t})
 
-        \mathcal{L}_{t+1} & \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
+    Setting ``penalty > 0`` augments the Lagrangian; ``augmentation`` picks the form
+    and defaults to ``"hpr"`` when left unset. Passing ``augmentation="quadratic"``
+    instead adds a quadratic penalty term; the dual update is unchanged:
+
+    .. math::
+
+        \mathcal{L}_{t+1} \leftarrow f_t(\theta_{t}) + \pmb{\lambda}_{t+1}^T \mathbf{c}_t(\theta_{t}) + \frac{\rho}{2} \| \mathbf{c}_t(\theta_{t}) \|^2_2
+
+    For constraint groups registered with ``is_ineq=True`` the quadratic term acts
+    on the violation, :math:`\frac{\rho}{2} \| [\mathbf{c}_t(\theta_t)]_+ \|^2_2`,
+    since penalising the raw value of an inequality constraint would also penalise
+    being strictly feasible. The linear term and the dual update always use the raw
+    values.
+
+    ``augmentation="hpr"`` (the implicit default whenever ``penalty > 0``) is the
+    Hestenes--Powell--Rockafellar augmentation, in which the linear and quadratic
+    terms are replaced by a single expression per group,
+
+    .. math::
+
+        \mathcal{L}_{t+1} \leftarrow f_t(\theta_t) + \frac{1}{2\rho} \left[
+            \big\| \big[ \pmb{\lambda}_{t+1} + \rho \, \mathbf{c}_t(\theta_t) \big]_+ \big\|^2_2
+            - \| \pmb{\lambda}_{t+1} \|^2_2 \right]
+
+        \pmb{\lambda}_{t+1} \leftarrow \left( 1 - \tfrac{\gamma}{\rho} \right) \pmb{\lambda}_t
+            + \tfrac{\gamma}{\rho} \big[ \pmb{\lambda}_t + \rho \, \mathbf{c}_t(\theta_t) \big]_+
+
+    for inequality groups, the dual update again being gradient ascent on the
+    surrogate. Writing :math:`\sigma = \pmb{\lambda} + \rho \mathbf{c}` for the trial
+    multiplier, the whole difference between the two augmented modes is where the
+    clamp sits: the weight the surrogate puts on :math:`\partial \mathbf{c} /
+    \partial \theta` is :math:`\max(\pmb{\lambda}, \sigma)` for ``"quadratic"`` but
+    :math:`\max(0, \sigma)` for ``"hpr"``. The quadratic penalty therefore never lets
+    a multiplier's pull on the primal step fall below :math:`\pmb{\lambda}` however
+    feasible the constraint is, whereas HPR switches that pull off entirely once
+    :math:`\sigma \le 0`. Three practical consequences:
+
+    * HPR is a **no-op for equality groups**, where
+      :math:`\frac{1}{2\rho}(\|\pmb{\mu} + \rho \mathbf{h}\|^2 - \|\pmb{\mu}\|^2)
+      = \pmb{\mu}^T \mathbf{h} + \frac{\rho}{2}\|\mathbf{h}\|^2` identically and the
+      dual update is unchanged.
+    * At ``lr == penalty`` both augmented modes perform the *same* dual update
+      :math:`\pmb{\lambda}_{t+1} = [\pmb{\lambda}_t + \rho \mathbf{c}_t]_+` --
+      ``"quadratic"`` reaches it via the non-negativity clamp -- so at that setting
+      the choice is purely a primal-side one. ``restart=True`` is also less necessary
+      under HPR, since an inactive multiplier stops influencing the primal step while
+      still nonzero.
+    * The clamp inside the dual update makes it a nonlinear function of the constraint
+      estimate, so with *stochastic* constraints HPR biases the multipliers upward
+      (Jensen), i.e. toward feasibility. The plain and quadratic dual updates are
+      linear in the estimate and carry no such bias.
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int
@@ -384,9 +310,9 @@ ALM.__doc__ = (
     :type lr: float
     :param init_duals: Initial values for the new dual variables. Defaults to 0 for all.
     :type init_duals: float | Tensor
-    :param penalty: Augmented Lagrangian penalty parameter. Defaults to`1.`
+    :param penalty: Augmented Lagrangian penalty parameter. Defaults to `0.`(no augmentation term). A nonzero value auto-selects the`"hpr"`augmentation unless`augmentation`is set explicitly.
     :type penalty: float
-    :param dual_range: Safeguarding range for dual variables; they will be`clamp`-ed to this range.
+    :param dual_range: Safeguarding range for dual variables; they will be `clamp`-ed to this range.
     :type dual_range: Tuple[float, float]
     :param momentum: Momentum/Smoothing factor for dual variables. Equivalent to SGD momentum. Set to `0` to disable.
     :type momentum: float
@@ -396,9 +322,25 @@ ALM.__doc__ = (
     :type is_ineq: bool
     :param restart: Whether to set the dual variables to zero immediately on strict satisfaction of corresponding constraints. Not recommended for stochastic constraints.
     :type restart: bool
-    :param ctol: Constraint tolerance; allows tiny violations of constraints to account for noise.
+    :param ctol: Reserved for a constraint tolerance allowing tiny violations to account for noise. Accepted for API stability but **currently unused** by the dual update.
     :type ctol: float
+    :param augmentation: Which augmentation to form: `None`(default -- no augmentation term if`penalty == 0`, else`"hpr"`), `"quadratic"`, or `"hpr"`. `"hpr"` requires `penalty > 0` and, on inequality groups, replaces the linear-plus-quadratic terms by the Hestenes-Powell-Rockafellar expression above.
+    :type augmentation: str, optional
     :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
     :type process_group: dist.ProcessGroup, optional
+
+    .. note::
+        Constraint values may be passed to :meth:`forward` / :meth:`update` /
+        :meth:`forward_update` as a flat tensor, as one tensor per constraint
+        group, or as a mapping from group name to tensor. See
+        :meth:`~humancompatible.train.dual_optim.base.DualOptimizer._gather_constraints`.
+
+    .. note::
+        The HPR term also exists in this module as
+        :func:`~humancompatible.train.dual_optim.barrier.augmented_lagrangian`, which
+        :class:`~.pbm.PBM` reproduces with ``pbf="augmented_lagrangian"`` and
+        per-coordinate penalties :math:`p = \lambda / \rho`. That parametrisation is not
+        reused here because it divides by :math:`\lambda` and so breaks at
+        :math:`\lambda = 0`.
     """
 )

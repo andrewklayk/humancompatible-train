@@ -63,7 +63,7 @@ class GhostSQP:
         self.constraint_fns = list(constraint_fns)
         self.sampler = sampler
         self.cfg = cfg or GhostConfig()
-        self.rng = rng if rng is not None else np.random.defgradlt_rng()
+        self.rng = rng if rng is not None else np.random.default_rng()
         self._nu = 0
 
     def gamma(self, nu):

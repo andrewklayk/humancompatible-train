@@ -63,7 +63,7 @@ pbm_grid += pbm_grid_alm
 
 alm_proj_grid = [
     {"primal__lr": lr, "dual__lr": dlr, "dual__penalty": pen, "moreau__mu": mu, 
-            "dual__is_ineq": True}
+            "dual__is_ineq": True, "dual__augmentation": "quadratic"}
     for (lr, dlr, pen, mu) in product(
         [0.001, 0.005, 0.01, 0.02, 0.05], [0.008, 0.0005, 0.001, 0.005, 0.01, 0.05],
          [0.0, 0.1, 1.0, 2.0], [0., 1., 2.])

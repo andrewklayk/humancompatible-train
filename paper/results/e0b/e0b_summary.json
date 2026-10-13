@@ -1,0 +1,122 @@
+[
+  {
+    "problem": "maxq",
+    "convex": true,
+    "f(x0)": 2500.0,
+    "f* published": 0.0,
+    "ours/SVANO-BFGS f": 2.3238180894994344e-05,
+    "ours/SVANO-BFGS calls": 896,
+    "ours/SVANO-Bundle f": 2.3238180894994344e-05,
+    "ours/SVANO-Bundle calls": 1152,
+    "ours/SVANO-GS f": 2.678852199716034e-05,
+    "ours/SVANO-GS calls": 1018
+  },
+  {
+    "problem": "mxhilb",
+    "convex": true,
+    "f(x0)": 4.499205338329425,
+    "f* published": 0.0,
+    "ours/SVANO-BFGS f": 5.392061769334661e-08,
+    "ours/SVANO-BFGS calls": 373,
+    "ours/SVANO-Bundle f": 5.312334389674959e-08,
+    "ours/SVANO-Bundle calls": 465,
+    "ours/SVANO-GS f": 3.594918752112915e-08,
+    "ours/SVANO-GS calls": 520
+  },
+  {
+    "problem": "chained_lq",
+    "convex": true,
+    "f(x0)": 49.0,
+    "f* published": -69.29646455628166,
+    "ours/SVANO-BFGS f": -69.2964458890052,
+    "ours/SVANO-BFGS calls": 414,
+    "ours/SVANO-Bundle f": -69.2964424836271,
+    "ours/SVANO-Bundle calls": 547,
+    "ours/SVANO-GS f": -69.29604613178687,
+    "ours/SVANO-GS calls": 1270
+  },
+  {
+    "problem": "chained_cb3_1",
+    "convex": true,
+    "f(x0)": 980.0,
+    "f* published": 98.0,
+    "ours/SVANO-BFGS f": 98.00070218778191,
+    "ours/SVANO-BFGS calls": 765,
+    "ours/SVANO-Bundle f": 98.0005569825764,
+    "ours/SVANO-Bundle calls": 978,
+    "ours/SVANO-GS f": 98.00050398867917,
+    "ours/SVANO-GS calls": 1023
+  },
+  {
+    "problem": "chained_cb3_2",
+    "convex": true,
+    "f(x0)": 980.0,
+    "f* published": 98.0,
+    "ours/SVANO-BFGS f": 98.00000034656051,
+    "ours/SVANO-BFGS calls": 219,
+    "ours/SVANO-Bundle f": 98.00000018053706,
+    "ours/SVANO-Bundle calls": 519,
+    "ours/SVANO-GS f": 98.00000009605236,
+    "ours/SVANO-GS calls": 654
+  },
+  {
+    "problem": "active_faces",
+    "convex": false,
+    "f(x0)": 3.9318256327243257,
+    "f* published": 0.0,
+    "ours/SVANO-BFGS f": 7.992806416403972e-11,
+    "ours/SVANO-BFGS calls": 187,
+    "ours/SVANO-Bundle f": 7.734923812533551e-12,
+    "ours/SVANO-Bundle calls": 90,
+    "ours/SVANO-GS f": 1.207101085681093e-10,
+    "ours/SVANO-GS calls": 283
+  },
+  {
+    "problem": "brown_2",
+    "convex": false,
+    "f(x0)": 98.0,
+    "f* published": 0.0,
+    "ours/SVANO-BFGS f": 1.7295220318606092e-07,
+    "ours/SVANO-BFGS calls": 605,
+    "ours/SVANO-Bundle f": 2.9676025379178325e-07,
+    "ours/SVANO-Bundle calls": 957,
+    "ours/SVANO-GS f": 4.549219616244275e-06,
+    "ours/SVANO-GS calls": 2977
+  },
+  {
+    "problem": "chained_mifflin_2",
+    "convex": false,
+    "f(x0)": 232.75,
+    "f* published": -34.8,
+    "ours/SVANO-BFGS f": -34.78326203128976,
+    "ours/SVANO-BFGS calls": 866,
+    "ours/SVANO-Bundle f": -34.79404110108523,
+    "ours/SVANO-Bundle calls": 793,
+    "ours/SVANO-GS f": -34.79452869358856,
+    "ours/SVANO-GS calls": 1190
+  },
+  {
+    "problem": "chained_crescent_1",
+    "convex": false,
+    "f(x0)": 292.25,
+    "f* published": 0.0,
+    "ours/SVANO-BFGS f": 7.0923225070629314e-09,
+    "ours/SVANO-BFGS calls": 304,
+    "ours/SVANO-Bundle f": 3.532762971047987e-11,
+    "ours/SVANO-Bundle calls": 311,
+    "ours/SVANO-GS f": 2.930530262901243e-10,
+    "ours/SVANO-GS calls": 276
+  },
+  {
+    "problem": "chained_crescent_2",
+    "convex": false,
+    "f(x0)": 292.25,
+    "f* published": 0.0,
+    "ours/SVANO-BFGS f": 2.1785170841726043e-06,
+    "ours/SVANO-BFGS calls": 987,
+    "ours/SVANO-Bundle f": 3.950516585971009e-06,
+    "ours/SVANO-Bundle calls": 993,
+    "ours/SVANO-GS f": 2.7328192149567165e-05,
+    "ours/SVANO-GS calls": 3095
+  }
+]

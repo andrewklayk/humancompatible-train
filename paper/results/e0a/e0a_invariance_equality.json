@@ -1,0 +1,98 @@
+[
+  {
+    "method": "ALM (rho=0)",
+    "reduction documented for this method": true,
+    "||x - x*||inf": 1.3322676295501878e-15,
+    "||(y+ - y-) - y_eq||inf": 8.215650382226158e-15,
+    "y_eq": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ],
+    "y+ - y-": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ]
+  },
+  {
+    "method": "ALM (rho=1)",
+    "reduction documented for this method": true,
+    "||x - x*||inf": 1.7763568394002505e-15,
+    "||(y+ - y-) - y_eq||inf": 1.2434497875801753e-14,
+    "y_eq": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ],
+    "y+ - y-": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ]
+  },
+  {
+    "method": "nuPI (rho=0)",
+    "reduction documented for this method": true,
+    "||x - x*||inf": 1.7763568394002505e-15,
+    "||(y+ - y-) - y_eq||inf": 1.4654943925052066e-14,
+    "y_eq": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ],
+    "y+ - y-": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ]
+  },
+  {
+    "method": "nuPI (rho=1)",
+    "reduction documented for this method": true,
+    "||x - x*||inf": 1.7763568394002505e-15,
+    "||(y+ - y-) - y_eq||inf": 1.887379141862766e-14,
+    "y_eq": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ],
+    "y+ - y-": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ]
+  },
+  {
+    "method": "iALM",
+    "reduction documented for this method": true,
+    "||x - x*||inf": 1.5543122344752192e-15,
+    "||(y+ - y-) - y_eq||inf": 5.329070518200751e-15,
+    "y_eq": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ],
+    "y+ - y-": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ]
+  },
+  {
+    "method": "PBM",
+    "reduction documented for this method": false,
+    "||x - x*||inf": NaN,
+    "||(y+ - y-) - y_eq||inf": 51.03624492556981,
+    "y_eq": [
+      0.6254,
+      -0.9807,
+      1.0362
+    ],
+    "y+ - y-": [
+      50.0,
+      -50.0,
+      -50.0
+    ]
+  }
+]

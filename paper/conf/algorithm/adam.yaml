@@ -1,0 +1,7 @@
+# The unconstrained reference: no duals, no constraint in the graph.
+name: adam
+label: "Adam"
+method: adam
+primal:
+  lr: 1.0e-3
+dual: null

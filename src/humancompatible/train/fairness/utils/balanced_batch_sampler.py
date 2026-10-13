@@ -16,7 +16,13 @@ class BalancedBatchSampler(Sampler):
     the size of group`g`itself otherwise.
 
     Oversampling reuses a group's samples evenly: over one epoch, each sample of an extended group is drawn either
-    `floor`or`ceil`of the per-sample average, and no sample is ever repeated within a single batch.
+     `floor` or `ceil` of the per-sample average, and no sample is ever repeated within a single batch.
+
+    Because every batch draws the same number of samples per group regardless of true group size, the batch loss
+    over-represents small groups relative to their population share. The`group_weights`property gives the
+    inverse-propensity per-group weight (`n_groups * group_size / total_size`) that corrects for this: passing it
+    (indexed/broadcast per sample) as the`weight`argument of a mean-reduced loss recovers an unbiased estimate of
+    the population loss.
 
     :param group_indices: List of indices for each group. Defaults to`None`.
     :type group_indices: Iterable[Iterable[int]]
@@ -37,7 +43,7 @@ class BalancedBatchSampler(Sampler):
         group_indices: Optional[Iterable[Iterable[int]]] = None,
         batch_size: int = 1,
         drop_last: bool = True,
-        extend_groups: Optional[bool | Iterable[int]] = False,
+        extend_groups: Optional[bool | Iterable[int]] = None,
         generator: Optional[torch.Generator]=None
     ):
 

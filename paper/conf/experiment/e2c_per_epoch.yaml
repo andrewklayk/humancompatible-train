@@ -1,0 +1,21 @@
+# E2c -- per-cell ALM tuning, per-epoch cadence. Separate from e2c_per_iteration.yaml
+# because one dual update per epoch instead of one per minibatch makes the same
+# nominal `dual_lr` mean something structurally different, so the two cadences should
+# not share a sweep. Only `per_group=8` is ever needed here: the cadence panel is
+# measured at a fixed per_group (see c_cadence.py's module docstring).
+#
+# `experiment.problem.dataset` is still meant to be overridden on the CLI
+# (`experiment.problem.dataset=income,dutch` under `-m`) to cover both problems.
+
+target: e2c
+
+epochs: 10
+tail: 5
+
+cadence: per_epoch
+
+problem:
+  dataset: income          # income | dutch
+  shape: pairwise
+  bound: 0.05
+  per_group: 8

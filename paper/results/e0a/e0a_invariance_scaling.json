@@ -1,0 +1,128 @@
+[
+  {
+    "problem": "qp_active",
+    "method": "ALM (rho=0)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_active",
+    "method": "ALM (rho=1)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_active",
+    "method": "nuPI (rho=0)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_active",
+    "method": "nuPI (rho=1)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_active",
+    "method": "iALM",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_active",
+    "method": "PBM",
+    "alpha": 7.0,
+    "excess drift (plain)": 4.440892098500626e-16,
+    "excess drift (scaled)": 5.828670879282072e-16
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "ALM (rho=0)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "ALM (rho=1)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "nuPI (rho=0)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "nuPI (rho=1)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "iALM",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "qp_inactive",
+    "method": "PBM",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "svm_iris",
+    "method": "ALM (rho=0)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "svm_iris",
+    "method": "ALM (rho=1)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "svm_iris",
+    "method": "nuPI (rho=0)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "svm_iris",
+    "method": "nuPI (rho=1)",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "svm_iris",
+    "method": "iALM",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  },
+  {
+    "problem": "svm_iris",
+    "method": "PBM",
+    "alpha": 7.0,
+    "excess drift (plain)": 0.0,
+    "excess drift (scaled)": 0.0
+  }
+]

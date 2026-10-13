@@ -13,4 +13,5 @@ dual:
   _partial_: true
   lr: 0.01
   penalty: 1.0
+  augmentation: "quadratic"
   is_ineq: true

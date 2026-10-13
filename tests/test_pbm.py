@@ -9,54 +9,54 @@ class TestPBMInitialization(unittest.TestCase):
 
     def test_init_with_m(self):
         """Test initialization with m parameter."""
-        pbm = PBM(m=5, penalty_mult=0.1)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=5, penalty_mult=0.1)
         self.assertEqual(len(pbm.duals), 5)
         self.assertEqual(len(pbm.penalties), 5)
 
     def test_init_with_scalar_duals(self):
         """Test initialization with scalar init_duals."""
-        pbm = PBM(m=3, init_duals=0.5, init_penalties=10.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, init_duals=0.5, init_penalties=10.0)
         self.assertTrue(torch.allclose(pbm.duals, torch.tensor([0.5, 0.5, 0.5])))
         self.assertTrue(torch.allclose(pbm.penalties, torch.tensor([10.0, 10.0, 10.0])))
 
     def test_init_with_tensor_duals(self):
         """Test initialization with tensor init_duals."""
         init_duals = torch.tensor([0.1, 0.2, 0.3])
-        pbm = PBM(m=3, init_duals=init_duals, init_penalties=2.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, init_duals=init_duals, init_penalties=2.0)
         self.assertTrue(torch.allclose(pbm.duals, init_duals))
 
     def test_init_defaults_to_dual_range(self):
         """Test that None init_duals defaults to dual_range lower bound."""
-        pbm = PBM(m=3, dual_range=(0.01, 100.0))
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, dual_range=(0.01, 100.0))
         self.assertTrue(torch.allclose(pbm.duals, torch.tensor([0.01, 0.01, 0.01])))
 
     def test_init_defaults_to_penalty_range(self):
         """Test that None init_penalties defaults to penalty_range upper bound."""
-        pbm = PBM(m=3, penalty_range=(0.1, 50.0))
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, penalty_range=(0.1, 50.0))
         self.assertTrue(torch.allclose(pbm.penalties, torch.tensor([50.0, 50.0, 50.0])))
 
     def test_init_missing_m_and_duals_raises_error(self):
         """Test that ValueError is raised when both m and init_duals are None."""
         with self.assertRaises(ValueError):
-            PBM(m=None, init_duals=None)
+            PBM(gamma_annealing=False, penalty_annealing=False, m=None, init_duals=None)
 
     def test_init_with_device(self):
         """Test initialization on specific device."""
         device = 'cpu'
-        pbm = PBM(m=3, device=device)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, device=device)
         self.assertEqual(pbm.duals.device.type, device)
 
     def test_init_different_pbf(self):
         """Test initialization with different penalty-barrier functions."""
-        pbm_log = PBM(m=3, pbf='quadratic_logarithmic')
-        pbm_recipr = PBM(m=3, pbf='quadratic_reciprocal')
+        pbm_log = PBM(gamma_annealing=False, penalty_annealing=False, m=3, pbf='quadratic_logarithmic')
+        pbm_recipr = PBM(gamma_annealing=False, penalty_annealing=False, m=3, pbf='quadratic_reciprocal')
         # Just verify they don't raise errors
         self.assertEqual(len(pbm_log.duals), 3)
         self.assertEqual(len(pbm_recipr.duals), 3)
 
     def test_init_invalid_pbf_raises_error(self):
         """Test that invalid pbf raises KeyError when used."""
-        pbm = PBM(m=3, pbf='invalid_function')
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, pbf='invalid_function')
         # PBM creation doesn't validate pbf, but using it will fail
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.1, 0.1, 0.1])
@@ -66,7 +66,7 @@ class TestPBMInitialization(unittest.TestCase):
     def test_init_invalid_penalty_update_raises_error(self):
         """Test that invalid penalty_update raises ValueError."""
         with self.assertRaises(ValueError):
-            PBM(m=3, penalty_update='invalid_strategy')
+            PBM(gamma_annealing=False, penalty_annealing=False, m=3, penalty_update='invalid_strategy')
 
 
 class TestDualAndPenaltyBounds(unittest.TestCase):
@@ -74,7 +74,7 @@ class TestDualAndPenaltyBounds(unittest.TestCase):
 
     def test_duals_clamped_to_range(self):
         """Test that duals are clamped to dual_range."""
-        pbm = PBM(m=2, dual_range=(0.01, 10.0), init_duals=5.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, dual_range=(0.01, 10.0), init_duals=5.0)
         # Large constraint violations through forward_update
         loss = torch.tensor(1.0)
         constraints = torch.tensor([1000.0, 1000.0])
@@ -87,7 +87,7 @@ class TestDualAndPenaltyBounds(unittest.TestCase):
 
     def test_penalties_clamped_to_range(self):
         """Test that penalties are clamped to penalty_range."""
-        pbm = PBM(m=2, penalty_mult=0.05, penalty_range=(0.1, 100.0))
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, penalty_mult=0.05, penalty_range=(0.1, 100.0))
         loss = torch.tensor(1.0)
         # Run multiple updates
         for _ in range(10):
@@ -100,7 +100,7 @@ class TestDualAndPenaltyBounds(unittest.TestCase):
 
     def test_duals_stay_positive_with_small_range(self):
         """Test duals with very small range."""
-        pbm = PBM(m=3, dual_range=(1e-6, 1e-3), init_duals=5e-4)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, dual_range=(1e-6, 1e-3), init_duals=5e-4)
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.1, 0.2, 0.3])
         pbm.forward_update(loss, constraints)
@@ -114,7 +114,7 @@ class TestPenaltyUpdateStrategies(unittest.TestCase):
     def test_constant_penalty(self):
         """Test that penalty_update='const' keeps penalties constant during forward_update."""
         init_penalty = 5.0
-        pbm = PBM(m=3, penalty_update='const', init_penalties=init_penalty, penalty_range=(0.1, 100.))
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, penalty_update='const', init_penalties=init_penalty, penalty_range=(0.1, 100.))
         penalties_before = pbm.penalties.clone()
         loss = torch.tensor(1.0)
         
@@ -127,7 +127,7 @@ class TestPenaltyUpdateStrategies(unittest.TestCase):
     def test_diminishing_penalty_monotonic(self):
         """Test that penalty_update='dimin' decreases penalties monotonically."""
         penalty_mult = 0.8
-        pbm = PBM(m=2, penalty_update='dimin', penalty_mult=penalty_mult, init_penalties=100.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, penalty_update='dimin', penalty_mult=penalty_mult, init_penalties=100.0)
         
         penalties_history = [pbm.penalties.clone()]
         loss = torch.tensor(1.0)
@@ -143,8 +143,8 @@ class TestPenaltyUpdateStrategies(unittest.TestCase):
 
     def test_adaptive_penalty_responds_to_violations(self):
         """Test that adaptive penalty responds to constraint violations."""
-        pbm_adapt = PBM(m=1, penalty_update='dimin_adapt', penalty_mult=0.8, delta=0.9, init_penalties=10.0)
-        pbm_const = PBM(m=1, penalty_update='const', init_penalties=10.0)
+        pbm_adapt = PBM(gamma_annealing=False, penalty_annealing=False, m=1, penalty_update='dimin_adapt', penalty_mult=0.8, delta=0.9, init_penalties=10.0)
+        pbm_const = PBM(gamma_annealing=False, penalty_annealing=False, m=1, penalty_update='const', init_penalties=10.0)
         loss = torch.tensor(1.0)
         
         # Use larger constraint to see penalty difference
@@ -158,7 +158,7 @@ class TestPenaltyUpdateStrategies(unittest.TestCase):
 
     # def test_dimin_dual_penalty_changes(self):
     #     """Test that dimin_dual strategy multiplies by duals."""
-    #     pbm = PBM(m=2, penalty_update='dimin_dual', penalty_mult=0.8, init_duals=2.0, init_penalties=10.0)
+    #     pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, penalty_update='dimin_dual', penalty_mult=0.8, init_duals=2.0, init_penalties=10.0)
         
     #     initial_penalty = pbm.penalties.clone()
     #     loss = torch.tensor(1.0)
@@ -227,7 +227,7 @@ class TestDualVariableUpdates(unittest.TestCase):
 
     def test_dual_update_with_zero_momentum(self):
         """Test dual update with gamma=0 (complete replacement)."""
-        pbm = PBM(m=2, gamma=0.0, init_duals=1.0, init_penalties=10.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, gamma=0.0, init_duals=1.0, init_penalties=10.0)
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.5, 0.5])
         
@@ -238,8 +238,8 @@ class TestDualVariableUpdates(unittest.TestCase):
 
     def test_dual_update_with_high_momentum(self):
         """Test dual update with gamma close to 1 (damped update)."""
-        pbm_high = PBM(m=2, gamma=0.99, init_duals=1.0)
-        pbm_low = PBM(m=2, gamma=0.1, init_duals=1.0)
+        pbm_high = PBM(gamma_annealing=False, penalty_annealing=False, m=2, gamma=0.99, init_duals=1.0)
+        pbm_low = PBM(gamma_annealing=False, penalty_annealing=False, m=2, gamma=0.1, init_duals=1.0)
         loss = torch.tensor(1.0)
         
         constraints = torch.tensor([0.5, 0.5])
@@ -256,7 +256,7 @@ class TestDualVariableUpdates(unittest.TestCase):
 
     def test_dual_momentum_buffer_tracked(self):
         """Test that momentum buffer is tracked across updates."""
-        pbm = PBM(m=2, gamma=0.8)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, gamma=0.8)
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.5, 0.5])
         
@@ -272,7 +272,7 @@ class TestMultipleConstraintGroups(unittest.TestCase):
 
     def test_add_constraint_group(self):
         """Test adding a second constraint group."""
-        pbm = PBM(m=2, penalty_mult=0.1)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, penalty_mult=0.1)
         self.assertEqual(len(pbm.duals), 2)
         
         pbm.add_constraint_group(m=3, penalty_mult=0.15)
@@ -281,7 +281,7 @@ class TestMultipleConstraintGroups(unittest.TestCase):
 
     def test_constraint_groups_independent_updates(self):
         """Test that constraint groups update independently."""
-        pbm = PBM(m=2, penalty_mult=0.8, penalty_update='dimin')
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, penalty_mult=0.8, penalty_update='dimin')
         pbm.add_constraint_group(m=2, penalty_mult=0.5, penalty_update='dimin', delta=0.9, pbf='quadratic_logarithmic')
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.5, 0.5, 0.1, 0.1])
@@ -292,7 +292,7 @@ class TestMultipleConstraintGroups(unittest.TestCase):
 
     def test_multiple_groups_different_pbf(self):
         """Test adding groups with different barrier functions."""
-        pbm = PBM(m=2, pbf='quadratic_logarithmic', penalty_mult=0.1)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, pbf='quadratic_logarithmic', penalty_mult=0.1)
         pbm.add_constraint_group(m=2, pbf='quadratic_reciprocal', penalty_mult=0.1, penalty_update='dimin', delta=0.9)
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.5, 0.5, 0.5, 0.5])
@@ -303,7 +303,7 @@ class TestMultipleConstraintGroups(unittest.TestCase):
 
     def test_duals_property_concatenates_groups(self):
         """Test that duals property correctly concatenates groups."""
-        pbm = PBM(m=3, init_duals=1.0, penalty_mult=0.1)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, init_duals=1.0, penalty_mult=0.1)
         pbm.add_constraint_group(m=2, init_duals=2.0, penalty_mult=0.1, penalty_update='dimin', delta=0.9, pbf='quadratic_logarithmic')
         
         duals_concat = pbm.duals
@@ -313,7 +313,7 @@ class TestMultipleConstraintGroups(unittest.TestCase):
 
     def test_penalties_property_concatenates_groups(self):
         """Test that penalties property correctly concatenates groups."""
-        pbm = PBM(m=2, init_penalties=5.0, penalty_mult=0.1)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, init_penalties=5.0, penalty_mult=0.1)
         pbm.add_constraint_group(m=3, init_penalties=10.0, penalty_mult=0.1, penalty_update='dimin', delta=0.9, pbf='quadratic_logarithmic')
         
         penalties_concat = pbm.penalties
@@ -327,7 +327,7 @@ class TestLagrangianComputation(unittest.TestCase):
 
     def test_lagrangian_includes_loss(self):
         """Test that Lagrangian includes the loss term."""
-        pbm = PBM(m=2)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2)
         loss = torch.tensor(5.0)
         constraints = torch.tensor([0.1, 0.2])
         
@@ -337,7 +337,7 @@ class TestLagrangianComputation(unittest.TestCase):
 
     def test_lagrangian_zero_constraint_equals_loss(self):
         """Test that Lagrangian equals loss when constraints are zero."""
-        pbm = PBM(m=2, init_duals=1.0, init_penalties=1.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, init_duals=1.0, init_penalties=1.0)
         loss = torch.tensor(3.0)
         constraints = torch.tensor([0.0, 0.0])
         
@@ -346,7 +346,7 @@ class TestLagrangianComputation(unittest.TestCase):
 
     def test_lagrangian_increases_with_violation(self):
         """Test that Lagrangian increases with constraint violation."""
-        pbm = PBM(m=1, init_duals=1.0, init_penalties=1.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=1, init_duals=1.0, init_penalties=1.0)
         loss = torch.tensor(1.0)
         
         lag_small = pbm.forward(loss, torch.tensor([0.1]))
@@ -356,7 +356,7 @@ class TestLagrangianComputation(unittest.TestCase):
 
     def test_forward_update_produces_same_lagrangian(self):
         """Test that forward_update produces valid Lagrangian."""
-        pbm = PBM(m=2, gamma=0.8, init_duals=0.5, init_penalties=5.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, gamma=0.8, init_duals=0.5, init_penalties=5.0)
         
         loss = torch.tensor(2.0)
         constraints = torch.tensor([0.3, 0.4])
@@ -369,7 +369,7 @@ class TestLagrangianComputation(unittest.TestCase):
 
     def test_manual_lagrangian_computation(self):
         """Test Lagrangian against manual calculation with simple values."""
-        pbm = PBM(m=1, init_duals=1.0, init_penalties=1.0, pbf='quadratic_logarithmic')
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=1, init_duals=1.0, init_penalties=1.0, pbf='quadratic_logarithmic')
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.0])
         
@@ -385,7 +385,7 @@ class TestSerialization(unittest.TestCase):
 
     def test_state_dict_contains_ranges(self):
         """Test that state_dict includes dual and penalty ranges."""
-        pbm = PBM(m=3, dual_range=(0.01, 50.0), penalty_range=(0.5, 200.0))
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, dual_range=(0.01, 50.0), penalty_range=(0.5, 200.0))
         state = pbm.state_dict()
         
         self.assertEqual(state["state"]["dual_range"], (0.01, 50.0))
@@ -393,7 +393,7 @@ class TestSerialization(unittest.TestCase):
 
     def test_state_dict_roundtrip_preserves_duals_and_penalties(self):
         """Test that save/load preserves duals and penalties."""
-        pbm1 = PBM(m=3, init_duals=1.5, init_penalties=8.0, penalty_update='dimin')
+        pbm1 = PBM(gamma_annealing=False, penalty_annealing=False, m=3, init_duals=1.5, init_penalties=8.0, penalty_update='dimin')
         loss = torch.tensor(1.0)
         
         # Modify state
@@ -405,7 +405,7 @@ class TestSerialization(unittest.TestCase):
         
         # Save and load
         state = pbm1.state_dict()
-        pbm2 = PBM(m=3, penalty_update='dimin')
+        pbm2 = PBM(gamma_annealing=False, penalty_annealing=False, m=3, penalty_update='dimin')
         pbm2.load_state_dict(state)
         
         self.assertTrue(torch.allclose(pbm2.duals, duals_before))
@@ -413,7 +413,7 @@ class TestSerialization(unittest.TestCase):
 
     def test_state_dict_roundtrip_with_multiple_groups(self):
         """Test state dict roundtrip with multiple constraint groups."""
-        pbm1 = PBM(m=2, init_duals=1.0, init_penalties=5.0, penalty_mult=0.1, penalty_update='dimin')
+        pbm1 = PBM(gamma_annealing=False, penalty_annealing=False, m=2, init_duals=1.0, init_penalties=5.0, penalty_mult=0.1, penalty_update='dimin')
         pbm1.add_constraint_group(m=3, init_duals=0.5, init_penalties=10.0, penalty_mult=0.1, penalty_update='dimin', delta=0.9, pbf='quadratic_logarithmic')
         loss = torch.tensor(1.0)
         
@@ -422,7 +422,7 @@ class TestSerialization(unittest.TestCase):
         pbm1.forward_update(loss, constraints)
         
         state = pbm1.state_dict()
-        pbm2 = PBM(m=2, penalty_mult=0.1, penalty_update='dimin')
+        pbm2 = PBM(gamma_annealing=False, penalty_annealing=False, m=2, penalty_mult=0.1, penalty_update='dimin')
         pbm2.add_constraint_group(m=3, penalty_mult=0.1, penalty_update='dimin', delta=0.9, pbf='quadratic_logarithmic')
         pbm2.load_state_dict(state)
         
@@ -435,8 +435,8 @@ class TestParameterInteractions(unittest.TestCase):
 
     def test_gamma_affects_dual_convergence_rate(self):
         """Test that higher gamma slows dual changes."""
-        pbm_fast = PBM(m=1, gamma=0.1, init_duals=1.0, init_penalties=10.0)
-        pbm_slow = PBM(m=1, gamma=0.9, init_duals=1.0, init_penalties=10.0)
+        pbm_fast = PBM(gamma_annealing=False, penalty_annealing=False, m=1, gamma=0.1, init_duals=1.0, init_penalties=10.0)
+        pbm_slow = PBM(gamma_annealing=False, penalty_annealing=False, m=1, gamma=0.9, init_duals=1.0, init_penalties=10.0)
         loss = torch.tensor(1.0)
         constraints = torch.tensor([1.0])
         
@@ -453,8 +453,8 @@ class TestParameterInteractions(unittest.TestCase):
 
     def test_delta_affects_adaptive_penalty_behavior(self):
         """Test that delta parameter affects adaptive penalty update."""
-        pbm_low_delta = PBM(m=1, penalty_update='dimin_adapt', delta=0.5, penalty_mult=0.8, init_penalties=10.0, penalty_range=(0.1, 100.))
-        pbm_high_delta = PBM(m=1, penalty_update='dimin_adapt', delta=2.0, penalty_mult=0.8, init_penalties=10.0, penalty_range=(0.1, 100.))
+        pbm_low_delta = PBM(gamma_annealing=False, penalty_annealing=False, m=1, penalty_update='dimin_adapt', delta=0.5, penalty_mult=0.8, init_penalties=10.0, penalty_range=(0.1, 100.))
+        pbm_high_delta = PBM(gamma_annealing=False, penalty_annealing=False, m=1, penalty_update='dimin_adapt', delta=2.0, penalty_mult=0.8, init_penalties=10.0, penalty_range=(0.1, 100.))
         loss = torch.tensor(1.0)
         
         # Constraint with significant violation
@@ -471,11 +471,11 @@ class TestParameterInteractions(unittest.TestCase):
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.5])
         
-        pbm_dimin = PBM(m=1, penalty_update='dimin', penalty_mult=0.5, init_penalties=100.0)
+        pbm_dimin = PBM(gamma_annealing=False, penalty_annealing=False, m=1, penalty_update='dimin', penalty_mult=0.5, init_penalties=100.0)
         pbm_dimin.forward_update(loss, constraints)
         dimin_penalty = pbm_dimin.penalties.clone()
         
-        pbm_adapt = PBM(m=1, penalty_update='dimin_adapt', penalty_mult=0.5, init_penalties=100.0)
+        pbm_adapt = PBM(gamma_annealing=False, penalty_annealing=False, m=1, penalty_update='dimin_adapt', penalty_mult=0.5, init_penalties=100.0)
         pbm_adapt.forward_update(loss, constraints)
         
         # Both should be affected by penalty_mult, though differently
@@ -488,7 +488,7 @@ class TestConstraintSatisfactionProgress(unittest.TestCase):
 
     def test_constraints_drive_duals_up(self):
         """Test that constraints drive dual variables upward."""
-        pbm = PBM(m=1, gamma=0.5, init_duals=0.1, init_penalties=10.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=1, gamma=0.5, init_duals=0.1, init_penalties=10.0)
         duals_before = pbm.duals.clone()
         loss = torch.tensor(1.0)
         
@@ -501,7 +501,7 @@ class TestConstraintSatisfactionProgress(unittest.TestCase):
 
     def test_lagrangian_monotonic_on_consistent_constraints(self):
         """Test that Lagrangian progression with consistent constraints."""
-        pbm = PBM(m=1, gamma=0.7, init_duals=0.5, init_penalties=5.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=1, gamma=0.7, init_duals=0.5, init_penalties=5.0)
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.5])
         
@@ -515,7 +515,7 @@ class TestConstraintSatisfactionProgress(unittest.TestCase):
 
     def test_penalties_decrease_with_dimin(self):
         """Test that penalties monotonically decrease with dimin strategy."""
-        pbm = PBM(m=2, penalty_update='dimin', penalty_mult=0.7, init_penalties=100.0)
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, penalty_update='dimin', penalty_mult=0.7, init_penalties=100.0)
         loss = torch.tensor(1.0)
         constraints = torch.tensor([0.1, 0.1])
         

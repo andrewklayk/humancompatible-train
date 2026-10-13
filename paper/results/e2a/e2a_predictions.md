@@ -1,0 +1,71 @@
+# e2a: registered predictions
+
+- **PASS** — P1: Adam ends infeasible on income_pairwise
+  - train max-violation +0.2453
+- **PASS** — P2: ALM, iALM and nuPI(rho=1) all end feasible on train on income_pairwise
+  - all feasible
+- **PASS** — P3: ALM(restart) controls the constraint strictly worse than plain ALM on income_pairwise — restarts discard the accumulated multiplier every time a minibatch estimate looks satisfied, and at 8 samples per group that is most steps
+  - restart +0.0461 vs ALM -0.0027 (gap +0.0488)
+- **PASS** — P1: Adam ends infeasible on income_agg
+  - train max-violation +1.4039
+- **PASS** — P2: ALM, iALM and nuPI(rho=1) all end feasible on train on income_agg
+  - all feasible
+- **PASS** — P3: ALM(restart) controls the constraint strictly worse than plain ALM on income_agg — restarts discard the accumulated multiplier every time a minibatch estimate looks satisfied, and at 8 samples per group that is most steps
+  - restart -0.0861 vs ALM -0.1281 (gap +0.0420)
+- **PASS** — P1: Adam ends infeasible on dutch_pairwise
+  - train max-violation +0.5498
+- **PASS** — P2: ALM, iALM and nuPI(rho=1) all end feasible on train on dutch_pairwise
+  - all feasible
+- **PASS** — P3: ALM(restart) controls the constraint strictly worse than plain ALM on dutch_pairwise — restarts discard the accumulated multiplier every time a minibatch estimate looks satisfied, and at 8 samples per group that is most steps
+  - restart -0.0008 vs ALM -0.0034 (gap +0.0026)
+- **PASS** — P1: Adam ends infeasible on dutch_agg
+  - train max-violation +4.6553
+- **PASS** — P2: ALM, iALM and nuPI(rho=1) all end feasible on train on dutch_agg
+  - all feasible
+- **PASS** — P3: ALM(restart) controls the constraint strictly worse than plain ALM on dutch_agg — restarts discard the accumulated multiplier every time a minibatch estimate looks satisfied, and at 8 samples per group that is most steps
+  - restart -0.0968 vs ALM -0.1210 (gap +0.0243)
+- **PASS** — P4: test violation exceeds train violation on income_pairwise, averaged over the methods that reached feasibility and over seeds
+  - mean gap +0.00801 +/- 0.00107 (SE over 9 runs)
+- **PASS** — P4: test violation exceeds train violation on income_agg, averaged over the methods that reached feasibility and over seeds
+  - mean gap +0.00618 +/- 0.00080 (SE over 9 runs)
+- **KNOWN-FALSE** — P4: test violation exceeds train violation on dutch_pairwise, averaged over the methods that reached feasibility and over seeds
+  - mean gap -0.00054 +/- 0.00022 (SE over 9 runs)
+  - *known false:* Resolved and NEGATIVE here, not merely unresolved: the constraint is satisfied slightly *better* out of sample. The mechanism is not established, and this experiment cannot establish it -- it records only the max over constraints, not which constraint attains it, so it cannot tell whether the train and test maxima are even the same group pair. Two candidates: (a) with m = 306 duals all reacting to 8-samples-per-group estimates, the aggregate pressure over-suppresses the training maximum below what the bound requires; (b) the train max is actively pinned by the dual that targets it while the test max is a free realisation. Logging the argmax constraint per split would discriminate; that is a change to this script, not a new experiment.
+- **PASS** — P4: test violation exceeds train violation on dutch_agg, averaged over the methods that reached feasibility and over seeds
+  - mean gap +0.00453 +/- 0.00030 (SE over 9 runs)
+- **PASS** — P4: the generalization gap is positive on all but at most one of the problems where it is resolvable — so the constraint generally holds less well out of sample, but the sign is NOT universal and this experiment found a counterexample
+  - income_pairwise +0.00801; income_agg +0.00618; dutch_pairwise -0.00054; dutch_agg +0.00453
+- **PASS** — P5: wall-clock per epoch is within 25 % across dual methods on income_pairwise
+  - spread 1.21x (0.62-0.75 s/epoch)
+- **PASS** — P5: the multiplier update costs under 500 us/step on income_pairwise — the bound is PBM's ~20 small tensor ops at tens of us of dispatch each, not a round number
+  - worst is PBM at 266 us/step over 548.0 steps; ALM 129, ALM (restart) 96, iALM 95, nuPI (rho=0) 26, nuPI (rho=1) 24, PBM 266
+- **PASS** — P5: evaluating the constraint is NOT free on income_pairwise — it is a cost of the problem, not of any method, which is why the control exists
+  - 0.41 -> 0.61 s/epoch (1.49x)
+- **PASS** — P5: the constraint-in-graph control reaches the same iterate as plain Adam on income_pairwise, confirming it is a pure timing reference
+  - loss 0.348552350 vs 0.348552350
+- **PASS** — P5: wall-clock per epoch is within 25 % across dual methods on income_agg
+  - spread 1.19x (0.71-0.84 s/epoch)
+- **PASS** — P5: the multiplier update costs under 500 us/step on income_agg — the bound is PBM's ~20 small tensor ops at tens of us of dispatch each, not a round number
+  - worst is PBM at 315 us/step over 548.0 steps; ALM 82, ALM (restart) 150, iALM 98, nuPI (rho=0) 73, nuPI (rho=1) 115, PBM 315
+- **PASS** — P5: evaluating the constraint is NOT free on income_agg — it is a cost of the problem, not of any method, which is why the control exists
+  - 0.42 -> 0.67 s/epoch (1.60x)
+- **PASS** — P5: the constraint-in-graph control reaches the same iterate as plain Adam on income_agg, confirming it is a pure timing reference
+  - loss 0.348552350 vs 0.348552350
+- **PASS** — P5: wall-clock per epoch is within 25 % across dual methods on dutch_pairwise
+  - spread 1.16x (0.23-0.26 s/epoch)
+- **PASS** — P5: the multiplier update costs under 500 us/step on dutch_pairwise — the bound is PBM's ~20 small tensor ops at tens of us of dispatch each, not a round number
+  - worst is PBM at 231 us/step over 148.0 steps; ALM 20, ALM (restart) 7, iALM 2, nuPI (rho=0) -22, nuPI (rho=1) 40, PBM 231
+- **PASS** — P5: evaluating the constraint is NOT free on dutch_pairwise — it is a cost of the problem, not of any method, which is why the control exists
+  - 0.17 -> 0.23 s/epoch (1.33x)
+- **PASS** — P5: the constraint-in-graph control reaches the same iterate as plain Adam on dutch_pairwise, confirming it is a pure timing reference
+  - loss 0.400134770 vs 0.400134770
+- **PASS** — P5: wall-clock per epoch is within 25 % across dual methods on dutch_agg
+  - spread 1.19x (0.25-0.30 s/epoch)
+- **PASS** — P5: the multiplier update costs under 500 us/step on dutch_agg — the bound is PBM's ~20 small tensor ops at tens of us of dispatch each, not a round number
+  - worst is nuPI (rho=1) at 416 us/step over 148.0 steps; ALM 87, ALM (restart) 141, iALM 160, nuPI (rho=0) 135, nuPI (rho=1) 416, PBM 350
+- **PASS** — P5: evaluating the constraint is NOT free on dutch_agg — it is a cost of the problem, not of any method, which is why the control exists
+  - 0.17 -> 0.24 s/epoch (1.40x)
+- **PASS** — P5: the constraint-in-graph control reaches the same iterate as plain Adam on dutch_agg, confirming it is a pure timing reference
+  - loss 0.400134770 vs 0.400134770
+- **PASS** — P5: the per-step dual cost does not scale with m — m=306 against m=30
+  - 231 vs 266 us/step for a 10x increase in m

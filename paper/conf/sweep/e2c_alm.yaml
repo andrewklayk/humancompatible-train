@@ -1,0 +1,13 @@
+# @package _global_
+# E2c x ALM hyperparameter grid -- the same (primal_lr, dual_lr) grid c_cadence.py's
+# old inline grid search used. 3 * 4 = 12 configs per (dataset, per_group, cadence)
+# cell; combine with `experiment.problem.dataset=income,dutch` and, for
+# e2c_per_iteration only, `experiment.problem.per_group=4,8,16` on the CLI.
+defaults:
+  - override /algorithm: alm
+
+hydra:
+  sweeper:
+    params:
+      algorithm.primal.lr: choice(0.0005, 0.001, 0.005)
+      algorithm.dual.lr: choice(0.01, 0.05, 0.1, 0.5)

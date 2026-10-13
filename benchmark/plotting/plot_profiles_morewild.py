@@ -23,9 +23,10 @@ from plot_PINNS import select_best_configs
 
 
 _PANELS = [("loss", "Loss"),
-           ("kkt_viol", r"Feasibility $\max_j(c_j-b)_+$"),
-           ("kkt_grad", r"Stationarity $\|\nabla_x L\|$"),
-           ("kkt_compl", r"Complementarity $\sum_j|\lambda_j g_j|$")]   
+           ("kkt_viol", r"Feasibility"),
+        #    ("kkt_grad", r"Stationarity $\|\nabla_x L\|$"),
+        #    ("kkt_compl", r"Complementarity $\sum_j|\lambda_j g_j|$")
+           ]   
 
 
 def _base(method):
@@ -33,6 +34,34 @@ def _base(method):
     if "__" in method:
         b, k = method.split("__"); return b, int(k)
     return method, 1
+
+# subtype method -> base method it also gets pooled into when pool_subtypes=True.
+# Mirrors select_best.py / plot_PINNS.py's SUBTYPE_TO_BASE.
+SUBTYPE_TO_BASE = {
+    "pbm_gamma0": "pbm",
+    # "pbm_kappa0": "pbm",
+    # "pbm_mu0": "pbm"
+}
+
+
+def _pooled_members(base):
+    return [base] + [s for s, b in SUBTYPE_TO_BASE.items() if b == base]
+
+
+def _pooled_rows(fetch, spec, m, *args, pool_subtypes=False, **kwargs):
+    """Call fetch(spec, src, *args, **kwargs) once per pooled source of `m`
+    (just `m` itself if pool_subtypes is off or m's base isn't a pooling base),
+    concatenating results -- so e.g. 'pbm' also picks up pbm_mu0's rows. Any
+    '__<cutoff>' suffix on `m` (see _base) is preserved on every source."""
+    base, _ = _base(m)
+    suffix = m[len(base):]
+    sources = _pooled_members(base) if pool_subtypes else [base]
+    rows = []
+    for src in sources:
+        r = fetch(spec, src + suffix, *args, **kwargs)
+        if r:
+            rows.extend(r)
+    return rows
 
 def _tol(spec, cutoff):
     """Relative feasibility slack off the bound (cutoff=1 loose, 2 tight)."""
@@ -89,13 +118,13 @@ def _pairs_obj_feasibility(spec, m, tail):
     finals = g.apply(lambda s: s.tail(tail).mean())          # DataFrame: index=config
     return [(float(r["kkt_viol"]), float(r["loss"])) for _, r in finals.iterrows()]
 
-def plot_tradeoff_scatter(specs, methods, tail=5, out="plots/pinn_tradeoff.pdf"):
+def plot_tradeoff_scatter(specs, methods, tail=5, out="plots/pinn_tradeoff.pdf", pool_subtypes=False):
     set_neurips_style()
     fig, axes = plt.subplots(1, len(specs), figsize=(COL_WIDTH*len(specs), COL_WIDTH*0.9))
     for ax, spec in zip(np.atleast_1d(axes), specs):
         for m in methods:
             m = _base(m)[0]  # only plot base methods once
-            pts = _pairs_obj_feasibility(spec, m, tail)
+            pts = _pooled_rows(_pairs_obj_feasibility, spec, m, tail, pool_subtypes=pool_subtypes)
             if not pts: continue
             st = style_for(m)
             v, f = zip(*pts)
@@ -111,14 +140,29 @@ def plot_tradeoff_scatter(specs, methods, tail=5, out="plots/pinn_tradeoff.pdf")
     
     print(f"wrote {out}")
 
+def _legend_from_all_axes(fig, axes):
+    """Union of legend handles across all panels (first-seen order). The Loss
+    panel filters to feasible configs, so a method with 0% feasible configs
+    (e.g. SSw) never plots there and top_legend(fig, axes[0]) alone would drop
+    it entirely -- it still plots in the other (unfiltered) panels."""
+    seen = {}
+    for ax in axes:
+        h, l = ax.get_legend_handles_labels()
+        for hi, li in zip(h, l):
+            seen.setdefault(li, hi)
+    fig.legend(list(seen.values()), list(seen.keys()), loc="upper center",
+               ncol=len(seen), bbox_to_anchor=(0.5, 1.02), frameon=False)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+
 def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
-                       taus=None, out="plots/profiles_fair.pdf"):
-    
+                       taus=None, out="plots/profiles_fair.pdf", pool_subtypes=False):
+
     assert configs in ("all", "best")
     set_neurips_style()
     taus = np.logspace(-5, 0, 60) if taus is None else np.asarray(taus)
     
-    fig, axes = plt.subplots(2, 2, figsize=(TEXT_WIDTH * 0.7, TEXT_WIDTH * 0.6),
+    fig, axes = plt.subplots(1, 2, figsize=(TEXT_WIDTH * 0.7, TEXT_WIDTH * 0.33),
                         sharex=True, sharey=True)
         
     axes = axes.ravel()
@@ -132,7 +176,8 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
         for spec in specs:
             print('', spec.name, metric)            
             
-            per_method = {m: _pairs_by_method(spec, m, metric, tail, feas_tol=None) for m in panel_methods}
+            per_method = {m: _pooled_rows(_pairs_by_method, spec, m, metric, tail, feas_tol=None,
+                                          pool_subtypes=pool_subtypes) for m in panel_methods}
             base_finals = {}
             for m, rows in per_method.items():
                 base_finals.setdefault(_base(m)[0], []).extend(f for _, _, f in rows)
@@ -179,18 +224,18 @@ def plot_profiles_pinns(specs, methods, configs="all", tail=5, tol_mult=1.0,
                   f"frac(tau=1e-1)={np.mean(s <= 1e-1):.2f}")
 
         ax.set_xscale("log")
-        ax.set_xlabel(r"accuracy $\tau$")
+        ax.set_xlabel(r"$\tau$")
         # ax.set_title(title)
         ax.set_ylim(-0.02, 1.02)
     axes[0].set_ylabel("fraction of configs")
-    axes[1].set_ylabel("fraction of configs")
-    top_legend(fig, axes[0])
-    
+    _legend_from_all_axes(fig, axes)
+
     fig.tight_layout()
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     fig.savefig(out)
     plt.close(fig)
     print(f"wrote {out}")
+
 
 
 
@@ -200,24 +245,23 @@ if __name__ == "__main__":
     running_average = False
     best_validation_window = 50
 
-    names = ["E7", "E8", "E9"]
-    specs = [ExperimentSpec(name="E7", data="helmholtz", task="pinn",
+    names = ["E6", "E7", "E8"]
+    specs = [ExperimentSpec(name="E6", data="helmholtz", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
                               results_root="results"),
-        ExperimentSpec(name="E8", data="burgers", task="pinn",
+        ExperimentSpec(name="E7", data="burgers", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
                               results_root="results"),
-        ExperimentSpec(name="E9", data="klein_gordon", task="pinn",
+        ExperimentSpec(name="E8", data="klein_gordon", task="pinn",
                               bound=1e-4, pinns=True, seeds=(0, 1, 2, 3, 4),
                               results_root="results")]
 
     methods = ["adam", "alm_proj__1", "alm_proj__2", "pbm__1", "pbm__2", "ssg__1", "ssg__2"]
 
-    # plot_profiles_pinns(specs, methods, configs="all",
-    #                    out="./results/plots/profiles_pinns_all.pdf")
-    # plot_profiles_pinns(specs, methods, configs="best",
-    #                    out="./results/plots/profiles_pinns_best.pdf")
+    plot_profiles_pinns(specs, methods, configs="all",
+                       out="/mnt/personal/kliacand/humancompatible-train/benchmark/results/plots/profiles_pinns_all.pdf",
+                       pool_subtypes=True)
 
 
-    methods = ["adam", "alm_proj", "pbm", "ssg"]
-    plot_tradeoff_scatter(specs, methods, tail=best_validation_window, out="./results/plots/pinn_tradeoff.pdf")
+    # methods = ["adam", "alm_proj", "pbm", "ssg"]
+    # plot_tradeoff_scatter(specs, methods, tail=best_validation_window, out="./results/plots/pinn_tradeoff.pdf", pool_subtypes=True)

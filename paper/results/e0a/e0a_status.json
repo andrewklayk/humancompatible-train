@@ -1,0 +1,34 @@
+[
+  {
+    "problem": "qp_active",
+    "convex": true,
+    "solved": 6,
+    "bounded (finite, not a KKT point)": 0,
+    "diverged": 0,
+    "did not solve": "-"
+  },
+  {
+    "problem": "qp_inactive",
+    "convex": true,
+    "solved": 5,
+    "bounded (finite, not a KKT point)": 1,
+    "diverged": 0,
+    "did not solve": "PBM"
+  },
+  {
+    "problem": "svm_iris",
+    "convex": true,
+    "solved": 4,
+    "bounded (finite, not a KKT point)": 2,
+    "diverged": 0,
+    "did not solve": "nuPI (rho=0), PBM"
+  },
+  {
+    "problem": "qp_nonconvex",
+    "convex": false,
+    "solved": 0,
+    "bounded (finite, not a KKT point)": 2,
+    "diverged": 4,
+    "did not solve": "ALM (rho=0), ALM (rho=1), nuPI (rho=0), nuPI (rho=1), iALM, PBM"
+  }
+]

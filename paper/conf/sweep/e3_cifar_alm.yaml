@@ -1,0 +1,17 @@
+# @package _global_
+# E3 (CIFAR) x ALM-GDA grid. 3 * 4 * 3 = 36 configs, ~100 epochs each -- size it down with
+# ++experiment.epochs before launching anything real.
+#
+# `gate_lr` is swept separately from `lr` because the two do different jobs: carrying
+# log_alpha from a 95%-open initialisation to a 10%-density solution is a move of several
+# units, which the weight optimizer's step would never make.
+defaults:
+  - override /experiment: e3_cifar
+  - override /algorithm: alm_gda_restart
+
+hydra:
+  sweeper:
+    params:
+      experiment.lr: choice(0.03, 0.1, 0.3)
+      experiment.gate_lr: choice(0.003, 0.01, 0.03, 0.1)
+      algorithm.dual.lr: choice(0.003, 0.01, 0.03)

@@ -1,0 +1,57 @@
+# H200 Slurm launcher for paper/tune.py multirun, via the hydra-submitit-launcher plugin.
+# By analogy with benchmark/new_bench/conf/hydra/launcher/slurm_h200.yaml; the difference
+# is that `setup:` is FILLED IN here, because E3-LM needs the PyTorch module and the
+# transformers venv and a compute node has neither by default.
+#
+#   # from a LOGIN node -- this submits, it does not compute:
+#   python paper/tune.py -m hydra/launcher=slurm_h200 +sweep=e3_llm_nupi \
+#       ++experiment.tokens=$PWD/paper/results/e3/tokens.bin
+#
+# This is the launcher that makes multirun actually parallel: one array task per sweep
+# cell, up to `array_parallelism` at a time. Without it Hydra uses BasicLauncher and the
+# cells run one after another in a single process -- which is what paper/sbatch_tune.sh
+# deliberately does inside one allocation.
+#
+# `++experiment.tokens` must be ABSOLUTE and must be passed. tune.py redirects the
+# artifact root at each job's own output directory before run_llm resolves its default
+# shard path, so `tokens: null` makes every task look for the shard inside its own job
+# directory and fail. Same trap paper/sbatch_tune.sh works around.
+defaults:
+  - submitit_slurm
+
+# --- resources (edit for your cluster) ---
+partition: h200fast
+# MUST stay 1: submitit runs the job's function ONCE PER TASK, so tasks_per_node>1
+# launches N duplicate processes sharing one Hydra output dir, racing on its row.json.
+# To pack many cells onto the cluster use array_parallelism, not tasks. (E3-LM tuning is
+# single-rank anyway -- tune.py drives run_llm.train() directly, below the torchrun
+# re-exec, and refuses experiment.ranks > 1.)
+tasks_per_node: 1
+cpus_per_task: 8
+mem_per_cpu: 12G
+
+# One cell, not a whole sweep: at experiment.steps=5000 an E3-LM cell is ~8 min on one
+# H200, so this is generous headroom rather than a 24h placeholder. A shorter limit also
+# schedules sooner on a backfill queue.
+timeout_min: 30
+
+# The GPU request goes through additional_parameters -> `#SBATCH --gres=gpu:1`. The plugin
+# does expose a first-class `gres:` field, but this is the form new_bench's launchers use
+# and have actually been run with on this cluster.
+additional_parameters:
+  gres: "gpu:1"
+  # account: my_account
+
+# Caps how many array tasks are active at once -> `#SBATCH --array=0-M%N`. Two reasons to
+# set it: throttle concurrent GPU use, and stay under the QOS submit limit (an sbatch
+# failing with "QOSMaxSubmitJobPerUserLimit" means this is above your cap; find it with
+# `sacctmgr -n show assoc user=$USER format=QOS,MaxSubmit`). This bounds concurrency, not
+# the array's total size -- MaxArraySize is the separate constraint.
+array_parallelism: 16
+
+# Run before each task. Compute nodes have no network, so the venv must already exist --
+# see paper/e3/sbatch_e3.sh's header for how to build it on a login node.
+setup:
+  - "ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1"
+  - "export HF_HUB_OFFLINE=1"
+  - "export TOKENIZERS_PARALLELISM=false"

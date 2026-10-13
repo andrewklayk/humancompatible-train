@@ -39,7 +39,7 @@ class ExperimentSpec:
     bound: float              # feasibility threshold (constraint_cfg['bound'])
     pinns: bool = False
     seeds: tuple = (0, 1, 2)  # which seeds to aggregate
-    results_root: str = "results"
+    results_root: str = "/mnt/data/optimization/current/pinns/"
 
     def seed_dir(self, seed: int) -> str:
         return os.path.join(self.results_root, f"{self.data}_{self.task}{seed}")
@@ -135,7 +135,6 @@ def aggregate_method(spec: ExperimentSpec, method: str, split: str = "train", ta
         return None
 
     allseeds = pd.concat(per_seed, ignore_index=True)
-
     # mean/std across seeds, per config
     g = allseeds.groupby("config")
 

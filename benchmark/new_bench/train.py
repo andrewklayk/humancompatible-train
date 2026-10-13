@@ -27,15 +27,18 @@ def calc_constraints(constraint_fn, bounds, fuse, constraints_to_eq, model, out,
 
 
 def calc_perclass_acc(group_onehot, labels, out):
-    """Per-class/-group accuracy (faithful copy of the original helper)."""
-    predictions = torch.argmax(out, dim=1)
+    """Per-class/-group accuracy. ``out`` is a single logit for BCE tasks (argmax over
+    dim=1 would be constant-0 there) vs. class logits for CE tasks."""
+    if out.shape[-1] == 1:
+        predictions = (out > 0).long().squeeze(-1)
+    else:
+        predictions = torch.argmax(out, dim=1)
     if labels.ndim > predictions.ndim:
         labels = labels.squeeze()
     correct = (predictions == labels).float()
     n_per = group_onehot.sum(dim=0)
     correct_per = group_onehot.T @ correct
     return (correct_per / (n_per + 1e-8)).detach().cpu().numpy()
-
 
 def validate_model(model, val_data, loss_fn, constraint_fn, device):
     losses, constraints_list, acc_list = [], [], []
@@ -149,6 +152,12 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
     ``bundle.train_loader``'s sampler to be a ``BalancedBatchSampler`` and
     ``loss_fn`` to accept a per-sample ``weight=`` kwarg (e.g. bce, not ce)."""
     model.to(device)
+
+    print(torch.cuda.get_device_capability()[0])
+    if torch.cuda.get_device_capability()[0] <= 7:
+        print("Disabling cudnn")
+        torch.backends.cudnn.enabled = False
+
     bounds = torch.tensor([task.bound] * task.m).to(device)
     constraint_fn = task.constraint_fn
     loss_fn = task.loss_fn

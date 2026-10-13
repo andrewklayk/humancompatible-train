@@ -1,0 +1,22 @@
+# E2c -- per-cell ALM tuning, per-iteration cadence. What is FIXED for one run; the
+# algorithm group carries what is swept, and `+sweep=e2c_alm` supplies the
+# (primal_lr, dual_lr) grid. `experiment.problem.dataset` and `.per_group` are meant
+# to be overridden on the CLI (e.g. `experiment.problem.dataset=income,dutch
+# experiment.problem.per_group=4,8,16` under `-m`) to cover every cell the batch-size
+# panel needs; this file only fixes the defaults for a single-cell smoke run.
+#
+# Short and single-seed on purpose: this tunes, it does not measure. c_cadence.py's
+# own runs (arbitrary seeds, full epochs) are what the paper reports.
+
+target: e2c
+
+epochs: 10   # c_cadence.py's old TUNE_EPOCHS
+tail: 5      # matches a_fairness.TAIL / c_cadence.TAIL
+
+cadence: per_iteration
+
+problem:
+  dataset: income          # income | dutch
+  shape: pairwise
+  bound: 0.05
+  per_group: 8             # 4 | 8 | 16 for the batch-size panel
