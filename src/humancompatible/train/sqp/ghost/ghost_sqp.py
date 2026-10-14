@@ -37,7 +37,8 @@ class GhostConfig:
     lambda_: float = 0.5    # ghost-penalty weight λ ∈ (0, 1)
     gamma0: float = 0.9     # step-size scale; γ^ν = γ0 / ν^p  (γ0 < 1 ⇒ γ^1 < 1)
     gamma_power: float = 1.0  # decay exponent p; any p ∈ (0.5, 1] gives Σγ=∞, Σγ²<∞
-    qp_solver: str = "osqp"
+    qp_solver: str = "osqp",
+    dual_solve: bool = False, # whether to solve the primal or dual problem
 
 
 class GhostSQP:
@@ -86,7 +87,7 @@ class GhostSQP:
         gamma = self.gamma(self._nu)
         d, info = mlmc_direction(
             self.net, self.objective_fn, self.constraint_fns,
-            self.sampler, self.cfg, self.rng,
+            self.sampler, self.cfg, self.rng, dual_solve = self.cfg.dual_solve
         )
         self._apply_direction(d, gamma)
         info.update(iter=self._nu, gamma=gamma, step_norm=float(np.linalg.norm(d)))
