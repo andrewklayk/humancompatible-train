@@ -242,9 +242,9 @@ def _run_e2c(cfg) -> dict:
 # --------------------------------------------------------------------------- #
 
 _E3_CIFAR_KEYS = (
-    "dataset", "data", "download", "synthetic", "granularity", "depth", "epochs",
+    "dataset", "data", "download", "synthetic", "granularity", "arch", "depth", "width", "epochs",
     "batch_size", "steps_per_epoch", "eval_batches", "workers", "quick",
-    "lr", "weight_decay", "gate_lr", "init_open",
+    "lr", "weight_decay", "gate_lr", "init_open", "lr_milestones", "lr_gamma",
 )
 
 

@@ -146,21 +146,36 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
         size, so this is what lets ``paper/tune.py`` sweep the rest.
     """
     set_seed(args.seed)
-    model = sparse_resnet.cifar_resnet(args.depth, n_classes).to(device)
+    if args.arch == "wrn":
+        model = sparse_resnet.wide_resnet(args.depth, args.width, n_classes)
+    else:
+        model = sparse_resnet.cifar_resnet(args.depth, n_classes)
+    model = model.to(device)
     gates = sparse_resnet.attach_gates(model, init_open=args.init_open, seed=args.seed,
                                        device=device)
     m = gates.m(args.granularity)
 
-    # Weights get SGD, gate parameters get Adam at a much larger step and no weight decay:
-    # carrying log_alpha from a 95%-open initialisation to a 10%-density solution is a move
-    # of several units, which SGD at 0.1 with decay pulling it back would never make. The
-    # split is also what arXiv:2208.04425 does.
+    # Weights get SGD, gate parameters get SGD at a much larger step: carrying log_alpha
+    # from a 95%-open initialisation to a 10%-density solution is a move of several units,
+    # which SGD at 0.1 would never make. (arXiv:2208.04425 instead keeps SGDM for the
+    # gates and raises their step to 6; see their Appendix H.)
+    #
+    # weight_decay stays 0 here because their Eq. (13) is not uniform L2 -- it weights each
+    # gated tensor by its gate's open probability. sparse_resnet.gated_l2 builds that term
+    # and the training loop adds it to the objective.
     gate_ids = {id(p) for p in gates.gate_parameters()}
     primal = torch.optim.SGD(
         [p for p in model.parameters() if id(p) not in gate_ids],
-        lr=args.lr, momentum=0.9, weight_decay=args.weight_decay, nesterov=True,
-    ) 
-    gate_optim = torch.optim.Adam(gates.gate_parameters(), lr=args.gate_lr)
+        lr=args.lr, momentum=0.9, weight_decay=0.0, nesterov=True,
+    )
+    gate_optim = torch.optim.SGD(gates.gate_parameters(), lr=args.gate_lr)
+    # Their Table 6: primal lr x0.2 at epochs 60/120/160 of 200. Both optimizers are
+    # stepped -- the gates are primal variables too, and that paper trains them on the
+    # same schedule as the weights.
+    schedules = [
+        torch.optim.lr_scheduler.MultiStepLR(opt, args.lr_milestones, gamma=args.lr_gamma)
+        for opt in (primal, gate_optim)
+    ]
     if dual_factory is not None:
         dual = dual_factory(m, device=device, process_group=None)
     elif METHODS[method] is None:
@@ -193,6 +208,10 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
             else:
                 objective = loss
 
+            if args.weight_decay:
+                objective = objective + 0.5 * args.weight_decay * sparse_resnet.gated_l2(
+                    model, gates)
+
             objective.backward()
             primal.step()
             gate_optim.step()
@@ -201,7 +220,8 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
 
             total += float(loss.detach()) * y.numel()
             seen += y.numel()
-        # schedule.step()
+        for schedule in schedules:
+            schedule.step()
 
         with torch.no_grad():
             density = gates.densities(args.granularity)
@@ -310,8 +330,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--penalty", type=_csv(float), default=[0.1, 1.0],
                         help="comma-separated lambdas, for --method penalty")
     parser.add_argument("--granularity", default="model", choices=sparsity_gates.GRANULARITIES)
-    parser.add_argument("--depth", type=int, default=18, help="ResNet depth")
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--arch", default="wrn", choices=("wrn", "resnet"),
+                        help="wrn = their CIFAR architecture; resnet = torchvision, CIFAR stem")
+    parser.add_argument("--depth", type=int, default=28)
+    parser.add_argument("--width", type=int, default=10, help="WRN widen factor; unused by resnet")
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--lr-milestones", type=_csv(int), default=[60, 120, 160],
+                        help="comma-separated epochs at which to decay the primal lr")
+    parser.add_argument("--lr-gamma", type=float, default=0.2)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--steps-per-epoch", type=int, default=0, help="0 = the whole set")
     parser.add_argument("--eval-batches", type=int, default=0, help="0 = the whole test set")
