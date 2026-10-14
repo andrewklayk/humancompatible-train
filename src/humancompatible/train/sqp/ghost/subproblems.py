@@ -45,15 +45,15 @@ def compute_kappa(cval, cgrad, lamb, rho):
     return term1 + term2
 
 
-def solve_subproblem(grad_f, cval, cgrad, kappa, beta, tau, qp_solver="osqp"):
+def solve_subproblem(grad_f, cval, cgrad, kappa, beta, tau, qp_solver="osqp", dual_solve=False):
     """Search-direction QP, Eq. (3):
 
         min_d  ∇F(x)^T d + (τ/2) ||d||^2
         s.t.   C(x) + ∇C(x)^T d ≤ κ(x) e            (m linear inequalities)
                ||d||_∞ ≤ β                          (box bounds)
 
-    Cast into ``qpsolvers`` form  min ½ dᵀP d + qᵀd  s.t.  G d ≤ h,  lb ≤ d ≤ ub
-    with P = τ I (diagonal), q = ∇F, G = ∇C, h = κ e − C.
+    Cast into ``qpsolvers`` form  min ½ dᵀQ d + cᵀd  s.t.  A d ≤ b,  lb ≤ d ≤ ub
+    with Q = τ I (diagonal), c = ∇F, A = ∇C, b = κ e − C.
 
     Returns the direction ``d`` as an (n,) ndarray; raises if the solver fails.
     """
@@ -62,14 +62,34 @@ def solve_subproblem(grad_f, cval, cgrad, kappa, beta, tau, qp_solver="osqp"):
     cgrad = np.asarray(cgrad, dtype=float)
     m, n = cgrad.shape
 
-    P = tau * sparse.identity(n, format="csc")
-    q = grad_f
-    G = sparse.csc_matrix(cgrad)
-    h = kappa * np.ones(m) - cval
-    lb = -beta * np.ones(n)
-    ub = beta * np.ones(n)
+    # solve the primal problem
+    if dual_solve == False:
 
-    d = solve_qp(P, q, G, h, None, None, lb, ub, solver=qp_solver)
-    if d is None:
-        raise RuntimeError(f"QP solver '{qp_solver}' failed to solve subproblem (3)")
+        Q = tau * sparse.identity(n, format="csc")
+        c = grad_f
+        A = sparse.csc_matrix(cgrad)
+        b = kappa * np.ones(m) - cval
+        lb = -beta * np.ones(n)
+        ub = beta * np.ones(n)
+        d = solve_qp(Q, c, A, b, None, None, lb, ub, solver=qp_solver)
+
+        # Q = tau * sparse.identity(n, format="csc")
+        # c = grad_f
+        # A = sparse.csc_matrix(cgrad)
+        # b = kappa * np.ones(m) - cval
+
+        # # append to A diagonal constraints for box bounds
+        # A = sparse.vstack([A, sparse.identity(n), -sparse.identity(n)], format="csc")
+        # b = np.concatenate([b, beta * np.ones(n), beta * np.ones(n)])
+
+        # d = solve_qp(Q, c, A, b, None, None, None, None, solver=qp_solver)
+        if d is None:
+            raise RuntimeError(f"QP solver '{qp_solver}' failed to solve subproblem (3)")
+
+    # solve the dual problem
+    else:
+
+        pass
+        # TODO
+
     return d
