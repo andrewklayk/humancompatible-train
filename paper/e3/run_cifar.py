@@ -155,7 +155,7 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
                                        device=device)
     m = gates.m(args.granularity)
 
-    # Weights get SGD, gate parameters get Adam at a much larger step: carrying log_alpha
+    # Weights get SGD, gate parameters get SGD at a much larger step: carrying log_alpha
     # from a 95%-open initialisation to a 10%-density solution is a move of several units,
     # which SGD at 0.1 would never make. (arXiv:2208.04425 instead keeps SGDM for the
     # gates and raises their step to 6; see their Appendix H.)
@@ -168,7 +168,7 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
         [p for p in model.parameters() if id(p) not in gate_ids],
         lr=args.lr, momentum=0.9, weight_decay=0.0, nesterov=True,
     )
-    gate_optim = torch.optim.Adam(gates.gate_parameters(), lr=args.gate_lr)
+    gate_optim = torch.optim.SGD(gates.gate_parameters(), lr=args.gate_lr)
     # Their Table 6: primal lr x0.2 at epochs 60/120/160 of 200. Both optimizers are
     # stepped -- the gates are primal variables too, and that paper trains them on the
     # same schedule as the weights.
