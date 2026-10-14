@@ -7,11 +7,12 @@
 # units, which the weight optimizer's step would never make.
 defaults:
   - override /experiment: e3_cifar
-  - override /algorithm: alm_gda_restart
+  - override /algorithm: alm_hpr
 
 hydra:
   sweeper:
     params:
       experiment.lr: choice(0.03, 0.1, 0.3)
-      experiment.gate_lr: choice(0.003, 0.01, 0.03, 0.1)
-      algorithm.dual.lr: choice(0.003, 0.01, 0.03)
+      experiment.gate_lr: choice(1., 6.)
+      algorithm.dual.lr: choice(0.0007)
+      algorithm.dual.penalty: choice(0., 0.5)

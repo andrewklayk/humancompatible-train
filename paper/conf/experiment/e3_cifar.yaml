@@ -15,8 +15,10 @@ synthetic: false          # true runs the whole path with no dataset on disk
 eps: 0.3                  # target density
 penalty: 1.0              # only used by method=penalty
 granularity: model        # model | block | block_split
-depth: 18
-epochs: 100
+arch: wrn                 # their CIFAR architecture (Table 4)
+depth: 28
+width: 10                 # -> WRN-28-10, 36.5M params, 12 sparsifiable convs
+epochs: 200                # their Table 6
 batch_size: 128
 steps_per_epoch: 0        # 0 = the whole set
 eval_batches: 0           # 0 = the whole test set
@@ -27,4 +29,6 @@ quick: false
 lr: 0.1                   # SGD, on the weights
 weight_decay: 5.0e-4
 gate_lr: 1.0e-2           # Adam, on the gate log-alphas
+lr_milestones: [60, 120, 160]   # primal lr x lr_gamma at each
+lr_gamma: 0.2
 init_open: 0.95
