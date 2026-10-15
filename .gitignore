@@ -26,6 +26,8 @@ paper/multirun/
 docs/source/tutorials/*.ipynb
 
 
+env*/
+
 # Local files
 NOTES.txt
 rci_jupyter_setup.txt
