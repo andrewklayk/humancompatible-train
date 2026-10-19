@@ -11,7 +11,7 @@ hydra:
   sweeper:
     params:
       experiment.lr: choice(0.0001, 0.00005)
-      experiment.gate_lr: choice(0.01, 0.05)
+      experiment.gate_lr: choice(6.)
       algorithm.dual.gamma: choice(0.0)
       algorithm.dual.penalty_mult: choice(0.99)
       algorithm.dual.pbf: choice(quadratic_logarithmic)

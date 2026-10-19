@@ -195,17 +195,13 @@ def train(args, *, device, dual_factory=None) -> dict:
         )
     m = 0 if gates is None else gates.m(args.granularity)
 
-    # Gate parameters get their own, much larger step size
+    # Weights get AdamW; gate parameters (log_alpha) get plain SGD at their own step size,
+    # with no weight decay -- as in run_cifar.py.
     gate_ids = set() if gates is None else {id(p) for p in gates.gate_parameters()}
-    groups = [
-        {"params": [p for p in model.parameters() if id(p) not in gate_ids],
-         "lr": args.lr},
-    ]
-    if gate_ids:
-        # No weight decay on gate params (log_alpha in the paper)
-        groups.append({"params": [p for p in model.parameters() if id(p) in gate_ids],
-                       "lr": args.gate_lr, "weight_decay": 0.0})
-    primal = torch.optim.AdamW(groups, lr=args.lr)
+    optimizers = [torch.optim.AdamW(
+        [p for p in model.parameters() if id(p) not in gate_ids], lr=args.lr)]
+    if gates is not None:
+        optimizers.append(torch.optim.SGD(gates.gate_parameters(), lr=args.gate_lr))
     dual = None
     if dual_factory is not None:
         if gates is None:
@@ -283,8 +279,9 @@ def train(args, *, device, dual_factory=None) -> dict:
 
         if args.grad_clip:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-        primal.step()
-        primal.zero_grad(set_to_none=True)
+        for opt in optimizers:
+            opt.step()
+            opt.zero_grad(set_to_none=True)
         timer.mark("opt")
 
         row = {
