@@ -10,7 +10,7 @@
 # Run a paper/tune.py hyperparameter sweep inside ONE allocation.
 #
 #   sbatch paper/sbatch_tune.sh                                 # e3_llm_alm,  8 cells
-#   SWEEP=e3_llm_nupi sbatch paper/sbatch_tune.sh                # e3_llmz_nupi, 16 cells
+#   SWEEP=e3_llm_nupi sbatch paper/sbatch_tune.sh                # e3_llm_nupi, 16 cells
 #   SWEEP=e3_llm_spbm SEEDS=0,1 sbatch paper/sbatch_tune.sh      # 16 cells x 2 seeds
 #   SWEEP=e2a_alm sbatch --partition=amd --gres=none paper/sbatch_tune.sh
 #

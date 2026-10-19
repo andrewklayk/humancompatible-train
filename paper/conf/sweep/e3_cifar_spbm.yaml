@@ -4,7 +4,7 @@
 # (gate log-alphas). `algorithm.primal.lr` exists in the algorithm group but is read only
 # by the E2a and E2c adapters -- sweeping it here would silently do nothing.
 defaults:
-  - override /experiment: e3_llm
+  - override /experiment: e3_cifar
   - override /algorithm: spbm
 
 hydra:
