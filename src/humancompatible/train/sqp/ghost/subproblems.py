@@ -45,7 +45,7 @@ def compute_kappa(cval, cgrad, lamb, rho):
     return term1 + term2
 
 
-def solve_subproblem(grad_f, cval, cgrad, kappa, beta, tau, qp_solver="osqp", dual_solve=False):
+def solve_subproblem(grad_f, cval, cgrad, kappa, beta, tau, qp_solver="osqp", solve_dual=False, solve_relaxed=False):
     """Search-direction QP, Eq. (3):
 
         min_d  ∇F(x)^T d + (τ/2) ||d||^2
@@ -57,39 +57,76 @@ def solve_subproblem(grad_f, cval, cgrad, kappa, beta, tau, qp_solver="osqp", du
 
     Returns the direction ``d`` as an (n,) ndarray; raises if the solver fails.
     """
+    
+    # prepare the needed results
     grad_f = np.asarray(grad_f, dtype=float).reshape(-1)
     cval = np.asarray(cval, dtype=float).reshape(-1)
     cgrad = np.asarray(cgrad, dtype=float)
     m, n = cgrad.shape
+    d = None
 
-    # solve the primal problem
-    if dual_solve == False:
+    if solve_dual:  # solve the dual problem
 
-        Q = tau * sparse.identity(n, format="csc")
-        c = grad_f
-        A = sparse.csc_matrix(cgrad)
-        b = kappa * np.ones(m) - cval
-        lb = -beta * np.ones(n)
-        ub = beta * np.ones(n)
-        d = solve_qp(Q, c, A, b, None, None, lb, ub, solver=qp_solver)
+        if solve_relaxed: # solve the dual problem with no beta constraints - relaxation
+            # create the primal problem
+            Q = tau * sparse.identity(n, format="csc")
+            c = grad_f
+            A = sparse.csc_matrix(cgrad)
+            b = kappa * np.ones(m) - cval
 
-        # Q = tau * sparse.identity(n, format="csc")
-        # c = grad_f
-        # A = sparse.csc_matrix(cgrad)
-        # b = kappa * np.ones(m) - cval
+            # create the dual problem
+            Q_dual = A @ A.T / tau
+            c_dual = A @ c / tau + b
+            A_dual = -sparse.identity(m, format="csc")
+            b_dual = np.zeros(m)
 
-        # # append to A diagonal constraints for box bounds
-        # A = sparse.vstack([A, sparse.identity(n), -sparse.identity(n)], format="csc")
-        # b = np.concatenate([b, beta * np.ones(n), beta * np.ones(n)])
+            # solve the dual problem
+            lambda_optimal = solve_qp(Q_dual, c_dual, A_dual, b_dual, None, None, None, None, solver=qp_solver)
 
-        # d = solve_qp(Q, c, A, b, None, None, None, None, solver=qp_solver)
-        if d is None:
-            raise RuntimeError(f"QP solver '{qp_solver}' failed to solve subproblem (3)")
+            # recover the primal solution from the dual solution
+            d = -1/tau * (A.T @ lambda_optimal + c)
+        
+        else:   # solve the dual problem with beta constraints
+            # create the primal problem
+            Q = tau * sparse.identity(n, format="csc")
+            c = grad_f
+            A = sparse.csc_matrix(cgrad)
+            b = kappa * np.ones(m) - cval
 
-    # solve the dual problem
-    else:
+            # append the box constraints (beta)
+            A = sparse.vstack([A, sparse.identity(n), -sparse.identity(n)], format="csc")
+            b = kappa * np.ones(m) - cval
+            b = np.concatenate([b, beta * np.ones(n), beta * np.ones(n)])
 
-        pass
-        # TODO
+            # create the dual problem
+            Q_dual = A @ A.T / tau
+            c_dual = A @ c / tau + b
+            A_dual = -sparse.identity(m + 2*n, format="csc")
+            b_dual = np.zeros(m + 2*n)
+
+            # solve the dual problem
+            lambda_optimal = solve_qp(Q_dual, c_dual, A_dual, b_dual, None, None, None, None, solver=qp_solver)
+
+            # recover the primal solution from the dual solution
+            d = -1/tau * (A.T @ lambda_optimal + c)
+
+
+    else: # solve the primal problem
+
+        if solve_relaxed:  # if relaxation is applied - beta is ignored in the subproblem - faster solution
+            Q = tau * sparse.identity(n, format="csc")
+            c = grad_f
+            A = sparse.csc_matrix(cgrad)
+            b = kappa * np.ones(m) - cval
+            d = solve_qp(Q, c, A, b, None, None, None, None, solver=qp_solver)
+
+        else:  # beta is not ignored in the subproblem - slower solution, but equal to the proposed stochastic ghost method
+            Q = tau * sparse.identity(n, format="csc")
+            c = grad_f
+            A = sparse.csc_matrix(cgrad)
+            b = kappa * np.ones(m) - cval
+            lb = -beta * np.ones(n)
+            ub = beta * np.ones(n)
+            d = solve_qp(Q, c, A, b, None, None, lb, ub, solver=qp_solver)
 
     return d
