@@ -59,6 +59,29 @@ def varying(rows: list[dict]) -> list[str]:
     )
 
 
+def average(rows: list[dict], swept: list[str]) -> list[dict]:
+    """One row per config, numeric metrics averaged over its seeds."""
+    groups = {}
+    for row in rows:
+        key = json.dumps([row["_config"].get(k) for k in swept], default=str)
+        groups.setdefault(key, []).append(row)
+    out = []
+    for group in groups.values():
+        merged = dict(group[0])
+        for key, value in group[0].items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                merged[key] = sum(float(r[key]) for r in group) / len(group)
+        objs = [float(r.get("objective", float("inf"))) for r in group]
+        mean = sum(objs) / len(objs)
+        merged["objective_std"] = (sum((o - mean) ** 2 for o in objs) / len(objs)) ** 0.5
+        merged["seeds"] = sorted(r.pop("seed", None) for r in group)
+        merged.pop("seed", None)
+        # The config hash, shared by all seeds of a cell: "seed0/<hash>" -> "<hash>".
+        merged["job"] = group[0]["job"].split("/")[-1]
+        out.append(merged)
+    return out
+
+
 def _label(key: str) -> str:
     """A swept key without its config group, e.g. `algorithm.dual.lr` -> `dual.lr`."""
     for prefix in ("algorithm.", "experiment."):
@@ -73,6 +96,8 @@ def main(argv=None) -> None:
     parser.add_argument("--top", type=int, default=20, help="rows to show; 0 = all")
     parser.add_argument("--out", default=None,
                         help="write <name>.csv/.md next to the runs instead of stdout only")
+    parser.add_argument("--per-seed", action="store_true",
+                        help="one row per run instead of averaging each config over seeds")
     args = parser.parse_args(argv)
 
     root = Path(args.runs)
@@ -81,6 +106,9 @@ def main(argv=None) -> None:
         raise SystemExit(f"no row.json under {root} -- did the sweep run?")
 
     swept = varying(rows)
+    n_runs = len(rows)
+    if not args.per_seed:
+        rows = average(rows, swept)
     # Failed jobs write no row.json at all, so anything here has an objective; inf is the
     # marker for a run that finished but produced nothing usable.
     rows.sort(key=lambda r: float(r.get("objective", float("inf"))))
@@ -94,12 +122,14 @@ def main(argv=None) -> None:
              for row in rows]
 
     shown = table if args.top <= 0 else table[:args.top]
-    print(f"\n{len(rows)} runs under {root}; swept: {', '.join(swept) or '(nothing)'}\n")
+    print(f"\n{n_runs} runs ({len(rows)} rows) under {root}; swept: {', '.join(swept) or '(nothing)'}\n")
     for rank, row in enumerate(shown, start=1):
         # Strip only the config group, not the whole path: `algorithm.dual.lr` and
         # `experiment.lr` are both swept and both end in "lr".
         detail = "  ".join(f"{_label(key)}={row[key]}" for key in swept)
-        print(f"  {rank:>3}. objective {float(row['objective']):<12.5g} {detail}")
+        spread = (f"± {row['objective_std']:<10.3g} n={len(row['seeds'])}  "
+                  if "seeds" in row else "")
+        print(f"  {rank:>3}. objective {float(row['objective']):<12.5g} {spread}{detail}")
 
     if args.out:
         # Artifacts land beside the runs they summarize, not in paper/results/.
