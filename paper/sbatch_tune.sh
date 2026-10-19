@@ -10,7 +10,7 @@
 # Run a paper/tune.py hyperparameter sweep inside ONE allocation.
 #
 #   sbatch paper/sbatch_tune.sh                                 # e3_llm_alm,  8 cells
-#   SWEEP=e3_llm_nupi sbatch paper/sbatch_tune.sh                # e3_llm_nupi, 16 cells
+#   SWEEP=e3_llm_nupi sbatch paper/sbatch_tune.sh                # e3_llmz_nupi, 16 cells
 #   SWEEP=e3_llm_spbm SEEDS=0,1 sbatch paper/sbatch_tune.sh      # 16 cells x 2 seeds
 #   SWEEP=e2a_alm sbatch --partition=amd --gres=none paper/sbatch_tune.sh
 #
@@ -18,6 +18,8 @@
 # no sbatch, because this mode SUBMITS rather than computes:
 #
 #   LAUNCHER=slurm_h200 SWEEP=e3_llm_nupi bash paper/sbatch_tune.sh
+#   LAUNCHER=slurm_h200 SWEEP=e3_llm_alm bash paper/sbatch_tune.sh
+#   LAUNCHER=slurm_h200 SWEEP=e3_llm_spbm bash paper/sbatch_tune.sh
 #
 # It blocks until every array task finishes (then reports), so run it under tmux/nohup.
 #
@@ -61,14 +63,15 @@ set -euo pipefail
 # flag. Clearing them does not touch this job's own allocation.
 unset SLURM_MEM_PER_NODE SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU
 
-ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
+ml Hydra/1.3.2-GCCcore-14.3.0
+ml torchvision/0.28.0-foss-2025b-CUDA-12.9.1
 
-VENV="${VENV:-$HOME/venv-e3}"
-if [ ! -d "$VENV" ]; then
-  echo "no venv at $VENV -- create it on a login node; see paper/e3/sbatch_e3.sh" >&2
-  exit 1
-fi
-source "$VENV/bin/activate"
+# VENV="${VENV:-$HOME/venv-e3}"
+# if [ ! -d "$VENV" ]; then
+#   echo "no venv at $VENV -- create it on a login node; see paper/e3/sbatch_e3.sh" >&2
+#   exit 1
+# fi
+# source "$VENV/bin/activate"
 
 # tune.py imports hydra and omegaconf at module level, and sbatch_e3.sh's venv recipe
 # installs neither -- fail with the fix rather than a bare ModuleNotFoundError.
