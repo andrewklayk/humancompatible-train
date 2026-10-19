@@ -1,0 +1,17 @@
+# @package _global_
+
+# NOTE the primal step for E3-LM is `experiment.lr` (weights) and `experiment.gate_lr`
+# (gate log-alphas). `algorithm.primal.lr` exists in the algorithm group but is read only
+# by the E2a and E2c adapters -- sweeping it here would silently do nothing.
+defaults:
+  - override /experiment: e3_llm
+  - override /algorithm: spbm
+
+hydra:
+  sweeper:
+    params:
+      experiment.lr: choice(0.1)
+      experiment.gate_lr: choice(6.)
+      algorithm.dual.gamma: choice(0.0) # no empirical moving average for deterministic constraints
+      algorithm.dual.penalty_mult: choice(0.99)
+      algorithm.dual.pbf: choice(quadratic_logarithmic)

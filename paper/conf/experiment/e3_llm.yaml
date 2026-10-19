@@ -16,7 +16,7 @@ tokens: null              # defaults to <results>/e3/tokens.bin
 synthetic: false          # write a random-token shard if `tokens` does not exist
 vocab_size: null
 
-eps: 0.5                  # target density
+eps: 0.7                  # target density
 penalty: 1.0              # only used by method=penalty
 granularity: block        # model | block | block_split
 steps: 5000
@@ -25,11 +25,11 @@ eval_batches: 16          # batches per rank per evaluation; 0 = the whole split
 
 # train | val | test, as fractions of the shard. tune.py scores `val_ppl`; `test_ppl` is
 # reported but nothing selects on it.
-val_frac: 0.01
-test_frac: 0.01
-eval_every: 100           # steps between curve points; 0 = endpoints only
+val_frac: 0.05
+test_frac: 0.05
+eval_every: 500           # steps between curve points; 0 = endpoints only
 seq_len: 1024
-batch_size: 8             # per rank
+batch_size: 16             # per rank
 dtype: bfloat16
 quick: false
 

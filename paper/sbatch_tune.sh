@@ -57,6 +57,11 @@
 # sbatch_e3.sh does not need and so does not install:
 #
 #   ~/venv-e3/bin/pip install hydra-core hydra-submitit-launcher
+#
+# An e3_cifar_* sweep needs neither the shard nor transformers, but it does need
+# torchvision in that venv and CIFAR already on disk -- again from a login node:
+#
+#   python paper/e3/prepare_cifar.py          # -> ./data, where experiment.data points
 set -euo pipefail
 
 # SLURM exports these into child processes, where they collide with any per-job memory

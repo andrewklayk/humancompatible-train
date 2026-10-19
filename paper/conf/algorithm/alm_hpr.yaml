@@ -12,3 +12,4 @@ dual:
   penalty: 1.0
   is_ineq: true
   augmentation: hpr
+  restart: false

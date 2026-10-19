@@ -22,7 +22,7 @@ defaults:
 partition: amdgpufast
 cpus_per_task: 8
 mem_per_cpu: 8G
-timeout_min: 1440
+# timeout_min: 1440
 tasks_per_node: 1
 
 # The GPU request goes through additional_parameters -> `#SBATCH --gres=gpu:1`. The plugin
