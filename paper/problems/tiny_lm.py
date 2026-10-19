@@ -1,5 +1,5 @@
 """
-A small decoder LM with the attribute layout :mod:`paper.problems.sparse_lm` expects.
+A small decoder LM with the attribute layout :mod:`paper.problems.sparsity.sparse_lm` expects.
 
 ``transformers`` is installed neither in this project's environment nor as a module on
 the cluster, and the real E3 model (``Qwen/Qwen2.5-0.5B``) is not in the local
@@ -127,7 +127,7 @@ class TinyDecoder(nn.Module):
         # nn.Embedding initialises to N(0, 1). With tied weights that is also the
         # lm_head, so logits would come out with std sqrt(hidden_size) and the initial
         # loss would be ~21 rather than log(vocab_size) -- which is the sanity signal
-        # paper/problems/tokens.py promises for a run on random tokens.
+        # expected for a run on random tokens.
         nn.init.normal_(self.embed_tokens.weight, std=config.hidden_size ** -0.5)
         self.embed_positions = nn.Embedding(
             config.max_position_embeddings, config.hidden_size

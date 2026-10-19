@@ -3,21 +3,15 @@
 # Like the other adapters, this one drives its per-run function directly -- tune.py calls
 # run_llm.train(), not run_llm.main(), so `algorithm.dual`'s `_target_` block is live and
 # any constructor argument is sweepable. Sweep the dual through `algorithm.dual.*`.
-#
-# The consequence is that E3-LM tuning is SINGLE-RANK: main()'s torchrun re-exec is what a
-# config object cannot cross, and train() sits underneath it. `ranks` must stay 1 here;
-# raise `batch_size` to the effective batch of the multi-rank run you are tuning for, and
-# use paper/e3/sweep.py for multi-rank runs themselves.
 
 target: e3_llm
 
 model: stub               # "stub" for the transformers-free stand-in, else a HF id
-tokens: null              # defaults to <results>/e3/tokens.bin
+tokens: null              # defaults to <results>/e3/tokens.npy
 synthetic: false          # write a random-token shard if `tokens` does not exist
 vocab_size: null
 
 eps: 0.5                  # target density
-penalty: 1.0              # only used by method=penalty
 granularity: block        # model | block | block_split
 steps: 5000
 warmup: 5
@@ -29,13 +23,9 @@ val_frac: 0.01
 test_frac: 0.01
 eval_every: 100           # steps between curve points; 0 = endpoints only
 seq_len: 1024
-batch_size: 8             # per rank
+batch_size: 8
 dtype: bfloat16
 quick: false
-
-# One submitit task per node, `ranks` GPUs beneath it -- run_llm re-execs torchrun itself.
-# See conf/hydra/launcher/slurm_h200.yaml.
-ranks: 1
 
 # --- swept by conf/sweep/e3_llm_*.yaml ---
 lr: 1.0e-4

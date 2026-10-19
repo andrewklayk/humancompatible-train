@@ -27,15 +27,6 @@
 #   sbatch paper/sbatch_tune.sh ++experiment.steps=1000 ++experiment.eps=0.3
 #   MODEL=stub sbatch paper/sbatch_tune.sh          # or ++experiment.model=stub
 #
-# E3-LM tuning is SINGLE-RANK, and this script pins `experiment.ranks=1`. tune.py drives
-# run_llm.train() directly -- a config object cannot cross the torchrun re-exec that
-# run_llm.main() performs, and train() sits underneath it, so the adapter refuses
-# anything else. To tune *for* a multi-rank run, match its effective batch:
-#
-#   sbatch paper/sbatch_tune.sh ++experiment.batch_size=16      # tuning for 2 ranks x 8
-#
-# and use paper/e3/sweep.py for the multi-rank runs themselves.
-#
 # Budget: one E3-LM cell is ~8 min at experiment.steps=5000 on one H200, so a 16-cell
 # sweep is ~2 h and three seeds of it ~6 h. Raise --time before adding seeds.
 #
@@ -50,11 +41,14 @@
 # conf/hydra/launcher/slurm_h200.yaml carries the module and venv in its `setup:` block,
 # which the older slurm_gpu.yaml leaves commented out.
 #
-# Prerequisites are paper/e3/sbatch_e3.sh's -- the venv and the token shard are both built
-# on a login node, because compute nodes have no network -- PLUS Hydra in that venv, which
-# sbatch_e3.sh does not need and so does not install:
+# Prerequisites, all on a login node (compute nodes have no network):
+#   1. python -m venv --system-site-packages ~/venv-e3   # after `ml PyTorch/...`
+#      ~/venv-e3/bin/pip install transformers datasets hydra-core hydra-submitit-launcher
+#   2. python paper/e3/prepare_data.py --model Qwen/Qwen2.5-0.5B --out paper/results/e3/tokens.npy
+#   3. huggingface-cli download Qwen/Qwen2.5-0.5B     # ungated, Apache-2.0, ~1 GB
 #
-#   ~/venv-e3/bin/pip install hydra-core hydra-submitit-launcher
+# No EasyBuild module provides `transformers`, hence the venv; --system-site-packages keeps
+# the module's CUDA-matched torch. `transformers` is needed at training time too.
 #
 # An e3_cifar_* sweep needs neither the shard nor transformers, but it does need
 # torchvision in that venv and CIFAR already on disk -- again from a login node:
@@ -70,13 +64,13 @@ ml PyTorch/2.10.0-foss-2025b-CUDA-12.9.1
 
 VENV="${VENV:-$HOME/venv-e3}"
 if [ ! -d "$VENV" ]; then
-  echo "no venv at $VENV -- create it on a login node; see paper/e3/sbatch_e3.sh" >&2
+  echo "no venv at $VENV -- create it on a login node; see the header" >&2
   exit 1
 fi
 source "$VENV/bin/activate"
 
-# tune.py imports hydra and omegaconf at module level, and sbatch_e3.sh's venv recipe
-# installs neither -- fail with the fix rather than a bare ModuleNotFoundError.
+# tune.py imports hydra and omegaconf at module level -- fail with the fix rather than a
+# bare ModuleNotFoundError.
 python - <<'PY' || { echo "  ^ $VENV/bin/pip install hydra-core hydra-submitit-launcher" >&2; exit 1; }
 import importlib.util as u, sys
 missing = [m for m in ("hydra", "omegaconf") if u.find_spec(m) is None]
@@ -119,11 +113,11 @@ fi
 # points the artifact root at each job's own Hydra output directory before run_llm
 # resolves its default shard path, so an unset `tokens` makes every cell look for the
 # shard inside its own job directory and fail.
-SHARD="${SHARD:-$PWD/paper/results/e3/tokens.bin}"
+SHARD="${SHARD:-$PWD/paper/results/e3/tokens.npy}"
 # conf/experiment/e3_llm.yaml defaults to `model: stub` so that tune.py is runnable on a
 # laptop, but this script requires a real token shard -- and feeding Qwen-range ids to
 # the stub's 256-row embedding is a device-side assert, not a clear error. Default to the
-# model the shard was tokenized for, as paper/e3/sbatch_e3.sh does.
+# model the shard was tokenized for.
 MODEL="${MODEL:-Qwen/Qwen2.5-0.5B}"
 
 OVERRIDES=(-m "+sweep=$SWEEP" "seed=$SEEDS")
@@ -135,9 +129,7 @@ if [[ "$SWEEP" == e3_llm* ]]; then
     echo "no token shard at $SHARD -- run paper/e3/prepare_data.py on a login node" >&2
     exit 1
   fi
-  # ranks is pinned, not configurable: see the header.
-  OVERRIDES+=("++experiment.model=$MODEL" "++experiment.tokens=$SHARD"
-              "++experiment.ranks=1")
+  OVERRIDES+=("++experiment.model=$MODEL" "++experiment.tokens=$SHARD")
 fi
 
 # Informational, and absent on a login node, hence the guard.

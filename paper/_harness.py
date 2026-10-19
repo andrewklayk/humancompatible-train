@@ -40,15 +40,42 @@ def set_results_dir(path) -> Path:
 
     ``RESULTS`` is bound at import, so a driver that runs several configurations in
     one process cannot redirect them by setting the environment variable alone.
-    Several scripts also re-exec themselves under ``torch.distributed.run``
-    (``e3/run_llm.py``, ``e3/sweep.py``), and the child
-    imports this module fresh -- which is why the environment variable is set too
-    rather than only the global.
+    Some scripts re-exec themselves under ``torch.distributed.run`` (``e0/d_distributed.py``),
+    and the child imports this module fresh -- which is why the environment variable is
+    set too rather than only the global.
     """
     global RESULTS
     RESULTS = Path(path)
     os.environ["HC_PAPER_RESULTS"] = str(RESULTS)
     return RESULTS
+
+
+# --------------------------------------------------------------------------- #
+# dual optimizers -- conf/algorithm/*.yaml is the single source of their settings
+# --------------------------------------------------------------------------- #
+
+ALGORITHM_CONF = Path(__file__).resolve().parent / "conf" / "algorithm"
+ALGORITHMS = sorted(p.stem for p in ALGORITHM_CONF.glob("*.yaml"))
+
+
+def dual_factory(dual_cfg):
+    """``(m, *, device, process_group) -> DualOptimizer`` from an algorithm's ``dual``
+    block (``_partial_: true``), or ``None`` for a reference with no duals."""
+    if dual_cfg is None:
+        return None
+    from hydra.utils import instantiate  # lazy: only the dual-optimizer paths need hydra
+
+    partial = instantiate(dual_cfg)
+    return lambda m, *, device=None, process_group=None: partial(
+        m=m, device=device, process_group=process_group
+    )
+
+
+def algorithm_factory(name: str):
+    """:func:`dual_factory` for ``conf/algorithm/<name>.yaml``, outside Hydra."""
+    from omegaconf import OmegaConf
+
+    return dual_factory(OmegaConf.load(ALGORITHM_CONF / f"{name}.yaml").get("dual"))
 
 
 # --------------------------------------------------------------------------- #

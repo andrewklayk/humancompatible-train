@@ -3,7 +3,6 @@
 # satisfied, which at 8 samples per group is most steps.
 name: alm_restart
 label: "ALM (restart)"
-method: alm_gda_restart
 primal:
   lr: 1.0e-3
 dual:
