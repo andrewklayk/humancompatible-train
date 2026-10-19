@@ -10,11 +10,11 @@ outside its module: E2a's dual step is the module constant ``DUAL_LR`` closed ov
 ``METHODS`` builders, and E3's is a single scalar flag. E2a's docstring says the tuning
 burden "needs its own sweep; it is not answered here" -- this is that sweep.
 
-**What it does not do.** It does not replace the existing drivers. ``a_fairness.py``,
-``e3/sweep.py``, ``scaling.py`` and ``run_cifar.py`` keep their CLIs and keep producing the
-committed artifacts under ``paper/results/``; they own the *configuration* grids (method x
-eps x seed), this owns the *hyperparameter* grids. It never writes to ``paper/results/``:
-every job redirects the shared harness at its own job directory (see :func:`_setup`).
+**What it does not do.** ``a_fairness.py`` and ``run_cifar.py`` keep their CLIs and keep
+producing the committed artifacts under ``paper/results/``. E3-LM has no separate grid
+driver; its method x eps x seed grid is a multirun here. This never writes to
+``paper/results/``: every job redirects the shared harness at its own job directory (see
+:func:`_setup`).
 
 Usage::
 
@@ -46,7 +46,6 @@ import hydra
 import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
-from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from paper import _harness
@@ -82,20 +81,8 @@ OmegaConf.register_new_resolver("cfg_hash", _cfg_hash, replace=True)
 
 
 def _dual_factory(cfg):
-    """``(m, *, device, process_group) -> DualOptimizer`` from ``cfg.algorithm.dual``.
-
-    ``None`` for a reference with no duals. ``_partial_: true`` in the yaml means
-    :func:`instantiate` returns the constructor with its hyperparameters already bound;
-    only the three runtime arguments are left, and every ``train()`` in ``paper/`` takes
-    the factory in this one shape -- so the returned object goes straight to any of them
-    with no per-adapter wrapper.
-    """
-    if cfg.algorithm.get("dual") is None:
-        return None
-    partial = instantiate(cfg.algorithm.dual)
-    return lambda m, *, device=None, process_group=None: partial(
-        m=m, device=device, process_group=process_group
-    )
+    """See :func:`_harness.dual_factory`; every ``train()`` in ``paper/`` takes this shape."""
+    return _harness.dual_factory(cfg.algorithm.get("dual"))
 
 
 def _setup(cfg) -> Path:
@@ -256,20 +243,15 @@ def _run_e3_cifar(cfg) -> dict:
     label = str(cfg.algorithm.label)
     eps = float(cfg.experiment.eps)
 
-    # run_cifar's own defaults, then this config on top -- the idiom e3/sweep.py:72-82
-    # already uses, so a default added to build_parser() still reaches the sweep.
+    # run_cifar's own defaults, then this config on top, so a default added to
+    # build_parser() still reaches the sweep.
     args = run_cifar.build_parser().parse_args([])
     for key in _E3_CIFAR_KEYS:
         setattr(args, key, cfg.experiment[key])
     args.seed = seed
     args.eps = [eps]
     args.penalty = [float(cfg.experiment.penalty)]
-    # `none` installs the gates and applies no sparsity pressure; the factory then supplies
-    # the pressure. Needed because run_cifar.METHODS drops every builder-less entry of
-    # run_llm.METHODS, so "adam" is not a key there -- and because a method commented out
-    # of that registry (PBM, nuPI) is still perfectly runnable through a factory.
-    name = cfg.algorithm.get("method")
-    args.method = [name if name in run_cifar.METHODS else "none"]
+    args.method = [str(cfg.algorithm.name)]
     run_cifar.finalize(args)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -297,37 +279,22 @@ def _run_e3_cifar(cfg) -> dict:
 # adapter: E3 -- LM
 # --------------------------------------------------------------------------- #
 
-# run_llm's own defaults, then this config on top -- the idiom e3/sweep.py already uses,
-# so a default added to build_parser() still reaches the sweep. `ranks` is read separately
-# (it decides whether this adapter can run at all) and `method` comes from the algorithm
-# group, so neither is here.
+# run_llm's own defaults, then this config on top, so a default added to build_parser()
+# still reaches the sweep. `method` comes from the algorithm group, so it is not here.
 _E3_LLM_KEYS = (
-    "model", "tokens", "synthetic", "vocab_size", "granularity", "eps", "penalty",
+    "model", "tokens", "synthetic", "vocab_size", "granularity", "eps",
     "steps", "warmup", "eval_batches", "val_frac", "test_frac", "eval_every",
     "seq_len", "batch_size", "lr", "gate_lr", "grad_clip", "dtype", "init_open", "quick",
 )
 
 
 def _run_e3_llm(cfg) -> dict:
-    """One E3-LM cell, calling ``run_llm.train`` directly.
-
-    ``run_llm.main()`` has a three-way dispatch and may re-exec itself under
-    ``torch.distributed.run``, which a config object cannot cross -- so this calls the
-    rank-0 path underneath it, exactly as the E3-CIFAR adapter calls ``run_cifar.train``.
-    That is what makes ``algorithm.dual`` live here: a ``_target_`` block reaches the dual
-    optimizer through the factory, where an argv flag could only reach a method name.
+    """One E3-LM cell, calling ``run_llm.train`` directly, as the E3-CIFAR adapter calls
+    ``run_cifar.train``. That is what makes ``algorithm.dual`` live here: a ``_target_``
+    block reaches the dual optimizer through the factory, where an argv flag could only
+    reach a method name.
     """
     from paper.e3 import run_llm
-
-    ranks = int(cfg.experiment.get("ranks", 1))
-    if ranks > 1:
-        raise SystemExit(
-            f"E3-LM tuning is single-rank, but experiment.ranks={ranks}. A config object "
-            f"cannot cross run_llm.main()'s torchrun re-exec, so this adapter drives "
-            f"run_llm.train() directly. Raise experiment.batch_size to the effective "
-            f"batch of the multi-rank run you are tuning for, and use paper/e3/sweep.py "
-            f"for multi-rank runs themselves."
-        )
 
     seed = int(cfg.seed)
     factory = _dual_factory(cfg)
@@ -338,16 +305,11 @@ def _run_e3_llm(cfg) -> dict:
     for key in _E3_LLM_KEYS:
         setattr(args, key, cfg.experiment[key])
     args.seed = seed
-    # With a factory the registry is bypassed and `method` only labels the row; without
-    # one this must be a real key, and `adam` is the gated model with no duals.
-    name = cfg.algorithm.get("method")
-    args.method = name if name in run_llm.METHODS else "adam"
+    args.method = str(cfg.algorithm.name)
     run_llm.finalize(args)
     run_llm._ensure_tokens(args)
 
-    device = run_llm._pick_device(0)
-    result = run_llm.train(args, rank=0, world=1, device=device, process_group=None,
-                           dual_factory=factory)
+    result = run_llm.train(args, device=run_llm._pick_device(), dual_factory=factory)
     summary = result["summary"]
 
     _harness.write_csv(result["rows"], "e3_llm_steps", "e3")

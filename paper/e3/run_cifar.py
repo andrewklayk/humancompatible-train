@@ -9,8 +9,7 @@ model-wide or per block.
 
     min_{theta,phi}  E_z[ CE(f(x; theta * z), y) ]   s.t.   density_g(phi) <= eps_g
 
-The gates and the density arithmetic live in :mod:`paper.problems.sparse_resnet` and
-:mod:`paper.problems.sparse_lm`; this file is the training loop and the artifacts, and is
+The gates and the density arithmetic live in :mod:`paper.problems.sparsity`; this file is the training loop and the artifacts, and is
 meant to be read top to bottom. Everything the run does to the model is in :func:`train`.
 
 Three numbers per configuration:
@@ -52,19 +51,16 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
-from paper._harness import figure, save_figure, set_seed, write_csv, write_table
-from paper.e3 import run_llm
-from paper.problems.sparsity import sparse_resnet
+from paper._harness import (
+    ALGORITHMS, algorithm_factory, figure, save_figure, set_seed, write_csv, write_table,
+)
 
 EXPERIMENT = "e3"
 
-# The dual optimizers and their hyperparameters are shared with the LM half of E3, so the
-# two settings compare the same configurations rather than two independent tunings.
-METHODS = {
-    "none": None,      # gates installed, no sparsity pressure: the dense reference
-    # "penalty": None,   # their Eq. (1)-(2): loss + lambda * mean density
-    **{name: build for name, build in run_llm.METHODS.items() if build is not None},
-}
+# Dual methods are the conf/algorithm/*.yaml configs, shared with the LM half of E3.
+# `none` keeps the gates with no sparsity pressure: the dense reference.
+# "penalty" (their Eq. (1)-(2)) is handled in train() but not offered.
+METHODS = ["none", *ALGORITHMS]
 
 STATS = {
     "cifar10": ((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616), 10),
@@ -141,9 +137,8 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
           dual_factory=None):
     """Train one configuration; return per-epoch rows plus a summary.
 
-    :param dual_factory: ``(m, *, device, process_group) -> DualOptimizer``, overriding
-        ``METHODS[method]``. The registry fixes every dual hyperparameter but the step
-        size, so this is what lets ``paper/tune.py`` sweep the rest.
+    :param dual_factory: ``(m, *, device, process_group) -> DualOptimizer``, see
+        :func:`paper._harness.dual_factory`; ``None`` trains without duals.
     """
     set_seed(args.seed)
     if args.arch == "wrn":
@@ -176,15 +171,7 @@ def train(args, *, label, method, eps, penalty, train_loader, test_loader, n_cla
         torch.optim.lr_scheduler.MultiStepLR(opt, args.lr_milestones, gamma=args.lr_gamma)
         for opt in (primal, gate_optim)
     ]
-    if dual_factory is not None:
-        dual = dual_factory(m, device=device, process_group=None)
-    elif METHODS[method] is None:
-        dual = None
-    else:
-        dual = run_llm.build_dual(
-            method, m, device=device, process_group=None,
-            overrides=run_llm.parse_dual_opts(args.dual_opt),
-        )
+    dual = None if dual_factory is None else dual_factory(m, device=device, process_group=None)
 
     rows = []
     print("Starting")
@@ -324,7 +311,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--synthetic", action="store_true",
                         help="random images instead of CIFAR, for smoke runs")
     parser.add_argument("--method", type=_csv(str), default=["alm_gda_restart"],
-                        help=f"comma-separated; one of {sorted(METHODS)}")
+                        help=f"comma-separated; one of {METHODS}")
     parser.add_argument("--eps", type=_csv(float), default=[1.0, 0.3],
                         help="comma-separated target densities")
     parser.add_argument("--penalty", type=_csv(float), default=[0.1, 1.0],
@@ -344,8 +331,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=5e-4)
     parser.add_argument("--gate-lr", type=float, default=1e-2)
-    parser.add_argument("--dual-opt", action="append", default=[], metavar="KEY=VALUE",
-                        help="override a method's dual hyperparameters; repeatable")
     parser.add_argument("--init-open", type=float, default=0.95)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
@@ -359,7 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
 def finalize(args):
     unknown = [name for name in args.method if name not in METHODS]
     if unknown:
-        raise SystemExit(f"unknown method(s) {unknown}; choose from {sorted(METHODS)}")
+        raise SystemExit(f"unknown method(s) {unknown}; choose from {METHODS}")
     if args.quick:
         args.epochs = min(args.epochs, 2)
         args.steps_per_epoch = args.steps_per_epoch or 3
@@ -382,6 +367,7 @@ def main(argv=None) -> None:
             args, label=label, method=method, eps=eps, penalty=penalty,
             train_loader=train_loader, test_loader=test_loader,
             n_classes=n_classes, device=device,
+            dual_factory=None if method in ("none", "penalty") else algorithm_factory(method),
         )
         rows += epochs
         summaries.append(summary)

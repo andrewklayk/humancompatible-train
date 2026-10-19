@@ -22,6 +22,10 @@ _OPEN_SHIFT = -BETA * math.log(-GAMMA / ZETA)  # = (2/3)*log(11) = +1.5985968...
 GRANULARITIES = ("model", "block", "block_split")
 
 
+def _stretch(s: Tensor) -> Tensor:
+    return (s * (ZETA - GAMMA) + GAMMA).clamp(0.0, 1.0)
+
+
 # --------------------------------------------------------------------------- #
 # the gate
 # --------------------------------------------------------------------------- #
@@ -85,8 +89,7 @@ class HardConcreteGate(nn.Module):
         # torch.rand samples [0, 1); the open interval is what the logit needs.
         eps = torch.finfo(self.log_alpha.dtype).eps
         u = u.clamp(eps, 1.0 - eps)
-        s = torch.sigmoid((torch.log(u) - torch.log1p(-u) + self.log_alpha) / BETA)
-        return (s * (ZETA - GAMMA) + GAMMA).clamp(0.0, 1.0)
+        return _stretch(torch.sigmoid((torch.log(u) - torch.log1p(-u) + self.log_alpha) / BETA))
 
     def median(self) -> Tensor:
         """The median gate, which is the test-time model.
@@ -96,8 +99,7 @@ class HardConcreteGate(nn.Module):
         writes its test-time estimator *without* the ``/beta``; arXiv:2208.04425 says
         **medians** (their Appendix A.1), which is what this returns.
         """
-        s = torch.sigmoid(self.log_alpha / BETA)
-        return (s * (ZETA - GAMMA) + GAMMA).clamp(0.0, 1.0)
+        return _stretch(torch.sigmoid(self.log_alpha / BETA))
 
 
 # --------------------------------------------------------------------------- #
@@ -184,18 +186,14 @@ class GateSet:
     """All gates (GateParamGroup) attached to a model, plus the constraint calculation over them.
 
     The gate modules are registered as a submodule of ``model`` (default name
-    ``l0_gates``), so they appear in ``model.parameters()`` and are synchronised by
-    ``DistributedDataParallel`` like any other parameter. That is what makes every rank
-    hold identical gate parameters, and hence identical constraint values.
+    ``l0_gates``), so they appear in ``model.parameters()``.
     """
 
     def __init__(self, model: nn.Module, groups: list[GateParamGroup],
                  holder: str = "l0_gates"):
         if hasattr(model, holder):
             raise ValueError(f"{type(model).__name__} already has an attribute {holder!r}")
-        self.model = model
         self.groups = groups
-        self.holder = holder
         model.add_module(  # ModuleDict keys cannot contain "."
             holder,
             nn.ModuleDict({g.name.replace(".", "_"): g.gate for g in groups}),
@@ -203,7 +201,6 @@ class GateSet:
         self._handles = [
             group.module.register_forward_pre_hook(group.pre_hook) for group in groups
         ]
-        self.mode = "open"
         self.use_open()
 
     # -- lifecycle ---------------------------------------------------------- #
@@ -212,29 +209,18 @@ class GateSet:
         """Detach the hooks. The gate parameters stay on the model."""
         for handle in self._handles:
             handle.remove()
-        self._handles = []
 
     # -- gate values -------------------------------------------------------- #
 
     def resample(self, generator: Optional[torch.Generator] = None) -> None:
-        """Draw a fresh ``z`` for every group. Call once before each training forward.
-
-        Pass a generator seeded identically on every rank to make the objective's gate
-        noise shared; pass rank-dependent seeds to average over ``world_size`` draws
-        instead. Those are two different estimators, not one right and one wrong — the
-        shared one is what makes a multi-rank run comparable to a single-rank run at the
-        pooled batch.
-        """
+        """Draw a fresh ``z`` for every group. Call once before each training forward."""
         for group in self.groups:
             group.z = group.gate.sample(generator)
-        self.mode = "sample"
 
-    def use_median(self, *, detach: bool = True) -> None:
+    def use_median(self) -> None:
         """Switch to the median (test-time) gates."""
         for group in self.groups:
-            z = group.gate.median()
-            group.z = z.detach() if detach else z
-        self.mode = "median"
+            group.z = group.gate.median().detach()
 
     def use_open(self) -> None:
         """All-ones gates: the model with the hooks installed but inert.
@@ -242,12 +228,7 @@ class GateSet:
         The timing reference — it pays the hook cost without applying any sparsity.
         """
         for group in self.groups:
-            group.z = torch.ones(
-                group.n_gates,
-                device=group.gate.log_alpha.device,
-                dtype=group.gate.log_alpha.dtype,
-            )
-        self.mode = "open"
+            group.z = torch.ones_like(group.gate.log_alpha)
 
     # -- density and constraints -------------------------------------------- #
 
@@ -258,16 +239,11 @@ class GateSet:
         Differentiable in the gate parameters, and independent of the data and of the
         current gate sample.
         """
-        out = []
-        for _, cell in _partition(self.groups, granularity):
-            numerator = None
-            denominator = 0
-            for group in cell:
-                weighted = group.gate.open_proba().sum() * group.params_per_gate
-                numerator = weighted if numerator is None else numerator + weighted
-                denominator += group.params_total
-            out.append(numerator / denominator)
-        return torch.stack(out)
+        return torch.stack([
+            sum(g.gate.open_proba().sum() * g.params_per_gate for g in cell)
+            / sum(g.params_total for g in cell)
+            for _, cell in _partition(self.groups, granularity)
+        ])
 
     def constraint_names(self, granularity: str = "block") -> list[str]:
         return [name for name, _ in _partition(self.groups, granularity)]

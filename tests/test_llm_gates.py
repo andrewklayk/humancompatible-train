@@ -25,7 +25,6 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from paper.problems import tokens as tokens_mod
 from paper.problems.sparsity.sparsity_gates import BETA, GAMMA, ZETA, HardConcreteGate, GRANULARITIES, _OPEN_SHIFT
 from paper.problems.sparsity.sparse_lm import attach_gates
 from paper.problems.tiny_lm import tiny_causal_lm
@@ -247,8 +246,6 @@ class TestAttachGates(unittest.TestCase):
         after = {id(p) for p in model.parameters()}
         added = after - before
         self.assertEqual(len(added), len(gates.groups))
-        # This is what makes DistributedDataParallel synchronise them like any other
-        # parameter, and hence what makes every rank agree on the constraint value.
         self.assertTrue(all(id(p) in after for p in gates.gate_parameters()))
 
     def test_closed_gates_change_the_output(self):
@@ -347,114 +344,6 @@ class TestAttachGates(unittest.TestCase):
     def test_rejects_a_model_without_blocks(self):
         with self.assertRaises(TypeError):
             sparse_lm.decoder_blocks(torch.nn.Linear(2, 2))
-
-
-class TestTokenShard(unittest.TestCase):
-    def test_round_trip_and_block_count(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "tokens.bin"
-            ids = np.arange(100, dtype=np.int64) % 50
-            written = tokens_mod.write_shard(path, ids, vocab_size=50)
-            self.assertEqual(written, 100)
-            shard = tokens_mod.TokenShard(path, seq_len=8)
-            self.assertEqual(shard.n_tokens, 100)
-            self.assertEqual(len(shard), 12)  # 100 // 8, remainder dropped
-            np.testing.assert_array_equal(shard.block(0), ids[:8])
-            batch = shard.batch([0, 1])
-            self.assertEqual(batch.shape, (2, 8))
-            self.assertEqual(batch.dtype, torch.int64)
-
-    def test_token_width_follows_the_vocabulary(self):
-        """SmolLM's 49152 fits uint16; Qwen2.5's 151936 does not and must widen.
-
-        A uint16 shard reread for a 151936-token vocabulary would wrap silently and look
-        like an unexplained loss plateau, so the width is recorded rather than assumed.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            narrow = Path(tmp) / "narrow.bin"
-            tokens_mod.write_shard(narrow, [0, 49_151], vocab_size=49_152)
-            self.assertEqual(tokens_mod.TokenShard(narrow, 2).dtype, np.dtype(np.uint16))
-
-            wide = Path(tmp) / "wide.bin"
-            tokens_mod.write_shard(wide, [0, 151_935], vocab_size=151_936)
-            shard = tokens_mod.TokenShard(wide, 2)
-            self.assertEqual(shard.dtype, np.dtype(np.uint32))
-            np.testing.assert_array_equal(shard.block(0), [0, 151_935])
-
-            # A small-id shard still widens if the declared vocabulary demands it.
-            declared = Path(tmp) / "declared.bin"
-            tokens_mod.write_shard(declared, [0, 1], vocab_size=151_936)
-            self.assertEqual(
-                tokens_mod.TokenShard(declared, 2).dtype, np.dtype(np.uint32)
-            )
-
-    def test_rejects_bad_writes_and_a_missing_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "tokens.bin"
-            with self.assertRaises(ValueError):
-                tokens_mod.write_shard(path, [])
-            with self.assertRaises(ValueError):
-                tokens_mod.write_shard(path, [0, -1])
-            tokens_mod.write_shard(path, [0, 1, 2, 3], vocab_size=4)
-            Path(str(path) + ".meta.json").unlink()
-            with self.assertRaisesRegex(ValueError, "token width is unknown"):
-                tokens_mod.TokenShard(path, 2)
-            # ...unless the caller says what it is.
-            self.assertEqual(len(tokens_mod.TokenShard(path, 2, dtype=np.uint16)), 2)
-
-    def test_missing_shard_points_at_prepare_data(self):
-        with self.assertRaisesRegex(FileNotFoundError, "prepare_data"):
-            tokens_mod.TokenShard("/nonexistent/tokens.bin", 8)
-
-    def test_synthetic_shard(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "tokens.bin"
-            tokens_mod.write_synthetic_shard(path, 512, vocab_size=97, seed=1)
-            shard = tokens_mod.TokenShard(path, seq_len=16)
-            self.assertEqual(shard.n_tokens, 512)
-            self.assertLess(int(shard.block(0).max()), 97)
-
-
-class TestBlockSampler(unittest.TestCase):
-    def test_ranks_are_disjoint_and_equal_length(self):
-        """Equal length is the load-bearing property: a rank that runs out of batches
-        early stops calling collectives and the job hangs rather than failing."""
-        world, n_blocks, batch = 3, 100, 4
-        samplers = [
-            tokens_mod.BlockSampler(n_blocks, batch, rank=r, world=world, seed=0)
-            for r in range(world)
-        ]
-        lengths = {len(s) for s in samplers}
-        self.assertEqual(lengths, {100 // 3 // 4})
-        seen = []
-        for sampler in samplers:
-            for indices in sampler.epoch(0):
-                seen.extend(int(i) for i in indices)
-        self.assertEqual(len(seen), len(set(seen)))
-        self.assertTrue(all(0 <= i < n_blocks for i in seen))
-
-    def test_epoch_order_is_seeded_and_epoch_dependent(self):
-        first = tokens_mod.BlockSampler(64, 2, seed=7)
-        second = tokens_mod.BlockSampler(64, 2, seed=7)
-        a = [i.tolist() for i in first.epoch(0)]
-        b = [i.tolist() for i in second.epoch(0)]
-        self.assertEqual(a, b)
-        c = [i.tolist() for i in first.epoch(1)]
-        self.assertNotEqual(a, c)
-
-    def test_stream_yields_exactly_the_requested_steps(self):
-        sampler = tokens_mod.BlockSampler(32, 4, seed=0)  # 8 batches per epoch
-        batches = list(sampler.stream(20))
-        self.assertEqual(len(batches), 20)
-        self.assertTrue(all(len(b) == 4 for b in batches))
-
-    def test_rejects_impossible_configurations(self):
-        with self.assertRaises(ValueError):
-            tokens_mod.BlockSampler(4, 8, seed=0)  # no complete batch
-        with self.assertRaises(ValueError):
-            tokens_mod.BlockSampler(64, 2, rank=3, world=3)
-        with self.assertRaises(NotImplementedError):
-            tokens_mod.BlockSampler(64, 2, drop_last=False)
 
 
 if __name__ == "__main__":

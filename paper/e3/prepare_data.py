@@ -2,20 +2,18 @@
 Tokenize a FineWeb-Edu slice into the flat shard E3 trains on.
 
 Run **once, on a login node** — compute nodes have no network access, and the training
-path imports no ``datasets`` and reaches no network. That split is deliberate: a multi-GPU
+path imports no ``datasets`` and reaches no network. That split is deliberate: a
 job that dies at hour three because an HTTP fetch failed is an expensive way to learn that
 streaming is fragile. (``transformers`` *is* needed at training time, for any ``--model``
 that is not the stub; it is ``datasets`` and the network that stay on the login node.)
 
-The shard format and its ``.meta.json`` sidecar are :mod:`paper.problems.tokens`'s;
-:func:`~paper.problems.tokens.write_shard` picks the narrowest safe integer width from the
-tokenizer's vocabulary size and records it, so a Qwen shard (vocabulary 151936) cannot
-later be reread as ``uint16`` and silently wrap.
+The shard is a flat ``.npy`` array of token ids, in the narrowest integer width that fits
+the tokenizer's vocabulary; the ``.npy`` header records it.
 
 Usage::
 
     python paper/e3/prepare_data.py --model Qwen/Qwen2.5-0.5B \\
-        --tokens 40_000_000 --out paper/results/e3/tokens.bin
+        --tokens 40_000_000 --out paper/results/e3/tokens.npy
 
 Neither ``transformers`` nor ``datasets`` is installed in this project's environment or
 available as a cluster module, so both are imported lazily and only when actually needed.
@@ -31,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
 
-from paper.problems import tokens as tokens_mod
 
 
 def _imports():
@@ -42,7 +39,7 @@ def _imports():
         raise SystemExit(
             "prepare_data.py needs `transformers` and `datasets`. Neither is in this "
             "project's conda environment nor provided by an EasyBuild module; install "
-            "them into a venv layered on the PyTorch module (see sbatch_e3.sh). The "
+            "them into a venv layered on the PyTorch module (see paper/sbatch_tune.sh). The "
             "training path needs neither."
         ) from exc
     return load_dataset, AutoTokenizer
@@ -77,7 +74,12 @@ def build(args) -> int:
               f"{args.tokens:,} tokens")
 
     flat = np.concatenate(chunks)[: args.tokens]
-    written = tokens_mod.write_shard(args.out, flat, vocab_size=len(tokenizer))
+    # Narrowest safe width: Qwen2.5's 151936-id vocabulary would wrap in uint16.
+    flat = flat.astype(np.uint16 if len(tokenizer) <= 1 << 16 else np.uint32)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    with open(args.out, "wb") as f:  # a file handle, so np.save keeps the name as given
+        np.save(f, flat)
+    written = len(flat)
     print(f"wrote {written:,} tokens -> {args.out}")
     print(f"  {written // args.seq_len:,} blocks at seq_len={args.seq_len}")
     return written
@@ -94,7 +96,7 @@ def main(argv=None) -> None:
     parser.add_argument("--tokens", type=int, default=40_000_000)
     parser.add_argument("--seq-len", type=int, default=1024,
                         help="only used to report the resulting block count")
-    parser.add_argument("--out", default="paper/results/e3/tokens.bin")
+    parser.add_argument("--out", default="paper/results/e3/tokens.npy")
     build(parser.parse_args(argv))
 
 
