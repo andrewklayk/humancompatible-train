@@ -31,7 +31,7 @@ from .oracle import evaluate_oracle
 from .subproblems import compute_kappa, solve_subproblem
 
 
-def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, dual_solve=False):
+def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_dual=False, solve_relaxed=False):
     """Compute one unbiased step estimate d̃(x) (Eq. 23).
 
     Returns ``(d_tilde, info)`` where ``d_tilde`` is an (n,) ndarray and
@@ -47,7 +47,8 @@ def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, dual_so
     def solve(batch):
         grad_f, cval, cgrad = evaluate_oracle(net, objective_fn, constraint_fns, batch)
         kappa = compute_kappa(cval, cgrad, cfg.lambda_, cfg.rho)
-        d = solve_subproblem(grad_f, cval, cgrad, kappa, cfg.beta, cfg.tau, cfg.qp_solver, dual_solve=dual_solve)
+        d = solve_subproblem(grad_f, cval, cgrad, kappa, cfg.beta, cfg.tau, cfg.qp_solver, 
+                             solve_dual=solve_dual, solve_relaxed=solve_relaxed)
         return d, cval, kappa
 
     # Base term: level-0 direction d(x; X_base) on J_base fresh samples.
