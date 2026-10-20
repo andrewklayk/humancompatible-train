@@ -1,6 +1,5 @@
 name: nupi
 label: "nuPI"
-method: nupi
 primal:
   lr: 1.0e-3
 dual:

@@ -12,7 +12,8 @@ defaults:
 hydra:
   sweeper:
     params:
-      experiment.lr: choice(0.03, 0.1, 0.3)
-      experiment.gate_lr: choice(1., 6.)
+      experiment.lr: choice(0.1)
+      experiment.gate_lr: choice(6.)
       algorithm.dual.lr: choice(0.0007)
-      algorithm.dual.penalty: choice(0., 0.5)
+      algorithm.dual.penalty: choice(0., 0.5, 1.)
+      algorithm.dual.restart: choice(true)

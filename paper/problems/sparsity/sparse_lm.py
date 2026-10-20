@@ -27,9 +27,7 @@ gates the weighting collapses to the mean open probability, which is the degener
 
 **The constraint is a closed form in the gate parameters — no data enters it.**
 ``P(z_j != 0) = sigmoid(log_alpha_j - beta*log(-gamma/zeta))`` exactly, so the constraint
-vector needs no sampling and carries no minibatch noise. That is a real property of this
-problem rather than an approximation, but it also means a data-parallel reduction over
-this constraint has nothing to pool — see the E3 section of ``paper/README.md``.
+vector needs no sampling and carries no minibatch noise.
 
 The sampled gates *are* used in the objective, so :meth:`GateSet.resample` must be called
 before every forward pass whose gradient will be taken. Reusing one sample across two
@@ -77,9 +75,7 @@ def attach_gates(
     init_open: float = 0.95,
     init_std: float = 0.01,
     seed: int = 0,
-    holder: str = "l0_gates",
     device=None,
-    dtype=torch.float32,
 ) -> GateSet:
     """Install structured hard-concrete gates on a decoder LM.
 
@@ -95,9 +91,7 @@ def attach_gates(
     if not (gate_mlp or gate_heads):
         raise ValueError("at least one of gate_mlp / gate_heads must be True")
 
-    config = getattr(model, "config", None)
-    if config is None:
-        raise TypeError("model has no `.config`; cannot determine the head layout")
+    config = model.config
     hidden = int(config.hidden_size)
     n_heads = int(config.num_attention_heads)
     head_dim = int(getattr(config, "head_dim", None) or hidden // n_heads)
@@ -118,7 +112,6 @@ def attach_gates(
                     init_std=init_std,
                     generator=generator,
                     device=device,
-                    dtype=dtype,
                 ),
                 params_per_gate=params_per_gate,
                 repeat=repeat,
@@ -134,36 +127,17 @@ def attach_gates(
                  down.in_features, 3 * hidden)
         if gate_heads:
             out_proj = block.self_attn.o_proj
-            if out_proj.in_features != n_heads * head_dim:
-                raise ValueError(
-                    f"block {index}: o_proj.in_features={out_proj.in_features} does not "
-                    f"match num_attention_heads*head_dim={n_heads * head_dim}"
-                )
             # One gate per query head; it owns q_proj rows and o_proj columns.
             make(f"block{index:02d}.attn", index, "attn", out_proj,
                  n_heads, 2 * head_dim * hidden, repeat=head_dim)
 
-    if not groups:
-        raise ValueError("no gates were attached; the model has no decoder blocks")
-    return GateSet(model, groups, holder)
-
-
-# --------------------------------------------------------------------------- #
-# accounting
-# --------------------------------------------------------------------------- #
-
-
-def trainable_bytes(model: nn.Module) -> int:
-    """Bytes a gradient all-reduce moves per step, i.e. the ``O(n)`` term."""
-    return sum(
-        p.numel() * p.element_size() for p in model.parameters() if p.requires_grad
-    )
+    return GateSet(model, groups)
 
 
 def describe(model: nn.Module, gate_set: Optional[GateSet] = None) -> dict:
     """Parameter and gate counts, for the record kept alongside every run."""
     total = sum(p.numel() for p in model.parameters())
-    gate_params = 0 if gate_set is None else sum(len(g.gate) for g in gate_set.groups)
+    gate_params = 0 if gate_set is None else sum(g.n_gates for g in gate_set.groups)
     gated = 0 if gate_set is None else sum(g.params_total for g in gate_set.groups)
     return {
         "params_total": total,
@@ -172,6 +146,6 @@ def describe(model: nn.Module, gate_set: Optional[GateSet] = None) -> dict:
         # (embeddings, norms) is why the density denominator runs over gated groups only:
         # a whole-model denominator would put a hard floor under every target. For
         # Qwen2.5-0.5B the tied 151936x896 embedding alone is 27.5% of the parameters.
-        "gated_fraction": gated / total if total else 0.0,
+        "gated_fraction": gated / total,
         "gate_params": gate_params,
     }
