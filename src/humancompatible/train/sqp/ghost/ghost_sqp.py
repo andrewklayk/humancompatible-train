@@ -29,18 +29,49 @@ from .mlmc import mlmc_direction
 class GhostConfig:
     """Hyperparameters for :class:`GhostSQP`."""
 
-    alpha: float = 0.3      # geometric level parameter p_α ∈ (0, 1)
+    alpha: float | None = None      # geometric level parameter p_α ∈ (0, 1)
     base_batch: int = 1     # level-0 sample count m0; level ℓ uses m0·2^ℓ samples
     tau: float = 1.0        # QP regularization τ > 0
-    beta: float = 10.0      # trust-region bound ||d||_∞ ≤ β
+    beta: float | None = None      # trust-region bound ||d||_∞ ≤ β
     rho: float = 0.8        # ghost-penalty radius ρ ∈ (0, β)
     lambda_: float = 0.5    # ghost-penalty weight λ ∈ (0, 1)
     gamma0: float = 0.9     # step-size scale; γ^ν = γ0 / ν^p  (γ0 < 1 ⇒ γ^1 < 1)
     gamma_power: float = 1.0  # decay exponent p; any p ∈ (0.5, 1] gives Σγ=∞, Σγ²<∞
-    qp_solver: str = "osqp",
-    solve_dual: bool = False # whether to solve the primal or dual problem
-    solve_relaxed: bool = False # whether to ignore the beta constraint in the subproblem (faster solution, but not equal to the proposed stochastic ghost method)
+    qp_solver: str = "osqp"
+    solve_dual: bool = True # whether to solve the primal or dual problem
+    solve_relaxed: bool = True # whether to ignore the beta constraint in the subproblem (faster solution, but not equal to the proposed stochastic ghost method)
+    monte_carlo_sampling: bool = False # whether to use monte carlo sampling or not (if false, uses base_batch samples) 
 
+    def __post_init__(self):
+        if self.alpha is not None and self.monte_carlo_sampling is False:
+            raise ValueError("alpha should be None if monte_carlo_sampling is False, the estimate is based only on base_batch samples")
+        if self.alpha is not None and not (0.0 < self.alpha < 1.0):
+            raise ValueError(f"alpha must be in (0, 1) if monte_carlo_sampling is True, got {self.alpha}")
+        if self.alpha is None and self.monte_carlo_sampling is True:
+            self.alpha = 0.9
+            print(f"Warning: alpha is not set, using default value of {self.alpha}")
+
+
+        if self.beta is not None and self.solve_relaxed is True:
+            raise ValueError("beta should be None if solve_relaxed is True, the beta constraint is ignored in the subproblem")
+        if self.beta is None and self.solve_relaxed is False: 
+            self.beta = 10.0
+            print(f"Warning: beta is not set, using default value of {self.beta}")
+        
+
+        if self.beta is not None and self.beta < self.rho:
+            raise ValueError(f"beta must be greater than or equal to rho, got beta={self.beta}, rho={self.rho}")
+
+        if self.tau <= 0.0:
+            raise ValueError(f"tau must be positive, got {self.tau}")
+        if self.beta is not None and self.beta <= 0.0:
+            raise ValueError(f"beta must be positive, got {self.beta}")
+        if self.rho <= 0.0:
+            raise ValueError(f"rho must be positive, got {self.rho}")
+        if self.lambda_ <= 0.0 or self.lambda_ >= 1.0:
+            raise ValueError(f"lambda_ must be in (0, 1), got {self.lambda_}")
+
+    
 
 class GhostSQP:
     """Driver for the stochastic Ghost-penalty SQP method.
@@ -68,6 +99,8 @@ class GhostSQP:
         self.rng = rng if rng is not None else np.random.default_rng()
         self._nu = 0
 
+
+
     def gamma(self, nu):
         """Diminishing step size γ^ν = γ0 / ν^p."""
         return self.cfg.gamma0 / nu ** self.cfg.gamma_power
@@ -89,7 +122,7 @@ class GhostSQP:
         d, info = mlmc_direction(
             self.net, self.objective_fn, self.constraint_fns,
             self.sampler, self.cfg, self.rng, solve_dual = self.cfg.solve_dual, 
-            solve_relaxed=self.cfg.solve_relaxed
+            solve_relaxed=self.cfg.solve_relaxed, monte_carlo_sampling=self.cfg.monte_carlo_sampling
         )
         self._apply_direction(d, gamma)
         info.update(iter=self._nu, gamma=gamma, step_norm=float(np.linalg.norm(d)))

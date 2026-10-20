@@ -31,45 +31,69 @@ from .oracle import evaluate_oracle
 from .subproblems import compute_kappa, solve_subproblem
 
 
-def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_dual=False, solve_relaxed=False):
+def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_dual=False, 
+                   solve_relaxed=False, monte_carlo_sampling=True):
     """Compute one unbiased step estimate d̃(x) (Eq. 23).
 
     Returns ``(d_tilde, info)`` where ``d_tilde`` is an (n,) ndarray and
     ``info`` holds per-step diagnostics.
     """
-    # Geometric level on {0, 1, 2, ...} with p(N) = α (1-α)^N.
-    N = int(rng.geometric(cfg.alpha)) - 1
-    p_N = cfg.alpha * (1.0 - cfg.alpha) ** N
-    base = cfg.base_batch
-    J_base = base                # level-0 (base) sample count
-    J_fine = base * 2 ** (N + 1)  # fine batch; antithetic halves are base * 2^N each
 
+    # define a solve function - solves the QP
     def solve(batch):
         grad_f, cval, cgrad = evaluate_oracle(net, objective_fn, constraint_fns, batch)
         kappa = compute_kappa(cval, cgrad, cfg.lambda_, cfg.rho)
         d = solve_subproblem(grad_f, cval, cgrad, kappa, cfg.beta, cfg.tau, cfg.qp_solver, 
-                             solve_dual=solve_dual, solve_relaxed=solve_relaxed)
+                            solve_dual=solve_dual, solve_relaxed=solve_relaxed)
         return d, cval, kappa
 
-    # Base term: level-0 direction d(x; X_base) on J_base fresh samples.
-    d_single, _, _ = solve(sampler.draw(J_base, rng))
+    # if using monte carlo sampling - solve the subproblem 4x, see the paper for details
+    if monte_carlo_sampling:
 
-    # Level-N increment from a fresh fine batch and its antithetic halves.
-    fine = sampler.draw(J_fine, rng)
-    even, odd = sampler.split_even_odd(fine)
-    d_fine, cval, kappa = solve(fine)
-    d_even, _, _ = solve(even)
-    d_odd, _, _ = solve(odd)
+        # Geometric level on {0, 1, 2, ...} with p(N) = α (1-α)^N.
+        N = int(rng.geometric(cfg.alpha)) - 1
+        p_N = cfg.alpha * (1.0 - cfg.alpha) ** N
+        base = cfg.base_batch
+        J_base = base                # level-0 (base) sample count
+        J_fine = base * 2 ** (N + 1)  # fine batch; antithetic halves are base * 2^N each
 
-    delta_N = d_fine - 0.5 * (d_even + d_odd)
-    d_tilde = d_single + delta_N / p_N
+        # Base term: level-0 direction d(x; X_base) on J_base fresh samples.
+        d_single, _, _ = solve(sampler.draw(J_base, rng))
 
-    info = {
-        "N": N,
-        "p_N": p_N,
-        "kappa": kappa,
-        "constraint_values": cval,
-        "n_samples": J_base + J_fine,  # distinct samples (even/odd reuse the fine batch)
-        "fine_batch": J_fine,
-    }
+        # Level-N increment from a fresh fine batch and its antithetic halves.
+        fine = sampler.draw(J_fine, rng)
+        even, odd = sampler.split_even_odd(fine)
+        d_fine, cval, kappa = solve(fine)
+        d_even, _, _ = solve(even)
+        d_odd, _, _ = solve(odd)
+
+        delta_N = d_fine - 0.5 * (d_even + d_odd)
+        d_tilde = d_single + delta_N / p_N
+
+        info = {
+            "N": N,
+            "p_N": p_N,
+            "kappa": kappa,
+            "constraint_values": cval,
+            "n_samples": J_base + J_fine,  # distinct samples (even/odd reuse the fine batch)
+            "fine_batch": J_fine,
+        }
+
+    # not using monte-carlo sampling - solve the subproblem once with base_batch samples
+    else:
+        base = cfg.base_batch
+        batch = sampler.draw(base, rng)
+
+        # solve the subproblem with base_batch samples
+        d_tilde, cval, kappa = solve(batch)
+
+        info = {
+            "N": base,
+            "p_N": 1.0,
+            "kappa": kappa,
+            "constraint_values": cval,
+            "n_samples": base,  
+            "fine_batch": base,
+        }
+
     return d_tilde, info
