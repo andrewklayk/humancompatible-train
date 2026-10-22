@@ -3,17 +3,11 @@
 # `humancompatible.train.dual_optim`; `_target_` is PBM and this block is the
 # parameterisation, which is the whole point of the `dual:` spec being live.
 #
-# `method: pbm` only names the registry entry run_llm records in the summary's `method`
-# column. The dual itself comes from this block -- with a factory present the registry is
-# bypassed entirely -- so run_llm.METHODS["pbm"]'s own defaults are NOT used here. The
-# row's own label is `label` below.
-#
 # Annealing off explicitly: both flags default on and then make `epoch_length` mandatory,
 # so a bare PBM(m=...) raises. Note PBM's `dual_range` floor makes lambda=0
 # unrepresentable -- a structural limit E0a measured, not a tuning artifact.
 name: spbm
 label: "SPBM"
-method: pbm
 primal:
   lr: 1.0e-3
 dual:

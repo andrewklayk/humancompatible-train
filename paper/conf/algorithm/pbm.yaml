@@ -4,7 +4,6 @@
 # limit E0a measured, not a tuning artifact.
 name: pbm
 label: "PBM"
-method: pbm
 primal:
   lr: 1.0e-3
 dual:

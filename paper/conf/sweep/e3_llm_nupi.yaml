@@ -11,7 +11,7 @@ hydra:
   sweeper:
     params:
       experiment.lr: choice(0.0001, 0.0005)
-      experiment.gate_lr: choice(0.01, 0.05)
+      experiment.gate_lr: choice(6.)
       algorithm.dual.ki: choice(0.1, 1.0)
       algorithm.dual.kp: choice(1., 10.)
       algorithm.dual.nu: choice(0.0)
