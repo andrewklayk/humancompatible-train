@@ -1,32 +1,22 @@
 """
 E3 — sparsity-constrained LM fine-tuning under data parallelism.
 
-Implements Eq. (3) of Gallego-Posada, Ramirez, Erraqabi, Bengio & Lacoste-Julien,
-*Controlled Sparsity via Constrained Optimization* (NeurIPS 2022, arXiv:2208.04425):
-structured hard-concrete L0 gates on a decoder LM, with per-block or model-wide
-constraints on the expected parameter density. The gates and constraints live in
-:mod:`paper.problems.sparse_lm`; this script is the training loop, the instrumentation
-and the artifact writing.
-
-**This file is one run.** The experiment is the two drivers on top of it:
-``sweep.py`` (methods x target density, plus the fixed-penalty baseline) and ``scaling.py``
-(tokens/s over the 1->2 GPU ladder). Both build their configurations from
+Implements Eq. (3) of Gallego-Posada et al., *Controlled Sparsity via Constrained
+Optimization* (NeurIPS 2022, arXiv:2208.04425): structured hard-concrete L0 gates on a
+decoder LM, with per-block or model-wide constraints on the expected parameter density.
+Gates and constraints live in :mod:`paper.problems.sparsity.sparse_lm`; this file is one
+training run. ``sweep.py`` and ``scaling.py`` build their configurations from
 :func:`build_parser`, so a default added here reaches them.
 
-**What E3 asks.** On a large multi-GPU LM job: do the dual methods deliver a requested
-density, what is the model worth at that density (perplexity at the median gates, on
-held-out blocks), and what does the dual layer cost in throughput. It does **not** validate
-the data-parallel constraint reduction — the density constraint is a closed form in the gate
-parameters with no data in it, so every rank computes the same value and ``all_reduce(c,
-AVG)`` cannot be caught being wrong here. That claim belongs to E0d's data-parallel
-equivalence testing, whose ratio-type-constraint finding is stated generally enough to
-cover E2 and E3's per-group rates alike.
+The density constraint is a closed form in the gate parameters, identical on every rank, so
+this experiment does not test the data-parallel constraint reduction (that is E0d's job).
 
 Usage::
 
     # CPU smoke, no downloads and no `transformers` needed
     python paper/e3/run_llm.py --model stub --synthetic --quick
     python paper/e3/run_llm.py --model stub --synthetic --quick --ranks 2
+    python paper/e3/run_llm.py --model stub --synthetic --quick --method penalty --penalty 0.3
 
     # the real thing, under torchrun (see sbatch_e3.sh)
     torchrun --standalone --nproc_per_node=4 paper/e3/run_llm.py \
@@ -37,19 +27,14 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import inspect
 import json
 import os
 import subprocess
 import sys
 import time
-from contextlib import nullcontext
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from paper.problems.sparsity import sparse_lm, sparsity_gates
-
 
 import numpy as np
 import torch
@@ -57,15 +42,9 @@ import torch.distributed as dist
 from torch import nn
 
 from humancompatible.train.dual_optim import ALM, PBM, iALM, nuPI
-from paper._harness import (
-    RESULTS,
-    figure,
-    save_figure,
-    set_seed,
-    write_csv,
-    write_table,
-)
+from paper._harness import RESULTS, figure, save_figure, set_seed, write_csv, write_table
 from paper.problems import tokens as tokens_mod
+from paper.problems.sparsity import sparse_lm, sparsity_gates
 
 EXPERIMENT = "e3"
 
@@ -74,35 +53,21 @@ EXPERIMENT = "e3"
 # methods
 # --------------------------------------------------------------------------- #
 
-# Each entry is ``(class, kwargs)``; ``None`` marks a reference with no duals.
-# Hyperparameter values are transcribed rather than read from
-# `benchmark/new_bench/conf/algorithm/*.yaml`, so this tree carries no Hydra dependency --
-# the same choice `paper/e0/d_distributed.py` makes.
-#
-# **Every hyperparameter is written out per method, the dual step size included.** There
-# is deliberately no shared `--dual-lr`: one number landing in ALM's `lr`, iALM's `beta`,
-# nuPI's two gains and PBM's `penalty_mult` reads as a common setting across methods and
-# is not one -- those are four different quantities, and a sweep over the shared knob was
-# really four unrelated sweeps sharing an axis label. Each is now set, and overridden, by
-# its own name: `--dual-opt lr=0.05`, `--dual-opt beta=0.05`, `--dual-opt penalty_mult=0.5`.
-#
-# `alm_gda` and `alm_gda_restart` are the reference method: ALM(penalty=0, is_ineq=True) is
-# the projected gradient descent-ascent of arXiv:2208.04425 Eq. (5), and restart=True is
-# that paper's dual restart, Eq. (6).
+# `(class, kwargs)`, or None for a method with no dual optimizer. Each method's dual step
+# size is its own named hyperparameter on purpose (ALM `lr`, iALM `beta`, nuPI `ki`/`kp`,
+# PBM `penalty_mult`); override with `--dual-opt KEY=VALUE`.
 METHODS = {
-    # references, no dual optimizer
+    # no duals
     "adam": None,
-    # "penalty": None,
-    # the reference method and its variants
+    # fixed penalty, Eq. (1)-(2): loss + --penalty * mean expected density
+    "penalty": None,
+    # ALM(penalty=0, is_ineq) is the projected GDA of Eq. (5); restart=True is Eq. (6)
     "alm_gda": (ALM, dict(
         lr=1e-2, penalty=0.0, init_duals=0.0, is_ineq=True,
     )),
     "alm_gda_restart": (ALM, dict(
         lr=1e-2, penalty=0.0, init_duals=0.0, is_ineq=True, restart=True,
     )),
-    # Hestenes-Powell-Rockafellar, not the quadratic augmentation. The name has to say
-    # which one it is: it is written verbatim into the `method` column of every artifact,
-    # and `augmentation="hpr"` is what the constructor is handed.
     "alm_hpr": (ALM, dict(
         lr=1e-2, penalty=1.0, init_duals=0.0, is_ineq=True,
         augmentation="hpr", restart=True,
@@ -110,19 +75,17 @@ METHODS = {
     "ialm": (iALM, dict(
         beta=1e-2, sigma=1.0, gamma=1.0, init_duals=0.0, is_ineq=True,
     )),
-    # nuPI dropped its `penalty` argument; passing it raises TypeError. `ki` and `kp`
-    # share a value here as a default, not as a property of the method.
     "nupi": (nuPI, dict(
         ki=1e-2, kp=1e-2, nu=0.0, init_duals=0.0, is_ineq=True,
     )),
-    # Annealing is switched off explicitly: it defaults on and then makes `epoch_length`
-    # mandatory, so PBM(m=...) alone raises. PBM is an inequality method by construction
-    # and takes no `is_ineq`.
+    # annealing defaults on and then requires `epoch_length`, so switch it off explicitly
     "pbm": (PBM, dict(
         gamma=0.5, penalty_mult=1e-2, delta=1.0, penalty_update="dimin_adapt",
         gamma_annealing=False, penalty_annealing=False,
     )),
 }
+
+CONSTRAINED = tuple(name for name, spec in METHODS.items() if spec is not None)
 
 
 def _coerce(text: str):
@@ -151,39 +114,18 @@ def parse_dual_opts(items) -> dict:
     return out
 
 
-def _accepted(cls) -> set:
-    parameters = inspect.signature(cls.__init__).parameters.values()
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters):
-        return set()  # takes **kwargs: nothing to validate against
-    return {p.name for p in parameters} - {"self"}
-
-
 def build_dual(method: str, m: int, *, device, process_group, overrides: dict = None):
     """This method's dual optimizer, with ``overrides`` on top of its defaults.
 
-    Unknown keys are refused rather than ignored: a typo in ``--dual-opt`` would
-    otherwise silently run the untouched default and look like a null result.
+    None of the constructors take ``**kwargs``, so a typo in ``--dual-opt`` raises
+    ``TypeError`` instead of silently running the default.
     """
     spec = METHODS[method]
     if spec is None:
         return None
     cls, defaults = spec
-    # A copy, always: METHODS holds one dict per method and sweep.py builds every
-    # configuration in a single process, so updating it in place would leak one cell's
-    # overrides into every later cell.
-    kwargs = dict(defaults)
-    kwargs.update(overrides or {})
-    accepted = _accepted(cls)
-    unknown = sorted(set(kwargs) - accepted) if accepted else []
-    if unknown:
-        raise SystemExit(
-            f"--dual-opt {', '.join(unknown)}: not {cls.__name__} argument(s). "
-            f"{method} accepts {sorted(accepted - {'m', 'device', 'process_group'})}"
-        )
+    kwargs = {**defaults, **(overrides or {})}  # a copy: sweep.py reuses METHODS in-process
     return cls(m=m, device=device, process_group=process_group, **kwargs)
-
-
-CONSTRAINED = tuple(name for name, spec in METHODS.items() if spec is not None)
 
 
 # --------------------------------------------------------------------------- #
@@ -192,14 +134,8 @@ CONSTRAINED = tuple(name for name, spec in METHODS.items() if spec is not None)
 
 
 class StepTimer:
-    """Phase timings for one step, honest on GPU as well as CPU.
-
-    On CUDA every mark is a ``torch.cuda.Event`` and the elapsed times are read after a
-    single ``synchronize()`` at the end of the step. Nothing in this repository did that
-    before: the existing per-epoch ``time`` columns in ``benchmark/`` use bare
-    ``perf_counter`` around asynchronous launches, so they measure launch time rather than
-    compute, and would report the dual layer as free for the wrong reason.
-    """
+    """Phase timings for one step. On CUDA, events read after one ``synchronize()``, so
+    the numbers are compute time rather than kernel-launch time."""
 
     def __init__(self, device: torch.device):
         self.cuda = device.type == "cuda"
@@ -222,18 +158,13 @@ class StepTimer:
                 out[f"ms_{name}"] = before.elapsed_time(after)
             else:
                 out[f"ms_{name}"] = (after - before) * 1e3
-        out["ms_total"] = sum(v for k, v in out.items() if k.startswith("ms_"))
+        out["ms_total"] = sum(out.values())
         return out
 
 
 def comm_accounting(model: nn.Module, m: int, world: int, dtype_bytes: int = 4) -> dict:
-    """Bytes the two collectives move per step.
-
-    Analytic, and labelled as such. The gradient payload is the trainable-parameter
-    footprint, which DDP all-reduces once per step in buckets; the constraint payload is
-    the ``m``-vector. The ring-corrected figures are the payload times
-    ``2(world-1)/world``, which is what a ring all-reduce actually puts on the wire.
-    """
+    """Analytic bytes per step: DDP's gradient all-reduce vs the m-vector constraint one.
+    Ring figures are payload times ``2(world-1)/world``."""
     grad = sparse_lm.trainable_bytes(model)
     dual = m * dtype_bytes
     factor = 0.0 if world < 2 else 2.0 * (world - 1) / world
@@ -252,17 +183,8 @@ def comm_accounting(model: nn.Module, m: int, world: int, dtype_bytes: int = 4) 
 
 
 def build_model(name: str, *, device, seed: int, vocab_size: int = None):
-    """The stand-in model, or a HuggingFace causal LM, in float32.
-
-    Parameters are float32 whatever ``--dtype`` says; that flag picks the *autocast*
-    dtype. Holding master weights in bfloat16 drops a large share of the AdamW updates
-    outright -- at ``lr=1e-4`` on weights of magnitude 1e-2 the update is around one
-    bf16 ULP -- and the moment buffers would be bfloat16 too.
-
-    ``transformers`` is imported lazily and only for a real model name, so the whole smoke
-    path runs without it installed — which is the situation both on this machine and on the
-    cluster, where no Transformers module exists.
-    """
+    """The stand-in model or a HuggingFace causal LM, always in float32 (``--dtype`` is
+    only the autocast dtype: bf16 master weights would drop most AdamW updates at 1e-4)."""
     if name == "stub":
         from paper.problems.tiny_lm import tiny_causal_lm
 
@@ -274,9 +196,7 @@ def build_model(name: str, *, device, seed: int, vocab_size: int = None):
         from transformers import AutoModelForCausalLM
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise SystemExit(
-            f"loading {name!r} needs `transformers`, which is not installed. Use "
-            f"`--model stub` for the smoke path, or install transformers on the cluster "
-            f"(no EasyBuild module provides it)."
+            f"loading {name!r} needs `transformers`; use `--model stub` for the smoke path"
         ) from exc
     model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.float32)
     model.config.use_cache = False  # incompatible with training, and wastes memory
@@ -289,32 +209,30 @@ def build_model(name: str, *, device, seed: int, vocab_size: int = None):
 
 
 def evaluate(model, shard, first_block, n_blocks, *, batch_size, device, rank, world,
-             amp=None, max_batches=None):
-    """Mean cross-entropy over a split's blocks, at whatever gates are installed.
+             amp_dtype=None, max_batches=None):
+    """Mean cross-entropy over a split, at whatever gates are installed.
 
-    Blocks are handed out contiguously per rank and truncated to an equal count, so the
-    ``ReduceOp.AVG`` over ranks is the mean over all of them. Returns ``None`` when the
-    split is too small to give every rank a batch, which is the ``--quick`` case.
-
-    ``max_batches`` caps the batches *per rank*, always taking the split's first blocks,
-    so every point on a curve is measured on identical data. ``None`` or ``0`` means the
-    whole split -- the convention ``run_cifar.py`` already uses for ``--eval-batches``.
+    Blocks are split contiguously and equally per rank, so the rank average is the mean
+    over all of them. ``max_batches`` (per rank, 0/None = all) always takes the split's
+    first blocks. Returns None when the split cannot give every rank a batch.
     """
     per_rank = n_blocks // world
     if per_rank < batch_size:
         return None
-    total, batches = 0.0, per_rank // batch_size
+    batches = per_rank // batch_size
     if max_batches:
         batches = min(batches, max_batches)
+    total = 0.0
     with torch.no_grad():
         for b in range(batches):
             start = first_block + rank * per_rank + b * batch_size
             ids = shard.batch(range(start, start + batch_size), device=device)
-            with (amp() if amp is not None else nullcontext()):
+            with torch.autocast(device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
                 total += float(model(input_ids=ids, labels=ids).loss)
     mean = torch.tensor(total / batches, device=device)
     if world > 1:
-        dist.all_reduce(mean, op=dist.ReduceOp.AVG)
+        dist.all_reduce(mean)  # SUM: gloo has no AVG
+        mean /= world
     return float(mean)
 
 
@@ -323,24 +241,16 @@ def train(args, *, rank: int, world: int, device, process_group,
     """Run ``args.steps`` steps; return per-step rows plus a summary.
 
     :param dual_factory: ``(m, *, device, process_group) -> DualOptimizer``, overriding
-        ``METHODS[args.method]``. The hook ``paper/tune.py`` drives: a config's
-        ``_target_`` block reaches the dual optimizer this way, which an argv flag
-        cannot. Same signature as ``run_cifar.train``'s.
+        ``METHODS[args.method]`` (``--method`` then only labels the row). Used by
+        ``paper/tune.py``.
     """
     set_seed(args.seed)
-    # Parameters stay float32; --dtype is the autocast dtype, and only on GPU. A fresh
-    # context per use rather than one reused instance, which is not re-entrant.
     amp_dtype = getattr(torch, args.dtype) if device.type == "cuda" else None
 
-    def autocast():
-        if amp_dtype is None:
-            return nullcontext()
-        return torch.autocast(device_type="cuda", dtype=amp_dtype)
-
     shard = tokens_mod.TokenShard(args.tokens, args.seq_len)
-    model = build_model(
-        args.model, device=device, seed=args.seed, vocab_size=args.vocab_size,
-    )
+    model = build_model(args.model, device=device, seed=args.seed,
+                        vocab_size=args.vocab_size)
+    model.train()  # from_pretrained returns eval mode
 
     gates = None
     if not args.no_gates:
@@ -353,70 +263,44 @@ def train(args, *, rank: int, world: int, device, process_group,
             device=device,
         )
     facts = sparse_lm.describe(model, gates)
-
     m = 0 if gates is None else gates.m(args.granularity)
     names = [] if gates is None else gates.constraint_names(args.granularity)
 
-    # Gates must be attached before the DDP wrap so their parameters are registered and
-    # synchronised like any other.
+    # gates are attached before the DDP wrap so their parameters are synchronised too
     wrapped = model
     if world > 1:
         wrapped = nn.parallel.DistributedDataParallel(
             model, device_ids=[device.index] if device.type == "cuda" else None
         )
 
-    # Gate parameters get their own, much larger step. Adam moves a parameter by about
-    # its learning rate per step regardless of gradient scale, and carrying log_alpha
-    # from a 95%-open initialisation to a 30%-density solution is a move of ~3.8 -- at
-    # the model's 1e-4 that is 38k steps, so a shared step size would make this
-    # experiment a measurement of the learning rate rather than of the methods.
-    # Separate optimizers for weights and gates is also what arXiv:2208.04425 does.
+    # Gates get their own, larger step (Adam moves ~lr per step; log_alpha has to travel
+    # ~4) and no weight decay (it would pull density toward ~0.83).
     gate_ids = set() if gates is None else {id(p) for p in gates.gate_parameters()}
-    groups = [
-        {"params": [p for p in wrapped.parameters() if id(p) not in gate_ids],
-         "lr": args.lr},
-    ]
+    groups = [{"params": [p for p in wrapped.parameters() if id(p) not in gate_ids],
+               "lr": args.lr}]
     if gate_ids:
-        # No weight decay on log_alpha. AdamW's default 0.01 at the gate step size shrinks
-        # it by a factor 0.82 over 2000 steps, a standing pull toward
-        # sigmoid(-beta*log(-gamma/zeta)) = 0.83 density -- an unintended regulariser on
-        # exactly the parameters the constraint controls.
         groups.append({"params": [p for p in wrapped.parameters() if id(p) in gate_ids],
                        "lr": args.gate_lr, "weight_decay": 0.0})
     primal = torch.optim.AdamW(groups, lr=args.lr)
+
     dual = None
     if dual_factory is not None or METHODS[args.method] is not None:
         if gates is None:
             raise SystemExit(f"--method {args.method} needs gates; drop --no-gates")
         if dual_factory is not None:
-            # With a factory the registry is bypassed entirely and `--method` only
-            # labels the row.
             dual = dual_factory(m, device=device, process_group=process_group)
         else:
-            dual = build_dual(
-                args.method, m, device=device, process_group=process_group,
-                overrides=parse_dual_opts(args.dual_opt),
-            )
+            dual = build_dual(args.method, m, device=device, process_group=process_group,
+                              overrides=parse_dual_opts(args.dual_opt))
 
-    # A generator seeded identically on every rank makes the objective's gate noise
-    # shared, which is what makes a `world x B` run comparable to `1 x (world*B)`. Seeding
-    # per rank instead averages over `world` gate draws -- a different estimator, and the
-    # reason this is a flag rather than a constant.
+    # Same seed on every rank = shared gate noise, so `world x B` matches `1 x world*B`.
     gate_gen = None
     if gates is not None:
         gate_gen = torch.Generator(device=device)
         gate_gen.manual_seed(args.seed if args.sync_gates else args.seed + 9973 * rank)
 
-    # Three-way split, as fractions of the shard: train | val | test, in that order, so
-    # test sits furthest from the training data in stream order. Fractions rather than a
-    # block count derived from `eval_batches * batch_size * world`, which would move the
-    # split boundary whenever parallelism or batch size changed -- the split has to be a
-    # property of the shard alone if runs are to be comparable.
-    #
-    # val is what hyperparameter selection may look at (tune.py scores it); test is
-    # touched by nothing that chooses anything, and its headline number is the final
-    # iterate. That is why there is a `best_val_ppl` below and deliberately no
-    # `best_test_ppl`.
+    # train | val | test as fractions of the shard, so the split does not move with
+    # world or batch size. Only val may be used for selection.
     n_val = int(len(shard) * args.val_frac)
     n_test = int(len(shard) * args.test_frac)
     n_train = len(shard) - n_val - n_test
@@ -429,53 +313,38 @@ def train(args, *, rank: int, world: int, device, process_group,
     sampler = tokens_mod.BlockSampler(
         n_train, args.batch_size, rank=rank, world=world, seed=args.seed
     )
-    batches = sampler.stream(args.steps)
     tokens_per_step = args.batch_size * args.seq_len * world
 
     def eval_point(step: int, *, with_test: bool) -> dict:
-        """One curve point, at the median (test-time) gates.
-
-        Consumes no RNG and touches no optimizer state, and the next iteration resamples
-        the gates before its forward pass -- so the training trajectory is identical
-        whether or not the curve is switched on.
-        """
+        """One curve point at the median gates; uses no RNG, so training is unaffected."""
         if gates is not None:
             gates.use_median()
         point = {"step": step, "tokens_seen": (step + 1) * tokens_per_step}
-        for name, start, count, wanted in (
-            ("val", val_start, n_val, True),
-            ("test", test_start, n_test, with_test),
-        ):
-            if not wanted:
-                continue
+        splits = [("val", val_start, n_val)] + ([("test", test_start, n_test)]
+                                                if with_test else [])
+        for name, start, count in splits:
             loss = evaluate(
                 model, shard, start, count, batch_size=args.batch_size, device=device,
-                rank=rank, world=world, amp=autocast, max_batches=args.eval_batches,
+                rank=rank, world=world, amp_dtype=amp_dtype, max_batches=args.eval_batches,
             )
             if loss is not None:
                 point[f"{name}_loss"] = loss
                 point[f"{name}_ppl"] = float(np.exp(loss))
         return point
 
-    eval_rows = []
-
     comm = comm_accounting(model, m, world)
     if device.type == "cuda":
-        # Per configuration, not per process: sweep.py runs the whole grid in one.
-        torch.cuda.reset_peak_memory_stats(device)
-    rows = []
-    for step, indices in enumerate(batches):
+        torch.cuda.reset_peak_memory_stats(device)  # per configuration: sweep.py reuses the process
+    rows, eval_rows = [], []
+    for step, indices in enumerate(sampler.stream(args.steps)):
         timer = StepTimer(device)
         timer.mark("start")
 
         ids = shard.batch(indices, device=device)
         if gates is not None:
-            # Fresh gate draw per step. This must precede the forward pass: the sample is
-            # what carries gradients to log_alpha, and reusing one across two backward
-            # passes raises from autograd.
-            gates.resample(gate_gen)
+            gates.resample(gate_gen)  # fresh draw per step, before the forward pass
 
-        with autocast():
+        with torch.autocast(device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
             loss = wrapped(input_ids=ids, labels=ids).loss
         timer.mark("forward")
 
@@ -483,9 +352,6 @@ def train(args, *, rank: int, world: int, device, process_group,
             objective = dual.forward_update(
                 loss, gates.constraints(args.eps, args.granularity))
         elif args.method == "penalty":
-            # Their penalized formulation, Eq. (1)-(2): a fixed multiple of the expected
-            # L0 added to the loss. The sweep over `--penalty` is the comparison their
-            # Fig. 1 makes against the constrained approach.
             objective = loss + args.penalty * gates.densities(args.granularity).mean()
         else:
             objective = loss
@@ -500,12 +366,7 @@ def train(args, *, rank: int, world: int, device, process_group,
         primal.zero_grad(set_to_none=True)
         timer.mark("opt")
 
-        row = {
-            "step": step,
-            "loss": float(loss.detach()),
-            "tokens": args.batch_size * args.seq_len * world,
-            **timer.finish(),
-        }
+        row = {"step": step, "loss": float(loss.detach()), **timer.finish()}
         if gates is not None:
             with torch.no_grad():
                 density = gates.densities(args.granularity)
@@ -514,25 +375,17 @@ def train(args, *, rank: int, world: int, device, process_group,
             row["density_max"] = float(density.max())
             row["max_violation"] = float((density - args.eps).max())
         if dual is not None:
-            with torch.no_grad():
-                duals = dual.duals.detach()
+            duals = dual.duals.detach()
             row["dual_mean"] = float(duals.mean())
             row["dual_max"] = float(duals.max())
-            if world > 1:
-                # Measured, not predicted: how far the ranks' duals are from rank 0's.
-                gathered = [torch.zeros_like(duals) for _ in range(world)]
-                dist.all_gather(gathered, duals)
-                row["dual_spread_across_ranks"] = float(
-                    max((g - gathered[0]).abs().max() for g in gathered)
-                )
         rows.append(row)
+
         if rank == 0 and (step % max(1, args.steps // 10) == 0 or step == args.steps - 1):
-            note = f"  density={row.get('density_mean', float('nan')):.4f}" if gates else ""
+            note = f"  density={row['density_mean']:.4f}" if gates is not None else ""
             print(f"  step {step:>5d}  loss={row['loss']:.4f}"
                   f"  {row['ms_total']:.1f} ms{note}", flush=True)
-        # Outside the StepTimer region, so `tokens_per_s` is unaffected -- the wall clock
-        # is not, which is why scaling.py leaves this off.
-        if args.eval_every and step % args.eval_every == 0:
+        # outside the timer; the last step is evaluated below, with test
+        if args.eval_every and step % args.eval_every == 0 and step != args.steps - 1:
             eval_rows.append(eval_point(step, with_test=args.test_curve))
 
     warmup = min(args.warmup, max(0, len(rows) - 1))
@@ -543,39 +396,38 @@ def train(args, *, rank: int, world: int, device, process_group,
         "dual_opts": ",".join(args.dual_opt),
         "model": args.model,
         "world": world,
-        "granularity": args.granularity if gates else "none",
+        "granularity": args.granularity if gates is not None else "none",
         "m": m,
         "eps": args.eps,
         "per_rank_batch": args.batch_size,
         "seq_len": args.seq_len,
         "steps": len(rows),
         "warmup_steps_dropped": warmup,
-        "tokens_per_s": sum(r["tokens"] for r in steady) / seconds if seconds else 0.0,
-        "ms_per_step": sum(r["ms_total"] for r in steady) / len(steady),
+        "tokens_per_s": tokens_per_step * len(steady) / seconds if seconds else 0.0,
+        "ms_per_step": seconds * 1e3 / len(steady),
         "final_loss": rows[-1]["loss"],
         **{k: sum(r[k] for r in steady) / len(steady)
            for k in ("ms_forward", "ms_backward", "ms_dual", "ms_opt")},
         **facts,
         **comm,
     }
-    # The test-time model is the median gate (their Appendix A.1), not a fresh sample:
-    # what a user ships is one deterministic network, and its perplexity is what says
-    # whether the density the constraint delivered was worth having.
+    if args.method == "penalty":
+        summary["penalty"] = args.penalty
+
+    # The shipped model is the median gate (their App. A.1); report the density it
+    # actually realises, so perplexity and density describe the same network.
     report = []
     if gates is not None:
         report = gates.median_report()
-        # What the *shipped* network realises, parameter-counted the way the constraint
-        # is. `final_density_mean` is the expected density the constraint acts on, while
-        # the perplexity below is measured at the median gates -- without this the table
-        # would pair a perplexity with the density of a different network.
         summary["final_median_density"] = (
-            sum(r["params_active"] for r in report)
-            / sum(r["params_total"] for r in report)
+            sum(r["params_active"] for r in report) / sum(r["params_total"] for r in report)
         )
-    # The headline is the final iterate on both splits, always -- including test, even
-    # when the test *curve* is switched off.
-    final = eval_point(len(rows) - 1, with_test=True) if rows else {}
-    if args.eval_every and final:
+        for k in ("density_mean", "density_min", "density_max", "max_violation"):
+            summary[f"final_{k}"] = rows[-1][k]
+
+    # headline: final iterate on val and test, always
+    final = eval_point(len(rows) - 1, with_test=True)
+    if args.eval_every:
         eval_rows.append(final)
     for key in ("val_loss", "val_ppl", "test_loss", "test_ppl"):
         if key in final:
@@ -586,12 +438,6 @@ def train(args, *, rank: int, world: int, device, process_group,
         best = min(scored, key=lambda r: r["val_ppl"])
         summary["best_val_ppl"] = best["val_ppl"]
         summary["best_val_step"] = best["step"]
-
-    if gates is not None:
-        summary["final_density_mean"] = rows[-1]["density_mean"]
-        summary["final_density_min"] = rows[-1]["density_min"]
-        summary["final_density_max"] = rows[-1]["density_max"]
-        summary["final_max_violation"] = rows[-1]["max_violation"]
     if device.type == "cuda":
         summary["peak_mem_bytes"] = torch.cuda.max_memory_allocated(device)
 
@@ -614,12 +460,8 @@ def _dist_env() -> tuple[int, int, int]:
 
 
 def _pick_device(local_rank: int, world: int = 1) -> torch.device:
-    """CUDA when every rank can have a device of its own, else CPU on all of them.
-
-    The test is on ``world``, not on ``local_rank``: the decision has to come out the
-    same on every rank, or they also choose different collective backends (nccl against
-    gloo) and the job deadlocks instead of falling back.
-    """
+    """CUDA if every rank gets its own GPU, else CPU everywhere. Decided on ``world`` so
+    all ranks agree (mixed nccl/gloo would deadlock)."""
     if torch.cuda.is_available() and world <= torch.cuda.device_count():
         torch.cuda.set_device(local_rank)
         return torch.device(f"cuda:{local_rank}")
@@ -627,7 +469,7 @@ def _pick_device(local_rank: int, world: int = 1) -> torch.device:
 
 
 def _ensure_tokens(args) -> None:
-    """Write a synthetic shard if asked and none exists, so the smoke path is one command."""
+    """Write a synthetic shard if asked and none exists."""
     path = Path(args.tokens)
     if path.exists() or not args.synthetic:
         return
@@ -638,9 +480,7 @@ def _ensure_tokens(args) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """The single-run flags. ``sweep.py`` and ``scaling.py`` build their configurations
-    from ``build_parser().parse_args([])`` rather than assembling an argv, so a default
-    added here reaches every driver."""
+    """The single-run flags; the drivers start from ``build_parser().parse_args([])``."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--model", default="stub",
                         help="'stub' for the transformers-free stand-in, else a HF id")
@@ -659,34 +499,28 @@ def build_parser() -> argparse.ArgumentParser:
                         help="steps dropped before the throughput average")
     parser.add_argument("--eval-batches", type=int, default=16,
                         help="batches per rank per evaluation; 0 means the whole split")
-    parser.add_argument("--val-frac", type=float, default=0.01,
-                        help="fraction of the shard held out for validation")
-    parser.add_argument("--test-frac", type=float, default=0.01,
-                        help="fraction of the shard held out for test; nothing selects "
-                             "on it")
+    parser.add_argument("--val-frac", type=float, default=0.01)
+    parser.add_argument("--test-frac", type=float, default=0.01)
     parser.add_argument("--eval-every", type=int, default=0,
                         help="steps between curve points; 0 evaluates only at the end")
-    parser.add_argument("--test-curve", action="store_true", default=True)
     parser.add_argument("--no-test-curve", dest="test_curve", action="store_false",
                         help="curve on val only; test is still measured at the end")
     parser.add_argument("--seq-len", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=4, help="per rank")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gate-lr", type=float, default=1e-2,
-                        help="step size for the gate parameters; see train()")
+                        help="step size for the gate parameters")
     parser.add_argument("--dual-opt", action="append", default=[], metavar="KEY=VALUE",
-                        help="override one of the method's fixed dual hyperparameters; "
-                             "repeatable, e.g. --dual-opt kp=0.5 --dual-opt nu=0.1")
+                        help="override a dual hyperparameter; repeatable, "
+                             "e.g. --dual-opt kp=0.5 --dual-opt nu=0.1")
     parser.add_argument("--grad-clip", type=float, default=0.0)
     parser.add_argument("--dtype", default="bfloat16",
-                        help="autocast dtype on GPU; parameters are always float32, and "
-                             "CPU runs without autocast")
+                        help="autocast dtype on GPU; parameters are always float32")
     parser.add_argument("--init-open", type=float, default=0.95)
     parser.add_argument("--no-gates", action="store_true",
                         help="the plain LM: no hooks, no constraints")
     parser.add_argument("--no-mlp-gates", action="store_true")
     parser.add_argument("--no-head-gates", action="store_true")
-    parser.add_argument("--sync-gates", action="store_true", default=True)
     parser.add_argument("--no-sync-gates", dest="sync_gates", action="store_false",
                         help="draw independent gate samples per rank")
     parser.add_argument("--no-process-group", action="store_true",
@@ -696,17 +530,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="re-exec under torchrun with this many ranks")
     parser.add_argument("--tag", default=None, help="suffix for the artifact names")
     parser.add_argument("--quick", action="store_true")
-    parser.add_argument("--check", action="store_true",
-                        help="accepted for parity; E3 registers no predictions")
     return parser
 
 
 def finalize(args):
-    """Apply ``--quick``, fill in the shard path, reject impossible combinations.
-
-    Shared with the drivers, which override fields on a defaults namespace and would
-    otherwise each have to remember what ``--quick`` means.
-    """
+    """Apply ``--quick``, fill in the shard path, reject impossible combinations."""
     if args.quick:
         args.steps = min(args.steps, 6)
         args.seq_len = min(args.seq_len, 32)
@@ -724,11 +552,11 @@ def finalize(args):
 
 
 def main(argv=None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
     args = finalize(build_parser().parse_args(argv))
-
     rank, world, local_rank = _dist_env()
 
-    # Already under torchrun: be a worker.
+    # Under torchrun: be a worker.
     if rank >= 0:
         device = _pick_device(local_rank, world)
         dist.init_process_group("nccl" if device.type == "cuda" else "gloo")
@@ -743,71 +571,34 @@ def main(argv=None) -> None:
             dist.destroy_process_group()
         return
 
-    # Not under torchrun, but more than one rank was asked for: re-exec, as
-    # paper/e0/d_distributed.py does, so this file stays the single entry point.
+    _ensure_tokens(args)
+
+    # More than one rank asked for: re-exec under torchrun with the same argv
+    # (workers take the branch above, so --ranks is ignored there).
     if args.ranks > 1:
-        _ensure_tokens(args)
         command = [
             sys.executable, "-m", "torch.distributed.run",
             "--standalone", f"--nproc_per_node={args.ranks}",
-            str(Path(__file__).resolve()),
-        ] + _rebuild_argv(args)
+            str(Path(__file__).resolve()), *argv,
+        ]
         print(f"launching {args.ranks} ranks ...", flush=True)
         completed = subprocess.run(command, env=dict(os.environ, OMP_NUM_THREADS="1"))
         if completed.returncode != 0:
             raise SystemExit(f"torchrun failed with code {completed.returncode}")
         return
 
-    # Plain single process.
-    _ensure_tokens(args)
     device = _pick_device(0)
     result = train(args, rank=0, world=1, device=device, process_group=None)
     _write(args, result, 1)
 
 
-def _rebuild_argv(args) -> list[str]:
-    """Reconstruct the flags for the re-exec, minus --ranks."""
-    out = [
-        "--model", args.model, "--tokens", args.tokens, "--method", args.method,
-        "--granularity", args.granularity, "--eps", str(args.eps),
-        "--penalty", str(args.penalty), "--steps", str(args.steps),
-        "--warmup", str(args.warmup), "--eval-batches", str(args.eval_batches),
-        "--val-frac", str(args.val_frac), "--test-frac", str(args.test_frac),
-        "--eval-every", str(args.eval_every),
-        "--seq-len", str(args.seq_len),
-        "--batch-size", str(args.batch_size), "--lr", str(args.lr),
-        "--gate-lr", str(args.gate_lr),
-        "--grad-clip", str(args.grad_clip),
-        "--dtype", args.dtype, "--init-open", str(args.init_open),
-        "--seed", str(args.seed),
-    ]
-    if args.vocab_size is not None:
-        out += ["--vocab-size", str(args.vocab_size)]
-    for item in args.dual_opt:
-        out += ["--dual-opt", str(item)]
-    for flag, on in (
-        ("--no-gates", args.no_gates),
-        ("--no-mlp-gates", args.no_mlp_gates),
-        ("--no-head-gates", args.no_head_gates),
-        ("--no-process-group", args.no_process_group),
-        ("--no-test-curve", not args.test_curve),
-        ("--synthetic", args.synthetic),
-        ("--quick", args.quick),
-    ):
-        if on:
-            out.append(flag)
-    if not args.sync_gates:
-        out.append("--no-sync-gates")
-    if args.tag:
-        out += ["--tag", args.tag]
-    return out
-
-
 def _slug(args, world: int) -> str:
-    """Artifact name. ``world`` comes from the live process group, never from
-    ``args.ranks``: the re-exec strips ``--ranks``, so a worker always reads it as 1 and
-    every multi-rank run would overwrite the single-process artifacts of the same method."""
-    base = f"{args.method}_{args.granularity}_eps{args.eps:g}_w{world}"
+    """Artifact name. ``world`` comes from the live process group, not ``args.ranks``.
+    scaling.py rebuilds this name to find the summary, so keep the two in step."""
+    if args.method == "penalty":
+        base = f"penalty_{args.granularity}_lam{args.penalty:g}_w{world}"
+    else:
+        base = f"{args.method}_{args.granularity}_eps{args.eps:g}_w{world}"
     if args.no_gates:
         base += "_nogates"
     if args.no_process_group and world > 1:
@@ -818,9 +609,11 @@ def _slug(args, world: int) -> str:
 def _write(args, result: dict, world: int) -> None:
     slug = _slug(args, world)
     write_csv(result["rows"], f"e3_steps_{slug}", EXPERIMENT)
+    target = (f"penalty={args.penalty:g}" if args.method == "penalty"
+              else f"eps={args.eps:g}")
     write_table([result["summary"]], f"e3_summary_{slug}", EXPERIMENT,
                 title=f"E3: {args.method} on {args.model}, "
-                      f"{args.granularity} granularity, eps={args.eps:g}")
+                      f"{args.granularity} granularity, {target}")
     if result["eval_rows"]:
         write_csv(result["eval_rows"], f"e3_eval_{slug}", EXPERIMENT)
     if result["median_report"]:
@@ -828,15 +621,13 @@ def _write(args, result: dict, world: int) -> None:
                     title="E3: per-group density at the median gates")
     _make_figure(result, slug)
     print(json.dumps(result["summary"], indent=2, default=str))
-    if args.check:
-        print("\nE3 registers no predictions; --check has nothing to gate on.")
 
 
 def _make_figure(result: dict, slug: str) -> None:
     rows = result["rows"]
     if len(rows) < 2 or "density_mean" not in rows[0]:
         return
-    curve = [r for r in result.get("eval_rows", []) if "val_ppl" in r]
+    curve = [r for r in result["eval_rows"] if "val_ppl" in r]
     fig, axes, plt = figure(1, 3 if curve else 2, row_height=2.2)
     steps = [r["step"] for r in rows]
     axes[0].plot(steps, [r["loss"] for r in rows], lw=1.0)
