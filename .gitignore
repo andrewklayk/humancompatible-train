@@ -24,7 +24,7 @@ paper/multirun/
 *.jpg
 *.png
 docs/source/tutorials/*.ipynb
-
+*wikitext2*
 
 env*/
 

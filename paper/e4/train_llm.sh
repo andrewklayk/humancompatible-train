@@ -12,4 +12,5 @@ if command -v ml >/dev/null 2>&1; then
   pip install fairret
   pip install fairml-datasets
   pip install scikit-learn
+  pip install 'accelerate>=0.26.0'
 fi
