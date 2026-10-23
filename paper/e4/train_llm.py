@@ -7,7 +7,7 @@ from transformers import AutoTokenizer
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers import Trainer, TrainingArguments
 import math
-
+import torch
 
 def tokenizer_curry(tokenizer):
     def tokenize_function(examples):
@@ -30,7 +30,10 @@ def group_texts(examples, block_size=128):
     result["labels"] = result["input_ids"].copy()
     return result
 
-def train_lamma():
+def train_lamma_trainer():
+    """
+    To be deleted once the training loop is implemented.
+    """
 
     # load data here
     datasets = load_dataset('wikitext', 'wikitext-2-raw-v1')
@@ -83,8 +86,93 @@ def train_lamma():
     print(f"Perplexity: {math.exp(eval_results['eval_loss']):.2f}")
 
 
+def get_dataloaders(dataset):
+
+    # create a dummy trainer to get the dataloader
+    training_args = TrainingArguments(
+        output_dir="dummy",
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
+    )
+
+    dummy_model = torch.nn.Linear(10, 10)  # Replace with a valid model
+
+    dummy_trainer = Trainer(
+        model=dummy_model, 
+        args=training_args,
+        train_dataset=dataset["train"],
+        eval_dataset=dataset["validation"],
+    )
+
+    return dummy_trainer.get_train_dataloader(), dummy_trainer.get_test_dataloader()
+
+
+
+def train_lamma():
+    """
+    To be deleted once the training loop is implemented.
+    """
+
+    # load data here
+    datasets = load_dataset('wikitext', 'wikitext-2-raw-v1')
+
+    # define the models here
+    model_checkpoint = "gpt2"
+    tokenizer_checkpoint = "sgugger/gpt2-like-tokenizer"
+
+    # load the tokenizer here
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_checkpoint)
+
+    # tokenize the data + remove the text
+    tokenized_datasets = datasets.map(tokenizer_curry(tokenizer), batched=True, num_proc=16, remove_columns=["text"])
+
+    # group the data based in the window grid + create labels
+    lm_datasets = tokenized_datasets.map(
+                        group_texts,
+                        batched=True,
+                        batch_size=1000,
+                        num_proc=16,    
+                    )
+
+    # load the model here
+    config = AutoConfig.from_pretrained(model_checkpoint)
+    model = AutoModelForCausalLM.from_config(config)
+
+    # create a dataloader for the training dataset
+    train_loader, test_loader = get_dataloaders(lm_datasets)
+
+    for batch in train_loader:
+        print(tokenizer.decode(batch["input_ids"][0]))
+        break
+
+    # print(config)
+    # print(model)
+
+
+
+    # training_args = TrainingArguments(
+    #     f"{model_checkpoint}-wikitext2",
+    #     eval_strategy = "epoch",
+    #     learning_rate=2e-5,
+    #     weight_decay=0.01,
+    #     push_to_hub=False
+    # )
+
+    # trainer = Trainer(
+    #     model=model,
+    #     args=training_args,
+    #     train_dataset=lm_datasets["train"],
+    #     eval_dataset=lm_datasets["validation"],
+    # )
+
+    # trainer.train()
+
+    # eval_results = trainer.evaluate()
+    # print(f"Perplexity: {math.exp(eval_results['eval_loss']):.2f}")
+
 
 
 if __name__ == "__main__":
 
+    # train_lamma_trainer()
     train_lamma()
