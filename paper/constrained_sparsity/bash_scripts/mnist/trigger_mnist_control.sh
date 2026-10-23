@@ -4,18 +4,19 @@
 #                               TO BE CUSTOMIZED
 # -----------------------------------------------------------------------------
 # Directory containing the source code
-L0_SRC_PATH="$HOME/humancompatible-train/paper/constrained_sparsity"
+L0_SRC_PATH="$HOME/humancompatible-train/paper/constrained_sparsity/"
 
 # Getting helper functions - Do not delete
 source $L0_SRC_PATH/bash_scripts/bash_helpers.sh
 
 # Bash script with call to Python script
-main_bash_script="${L0_SRC_PATH}/bash_scripts/run_basic_exp.sh"
+# main_bash_script="${L0_SRC_PATH}/bash_scripts/run_basic_exp.sh"
+main_bash_script="./bash_scripts/run_basic_exp.sh"
 
 # SLURM options
 slurm_log_dir="$HOME/slurm_logs/const/"
 notify_email="" # Leave empty ("") for no email
-partition="cpu"
+partition="gpufast"
 
 # WandB -- You will likely want to keep these untouched!
 use_wandb=True
@@ -26,7 +27,7 @@ wandb_dir="${SCRATCH}/wandb_logs/"
 checkpoint_dir="${SCRATCH}/l0_checkpoints/mnist"
 
 # Number of GPUs.
-NUM_GPUS=2
+NUM_GPUS=1
 
 # Config lists
 # declare -a seeds=(1 2 3)
@@ -38,7 +39,7 @@ NUM_GPUS=2
 declare -a seeds=(1 2 3)
 declare -a model_types=("MLP")
 declare -a target_densities=()
-declare -a lmbdas=(1e-4)
+declare -a lmbdas=(1e-4 1e-3)
 declare -a reg_types=("layer" "model")
 
 
@@ -93,10 +94,14 @@ for model_type in ${model_types[@]}; do
                 submit_sbatch "${python_args} -tdst ${_tdst_list}"
             done
 
+            # regularized - no dual optimizer
             for lmbda in ${lmbdas[@]}; do
 
                 # Set up _lmbda_list (3 layers for MLPs, 4 layers for LeNet)
                 _lmbda_list=$( mnist_regularization_list "${reg_type}" "${lmbda}" "${model_type}" )
+
+                # prin the bash command to be executed
+                echo "${main_bash_script} ${python_args} --lmbdas $_lmbda_list"
 
                 # Trigger the job
                 submit_sbatch "${python_args} --lmbdas $_lmbda_list"
