@@ -38,6 +38,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from paper.problems.sparsity import sparse_lm, sparsity_gates
+
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -119,7 +122,9 @@ def build_model(name: str, *, device, seed: int, vocab_size: int = None):
         from transformers import AutoModelForCausalLM
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise SystemExit(
-            f"loading {name!r} needs `transformers`; use `--model stub` for the smoke path"
+            f"loading {name!r} needs `transformers`, which is not installed. Use "
+            f"`--model stub` for the smoke path, or install transformers on the cluster "
+            f"(no EasyBuild module provides it)."
         ) from exc
     model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.float32)
     model.config.use_cache = False  # incompatible with training, and wastes memory
@@ -163,6 +168,8 @@ def train(args, *, device, dual_factory=None) -> dict:
         only labels the run.
     """
     set_seed(args.seed)
+    # Parameters stay float32; --dtype is the autocast dtype, and only on GPU. A fresh
+    # context per use rather than one reused instance, which is not re-entrant.
     amp_dtype = getattr(torch, args.dtype) if device.type == "cuda" else None
 
     def autocast():
@@ -224,7 +231,12 @@ def train(args, *, device, dual_factory=None) -> dict:
     tokens_per_step = args.batch_size * args.seq_len
 
     def eval_point(step: int, *, with_test: bool) -> dict:
-        """One curve point at the median gates; uses no RNG, so training is unaffected."""
+        """One curve point, at the median (test-time) gates.
+
+        Consumes no RNG and touches no optimizer state, and the next iteration resamples
+        the gates before its forward pass -- so the training trajectory is identical
+        whether or not the curve is switched on.
+        """
         if gates is not None:
             gates.use_median()
         point = {"step": step, "tokens_seen": (step + 1) * tokens_per_step}
@@ -249,7 +261,10 @@ def train(args, *, device, dual_factory=None) -> dict:
 
         ids = ids.to(device)
         if gates is not None:
-            gates.resample(gate_gen)  # fresh draw per step, before the forward pass
+            # Fresh gate draw per step. This must precede the forward pass: the sample is
+            # what carries gradients to log_alpha, and reusing one across two backward
+            # passes raises from autograd.
+            gates.resample(gate_gen)
 
         with autocast():
             loss = model(input_ids=ids, labels=ids).loss
@@ -314,11 +329,9 @@ def train(args, *, device, dual_factory=None) -> dict:
            for k in ("ms_forward", "ms_backward", "ms_dual", "ms_opt")},
         **sparse_lm.describe(model, gates),
     }
-    if args.method == "penalty":
-        summary["penalty"] = args.penalty
-
-    # The shipped model is the median gate (their App. A.1); report the density it
-    # actually realises, so perplexity and density describe the same network.
+    # The test-time model is the median gate (their Appendix A.1), not a fresh sample:
+    # what a user ships is one deterministic network, and its perplexity is what says
+    # whether the density the constraint delivered was worth having.
     report = []
     if gates is not None:
         report = gates.median_report()
@@ -326,14 +339,13 @@ def train(args, *, device, dual_factory=None) -> dict:
         # is. `final_density_mean` is the expected density the constraint acts on, while
         # the perplexity below is measured at the median gates
         summary["final_median_density"] = (
-            sum(r["params_active"] for r in report) / sum(r["params_total"] for r in report)
+            sum(r["params_active"] for r in report)
+            / sum(r["params_total"] for r in report)
         )
-        for k in ("density_mean", "density_min", "density_max", "max_violation"):
-            summary[f"final_{k}"] = rows[-1][k]
-
-    # headline: final iterate on val and test, always
-    final = eval_point(len(rows) - 1, with_test=True)
-    if args.eval_every:
+    # The headline is the final iterate on both splits, always -- including test, even
+    # when the test *curve* is switched off.
+    final = eval_point(len(rows) - 1, with_test=True) if rows else {}
+    if args.eval_every and final:
         eval_rows.append(final)
     for key in ("val_loss", "val_ppl", "test_loss", "test_ppl"):
         if key in final:
@@ -365,7 +377,7 @@ def _pick_device() -> torch.device:
 
 
 def _ensure_tokens(args) -> None:
-    """Write a synthetic shard if asked and none exists."""
+    """Write a synthetic shard if asked and none exists, so the smoke path is one command."""
     path = Path(args.tokens)
     if path.exists() or not args.synthetic:
         return
@@ -414,7 +426,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="step size for the gate parameters; see train()")
     parser.add_argument("--grad-clip", type=float, default=0.0)
     parser.add_argument("--dtype", default="bfloat16",
-                        help="autocast dtype on GPU; parameters are always float32")
+                        help="autocast dtype on GPU; parameters are always float32, and "
+                             "CPU runs without autocast")
     parser.add_argument("--init-open", type=float, default=0.95)
     parser.add_argument("--no-gates", action="store_true",
                         help="the plain LM: no hooks, no constraints")
@@ -443,7 +456,6 @@ def finalize(args):
 
 
 def main(argv=None) -> None:
-    argv = sys.argv[1:] if argv is None else argv
     args = finalize(build_parser().parse_args(argv))
 
     _ensure_tokens(args)
@@ -461,11 +473,9 @@ def _slug(args) -> str:
 def _write(args, result: dict) -> None:
     slug = _slug(args)
     write_csv(result["rows"], f"e3_steps_{slug}", EXPERIMENT)
-    target = (f"penalty={args.penalty:g}" if args.method == "penalty"
-              else f"eps={args.eps:g}")
     write_table([result["summary"]], f"e3_summary_{slug}", EXPERIMENT,
                 title=f"E3: {args.method} on {args.model}, "
-                      f"{args.granularity} granularity, {target}")
+                      f"{args.granularity} granularity, eps={args.eps:g}")
     if result["eval_rows"]:
         write_csv(result["eval_rows"], f"e3_eval_{slug}", EXPERIMENT)
     if result["median_report"]:
