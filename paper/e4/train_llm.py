@@ -5,7 +5,7 @@ def train_lamma():
 
     datasets = load_dataset('wikitext', 'wikitext-2-raw-v1')
 
-    print(datasets)
+    
 
 
 if __name__ == "__main__":
