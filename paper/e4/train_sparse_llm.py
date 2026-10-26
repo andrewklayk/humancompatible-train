@@ -109,17 +109,22 @@ def get_grouped_params(model, no_decay=["bias", "LayerNorm.weight"], weight_deca
         {"params": params_without_wd, "weight_decay": 0.0},
     ]
 
-def evaluate(model, eval_dataloader, accelerator):
+def evaluate(model, eval_dataloader):
     model.eval()
     losses = []
 
     # evaluate the model losses on eval dataset
     for step, batch in enumerate(eval_dataloader):
-        with torch.no_grad():
-            logits = model(batch["input_ids"]).logits
-            loss = loss_fn(batch["input_ids"], logits)
 
-        losses.append(loss.item())
+        # eval mode
+        with torch.no_grad():
+            input_ids = batch["input_ids"].to("cuda")
+        
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                logits = model(input_ids).logits
+                loss = loss_fn(input_ids, logits)
+
+            losses.append(loss.item())
 
     loss = torch.mean(torch.tensor(losses))
 
@@ -132,11 +137,11 @@ def evaluate(model, eval_dataloader, accelerator):
     # return both the test loss and perplexity
     return loss.item(), perplexity.item()
 
-def inner_train_loop(model, train_dataloader, eval_dataloader, accelerator,
+def inner_train_loop(model, train_dataloader, eval_dataloader,
                      num_epochs, optimizer_primal,
                      problem_type='unconstrained',
                      gradient_accumulation_steps = 8, eval_steps = 5_000,
-                     output_dir="saved_models"):
+                     output_dir="saved_models/gpt2-code"):
     """
     Inner training loop for training sparse llms. 
     problem_type: Options ["unconstrained", "ssl-alm", "spbm", "sqp"]
@@ -164,45 +169,46 @@ def inner_train_loop(model, train_dataloader, eval_dataloader, accelerator,
         for step, batch in tqdm(
             enumerate(train_dataloader, start=1), total=num_training_steps
         ):
-
-            logits = model(batch["input_ids"]).logits
-            loss = loss_fn(batch["input_ids"], logits)
+            
+            input_ids = batch["input_ids"].to("cuda")
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                logits = model(input_ids).logits
+                loss = loss_fn(input_ids, logits)
 
             # print the status
             if step % 100 == 0:
-                accelerator.print(
-                    {
-                        "samples": (epoch * step + step) * train_dataloader.batch_sampler.batch_size,
+                print({
+                        "num samples": (epoch * step + step) * train_dataloader.batch_size,
                         "number of update steps": completed_steps,
-                        "loss/train": loss.item(),
-                    }
+                        "loss/train": loss.item()}
                 )
 
             if problem_type == "unconstrained":
                 
                 # accumulate gradients
                 loss = loss / gradient_accumulation_steps
-                accelerator.backward(loss)
+                loss.backward()
 
                 # update once accumulation is done
                 if step % gradient_accumulation_steps == 0:
 
-                    accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                    # step the weights
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer_primal.step()
-                    lr_scheduler_primal.step()
                     optimizer_primal.zero_grad()
+
+                    # step the scheduler + info
+                    lr_scheduler_primal.step()
                     completed_steps += 1
 
             # ---------------- Evaluate the model + save the model
             if (step % (eval_steps * gradient_accumulation_steps)) == 0:
-                eval_loss, perplexity = evaluate(model, eval_dataloader, accelerator)
-                accelerator.print({"loss/eval": eval_loss, "perplexity": perplexity})
+                eval_loss, perplexity = evaluate(model, eval_dataloader)
+                print({"loss/eval": eval_loss, "perplexity": perplexity})
                 model.train() # back to train
 
                 # save the model
-                accelerator.wait_for_everyone()
-                unwrapped_model = accelerator.unwrap_model(model)
-                unwrapped_model.save_pretrained(output_dir, save_function=accelerator.save)
+                model.save_pretrained(output_dir)
 
 
 
@@ -212,10 +218,12 @@ def train_sprase_llm_code():
     num_epochs = 1
     context_length = 128
     gradient_accumulation_steps = 8
+    batch_size = 128
     problem_type='unconstrained'
     tokenizer_name = "huggingface-course/code-search-net-tokenizer"
     data_save_dir =  "data/codeparrot_tokenized_ctx128"
     seed = 42
+    device = 'cuda'
 
     # set a seed
     torch.manual_seed(seed)
@@ -226,9 +234,9 @@ def train_sprase_llm_code():
                                 save_dir=data_save_dir)
 
     # create dataloaders
-    train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=32, 
+    train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=batch_size, 
                                   shuffle=True, collate_fn=default_data_collator)
-    eval_dataloader = DataLoader(tokenized_datasets["valid"], batch_size=32, 
+    eval_dataloader = DataLoader(tokenized_datasets["valid"], batch_size=batch_size, 
                                  collate_fn=default_data_collator)
 
     # load the model
@@ -245,16 +253,13 @@ def train_sprase_llm_code():
     # model_size = sum(t.numel() for t in model.parameters())
     # print(f"GPT-2 size: {model_size/1000**2:.1f}M parameters")
 
+    # move the model to gpu
+    model.to(device)
+
     # create an optimizer
     optimizer = AdamW(get_grouped_params(model), lr=5e-4)
 
-    # create an accelerator
-    accelerator = Accelerator(mixed_precision='fp16')
-    model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
-        model, optimizer, train_dataloader, eval_dataloader
-    )
-
-    inner_train_loop(model, train_dataloader, eval_dataloader, accelerator,
+    inner_train_loop(model, train_dataloader, eval_dataloader,
                      num_epochs, optimizer,
                      problem_type=problem_type,
                      gradient_accumulation_steps=gradient_accumulation_steps, 
