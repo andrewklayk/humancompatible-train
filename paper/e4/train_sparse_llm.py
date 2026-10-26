@@ -13,6 +13,9 @@ from accelerate import Accelerator
 from tqdm import tqdm
 
 def load_code_ds_data():
+    """
+    TODO: swap for OpenWebText, FineWeb or FineWeb-Edu sample
+    """
 
     ds_train = load_dataset("huggingface-course/codeparrot-ds-train", split="train")
     ds_valid = load_dataset("huggingface-course/codeparrot-ds-valid", split="validation")
@@ -113,10 +116,12 @@ def evaluate(model, eval_dataloader, accelerator):
     # evaluate the model losses on eval dataset
     for step, batch in enumerate(eval_dataloader):
         with torch.no_grad():
-            outputs = model(batch["input_ids"], labels=batch["input_ids"])
+            logits = model(batch["input_ids"]).logits
+            loss = loss_fn(batch["input_ids"], logits)
 
-        losses.append(accelerator.gather(outputs.loss))
-    loss = torch.mean(torch.cat(losses))
+        losses.append(loss.item())
+
+    loss = torch.mean(torch.tensor(losses))
 
     # compute the perplexity
     try:
@@ -235,7 +240,7 @@ def train_sprase_llm_code():
         eos_token_id=tokenizer.eos_token_id,
     )
 
-    # load a fresh config
+    # load a fresh config TODO: change this to Lamma3.2 1B with 512 context window
     model = GPT2LMHeadModel(model_config)
     # model_size = sum(t.numel() for t in model.parameters())
     # print(f"GPT-2 size: {model_size/1000**2:.1f}M parameters")
