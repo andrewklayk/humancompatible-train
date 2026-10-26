@@ -27,6 +27,8 @@ docs/source/tutorials/*.ipynb
 *wikitext2*
 
 env*/
+paper/e4/results/logs
+paper/e4/saved_models
 
 # Local files
 NOTES.txt
