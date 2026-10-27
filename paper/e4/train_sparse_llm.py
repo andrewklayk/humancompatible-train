@@ -2,7 +2,7 @@ import pandas as pd
 from transformers import Trainer, TrainingArguments, DataCollatorForLanguageModeling, get_scheduler, default_data_collator
 import math
 from datasets import load_dataset, DatasetDict
-from transformers import AutoTokenizer, GPT2LMHeadModel, AutoConfig, AutoModelForCausalLM
+from transformers import AutoTokenizer, GPT2LMHeadModel, AutoConfig, AutoModelForCausalLM, LlamaForCausalLM
 from datasets import load_from_disk
 import os
 from torch.nn import CrossEntropyLoss
@@ -11,6 +11,8 @@ from torch.utils.data.dataloader import DataLoader
 from torch.optim import AdamW
 from accelerate import Accelerator
 from tqdm import tqdm
+import itertools
+from datetime import datetime
 
 def load_code_ds_data():
     """
@@ -50,9 +52,35 @@ def tokenize_curry(tokenizer, context_length):
 
     return tokenize
 
+
+def tokenize_curry_lamma(tokenizer, context_length):
+    """
+    tokenize function that adds a EOS token at the end of each string.
+    """
+
+    def tokenize(element):
+        """
+        Tokenize function that gets rid of texts that are smaller than context_length
+        """
+        outputs = tokenizer(element["content"])
+        return { "input_ids": [ids + [tokenizer.eos_token_id] for ids in outputs["input_ids"]]}
+
+    def group(element):
+        """
+        Flattens the text and groups them into batches of context size
+        """
+        
+        ids = list(itertools.chain.from_iterable(element["input_ids"]))
+        n = (len(ids) // context_length) * context_length
+        return {"input_ids": [ids[i:i + context_length] for i in range(0, n, context_length)]}
+
+    return tokenize, group
+
+
+
 def get_load_tokenized_code_ds_data(context_length = 128, 
-                                    tokenizer="huggingface-course/code-search-net-tokenizer",
-                                    save_dir="data/codeparrot_tokenized_ctx128"):
+                                    tokenizer=AutoTokenizer.from_pretrained("huggingface-course/code-search-net-tokenizer"),
+                                    save_dir="data/codeparrot_tokenized_ctx128", lamma=True):
 
     # create data directory
     os.makedirs("data", exist_ok=True)
@@ -61,9 +89,7 @@ def get_load_tokenized_code_ds_data(context_length = 128,
     try: 
         tokenized_datasets = load_from_disk(save_dir)
 
-        # load a tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-        return tokenized_datasets, tokenizer
+        return tokenized_datasets
 
     except:
         print("Data not found, loading the raw dataset + tokenizing it...")
@@ -71,18 +97,24 @@ def get_load_tokenized_code_ds_data(context_length = 128,
     # load the code ds data
     raw_datasets = load_code_ds_data()
 
-    # load a tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-
     # tokenized datasets
-    tokenized_datasets = raw_datasets.map(tokenize_curry(tokenizer, context_length),
-                                        batched=True, remove_columns=raw_datasets["train"].column_names,
-                                        batch_size=500, num_proc=4)
+    if lamma == True:  # if using lamma, also group the texts
+        tokenized_datasets = raw_datasets.map(tokenize_curry_lamma(tokenizer, context_length)[0],
+                                            batched=True, remove_columns=raw_datasets["train"].column_names,
+                                            batch_size=500, num_proc=4)
+        # group texts into chucks of window size
+        tokenized_datasets = tokenized_datasets.map(tokenize_curry_lamma(tokenizer, context_length)[1],
+                                            batched=True, batch_size=500, num_proc=4)
+        
+    else: 
+        tokenized_datasets = raw_datasets.map(tokenize_curry(tokenizer, context_length),
+                                            batched=True, remove_columns=raw_datasets["train"].column_names,
+                                            batch_size=500, num_proc=4)
 
     # save the tokenized datasets
     tokenized_datasets.save_to_disk(save_dir)    
 
-    return tokenized_datasets, tokenizer
+    return tokenized_datasets
 
 
 def loss_fn(inputs, logits):
@@ -141,7 +173,8 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                      num_epochs, optimizer_primal,
                      problem_type='unconstrained',
                      gradient_accumulation_steps = 8, eval_steps = 5_000,
-                     output_dir="saved_models/gpt2-code"):
+                     output_dir="saved_models/gpt2-code",
+                     verbose=True):
     """
     Inner training loop for training sparse llms. 
     problem_type: Options ["unconstrained", "ssl-alm", "spbm", "sqp"]
@@ -182,6 +215,12 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                         "number of update steps": completed_steps,
                         "loss/train": loss.item()}
                 )
+                if verbose:
+                    print("VRAM status: ")
+                    print(f"allocated:      {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+                    print(f"reserved:       {torch.cuda.memory_reserved() / 1e9:.2f} GB")
+                    print(f"peak:           {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
+                    print(f"total_available:{torch.cuda.get_device_properties(0).total_memory / 1e9, "GB"}")
 
             if problem_type == "unconstrained":
                 
@@ -203,6 +242,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
 
             # ---------------- Evaluate the model + save the model
             if (step % (eval_steps * gradient_accumulation_steps)) == 0:
+                print('evaluatiing')
                 eval_loss, perplexity = evaluate(model, eval_dataloader)
                 print({"loss/eval": eval_loss, "perplexity": perplexity})
                 model.train() # back to train
@@ -211,47 +251,60 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 model.save_pretrained(output_dir)
 
 
+def set_sparse_model(model):
+    pass
+
 
 def train_sprase_llm_code():
 
     # define hyperparams here 
     num_epochs = 1
-    context_length = 128
-    gradient_accumulation_steps = 8
-    batch_size = 128
+    context_length = 1024
+    gradient_accumulation_steps = 4
+    batch_size = 20                     # needs H200
     problem_type='unconstrained'
-    tokenizer_name = "huggingface-course/code-search-net-tokenizer"
-    data_save_dir =  "data/codeparrot_tokenized_ctx128"
+    model_name = "meta-llama/Llama-3.2-1B"
+    # data_save_dir =  "data/codeparrot_tokenized_ctx128"
+    data_save_dir =  "data/codeparrot_tokenized_lamma32_1B_1024"
+    gradient_checkpointing = False # to save memory
     seed = 42
     device = 'cuda'
+    verbose = True
 
     # set a seed
     torch.manual_seed(seed)
 
+    # load a corresponding tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
     # define context length here
-    tokenized_datasets, tokenizer = get_load_tokenized_code_ds_data(context_length = context_length, 
-                                tokenizer=tokenizer_name,
+    tokenized_datasets = get_load_tokenized_code_ds_data(context_length = context_length, 
+                                tokenizer=tokenizer,
                                 save_dir=data_save_dir)
 
     # create dataloaders
     train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=batch_size, 
-                                  shuffle=True, collate_fn=default_data_collator)
+                                  shuffle=True, collate_fn=default_data_collator, num_workers=2, pin_memory=True)
     eval_dataloader = DataLoader(tokenized_datasets["valid"], batch_size=batch_size, 
-                                 collate_fn=default_data_collator)
+                                 collate_fn=default_data_collator, num_workers=2, pin_memory=True)
 
     # load the model
-    model_config = AutoConfig.from_pretrained(
-        "gpt2",
-        vocab_size=len(tokenizer),
-        n_ctx=context_length,
-        bos_token_id=tokenizer.bos_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_name, use_cache= not gradient_checkpointing)
 
-    # load a fresh config TODO: change this to Lamma3.2 1B with 512 context window
-    model = GPT2LMHeadModel(model_config)
-    # model_size = sum(t.numel() for t in model.parameters())
-    # print(f"GPT-2 size: {model_size/1000**2:.1f}M parameters")
+    if gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+
+    # print the model size
+    model_size = sum(t.numel() for t in model.parameters())
+
+    if verbose:
+        print("Model Details: ")
+        print(f"Lamma size: {model_size/1000**2:.1f}M parameters")
+        print(model)
+
+    # create a sprase model - in the constrained case
+    if problem_type != 'unconstrained':
+        set_sparse_model(model)        
 
     # move the model to gpu
     model.to(device)
@@ -259,12 +312,19 @@ def train_sprase_llm_code():
     # create an optimizer
     optimizer = AdamW(get_grouped_params(model), lr=5e-4)
 
+    # define name
+    run_name = (f"{model_name.split('/')[-1]}_{problem_type}_bs{batch_size}"
+                f"_ctx{context_length}_seed{seed}")
+    output_dir = os.path.join("saved_models", run_name)
+    os.makedirs(output_dir, exist_ok=True)
+
     inner_train_loop(model, train_dataloader, eval_dataloader,
                      num_epochs, optimizer,
                      problem_type=problem_type,
                      gradient_accumulation_steps=gradient_accumulation_steps, 
                      eval_steps = 5_000,
-                     output_dir="saved_models")
+                     output_dir=output_dir,
+                     verbose=verbose)
 
     print('Training DONE.')
 
