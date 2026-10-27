@@ -9,10 +9,13 @@ from torch.nn import CrossEntropyLoss
 import torch
 from torch.utils.data.dataloader import DataLoader
 from torch.optim import AdamW
+import torch.nn as nn
 from accelerate import Accelerator
 from tqdm import tqdm
 import itertools
 from datetime import datetime
+from l0_layers import L0Linear
+from typing import Dict, List, Optional, Tuple, Type
 
 def load_code_ds_data():
     """
@@ -129,17 +132,25 @@ def loss_fn(inputs, logits):
     
     return loss.mean()
 
-def get_grouped_params(model, no_decay=["bias", "LayerNorm.weight"], weight_decay = 0.1):
-    params_with_wd, params_without_wd = [], []
-    for n, p in model.named_parameters():
-        if any(nd in n for nd in no_decay):
-            params_without_wd.append(p)
-        else:
-            params_with_wd.append(p)
-    return [
-        {"params": params_with_wd, "weight_decay": weight_decay},
-        {"params": params_without_wd, "weight_decay": 0.0},
-    ]
+def get_grouped_params(model):
+    """
+    get parameters for gates and network; also returns the sparsifiable modules
+    """
+
+    named = list(model.named_parameters())   
+    params_dict = {"gates": [p for n, p in named if "log_alpha" in n],
+                   "net":   [p for n, p in named if "log_alpha" not in n]}
+    sparse_layers_dict = {"sparse_layers": [m for m in model.modules() if isinstance(m, L0Linear)]}
+    return params_dict, sparse_layers_dict
+
+
+def compute_constraints(sparse_layers, per_layer=True):
+    layers = sparse_layers["sparse_layers"]
+    if per_layer:
+        dens = torch.stack([m.regularization()["exp_l0"] for m in layers])
+    else:
+        dens = torch.stack([m.regularization()["exp_l0"] for m in layers]).mean()
+    return dens
 
 def evaluate(model, eval_dataloader):
     model.eval()
@@ -158,6 +169,11 @@ def evaluate(model, eval_dataloader):
 
             losses.append(loss.item())
 
+            # # TODO: remove
+            # print(step)
+            # if step == 100:
+            #     break
+
     loss = torch.mean(torch.tensor(losses))
 
     # compute the perplexity
@@ -174,7 +190,10 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                      problem_type='unconstrained',
                      gradient_accumulation_steps = 8, eval_steps = 5_000,
                      output_dir="saved_models/gpt2-code",
-                     verbose=True):
+                     verbose=True,
+                     sparse_layers_dict = [],
+                     eps_threshold=0.7, 
+                     model_size_no_sparsity=0):
     """
     Inner training loop for training sparse llms. 
     problem_type: Options ["unconstrained", "ssl-alm", "spbm", "sqp"]
@@ -210,11 +229,23 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
 
             # print the status
             if step % 100 == 0:
+
+                # compute the number of active constraints and print it 
+                with torch.no_grad():
+                    layers = sparse_layers_dict["sparse_layers"]
+                    ep_np = sum(m.expected_active_parameters() for m in layers).item()
+                    total_sparse = sum(m.num_sparsifiable_params for m in layers)
+                    constraints = compute_constraints(sparse_layers_dict, per_layer=True)
+
+                active = model_size_no_sparsity - total_sparse + ep_np
                 print({
                         "num samples": (epoch * step + step) * train_dataloader.batch_size,
                         "number of update steps": completed_steps,
-                        "loss/train": loss.item()}
-                )
+                        "loss/train": loss.item(),
+                        "num params": f"{active:,.0f} ({100 * active / model_size_no_sparsity:.2f}%)",
+                        "max constraint": f"{constraints.max().item():.3f}"
+                })
+
                 if verbose:
                     print("VRAM status: ")
                     print(f"allocated:      {torch.cuda.memory_allocated() / 1e9:.2f} GB")
@@ -240,9 +271,28 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     lr_scheduler_primal.step()
                     completed_steps += 1
 
+            elif problem_type == "spbm":
+
+                
+                # step the weights
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer_primal.step()
+                optimizer_primal.zero_grad()
+
+                # step the scheduler + info
+                lr_scheduler_primal.step()
+                completed_steps += 1
+
+                # constraints = compute_constraints(sparse_layers_dict)
+
+                # print(constraints)
+                # exit()
+
+
             # ---------------- Evaluate the model + save the model
             if (step % (eval_steps * gradient_accumulation_steps)) == 0:
-                print('evaluatiing')
+            # if (step % 10 ) == 0:
+                print('evaluating')
                 eval_loss, perplexity = evaluate(model, eval_dataloader)
                 print({"loss/eval": eval_loss, "perplexity": perplexity})
                 model.train() # back to train
@@ -251,25 +301,52 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 model.save_pretrained(output_dir)
 
 
-def set_sparse_model(model):
-    pass
+def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'], init_mean=0.0):
+    """
+    Creates a L0 linear layer in the candidates mlps
+    init_L0_w_pretrained: sets the weights of the linear sparse layer copied in the original.
+    """
+
+    # sparsify each layer of the model
+    for layer in model.model.layers:
+
+        # sparsify each candidate in the layer
+        for candidate in candidates:
+
+            # get the model candidate
+            mlp_old = getattr(layer.mlp, candidate)
+
+            # create a new sparse l0 layer
+            mlp_sparse = L0Linear(in_features=mlp_old.in_features, out_features=mlp_old.out_features, 
+                                  use_bias=False, sparsity_type='structured')
+
+            # copy the data from the pretrained layer
+            if init_L0_w_pretrained:
+                mlp_sparse.weight.data.copy_(mlp_old.weight.data)
+                mlp_sparse.weight_log_alpha.data += init_mean
+                
+            # swap the mlp in the layer
+            setattr(layer.mlp, candidate, mlp_sparse)
+    
 
 
 def train_sprase_llm_code():
 
     # define hyperparams here 
     num_epochs = 1
-    context_length = 1024
+    context_length = 1024 # changing this would need a recomputation of the dataset
     gradient_accumulation_steps = 4
-    batch_size = 20                     # needs H200
-    problem_type='unconstrained'
+    batch_size = 16                     # needs H200
+    # problem_type='unconstrained'
+    problem_type='spbm'
     model_name = "meta-llama/Llama-3.2-1B"
-    # data_save_dir =  "data/codeparrot_tokenized_ctx128"
     data_save_dir =  "data/codeparrot_tokenized_lamma32_1B_1024"
     gradient_checkpointing = False # to save memory
     seed = 42
     device = 'cuda'
     verbose = True
+    candidates_to_sparsify =['down_proj'] # what layer to sparsify
+    eps_threshold = 0.7   # constraint threshold
 
     # set a seed
     torch.manual_seed(seed)
@@ -297,20 +374,24 @@ def train_sprase_llm_code():
     # print the model size
     model_size = sum(t.numel() for t in model.parameters())
 
+    # create a sprase model - in the constrained case
+    if problem_type != 'unconstrained':
+        set_sparse_model(model, candidates=candidates_to_sparsify)        
+
     if verbose:
         print("Model Details: ")
         print(f"Lamma size: {model_size/1000**2:.1f}M parameters")
         print(model)
 
-    # create a sprase model - in the constrained case
-    if problem_type != 'unconstrained':
-        set_sparse_model(model)        
-
     # move the model to gpu
     model.to(device)
 
     # create an optimizer
-    optimizer = AdamW(get_grouped_params(model), lr=5e-4)
+    params_dict, sparse_layers_dict = get_grouped_params(model)
+    optimizer = AdamW([
+                    {"params": params_dict["net"],   "lr": 5e-4, "weight_decay": 0.01},  # params of the network
+                    {"params": params_dict["gates"], "lr": 5e-4, "weight_decay": 0.0},   # params of the gates
+                ])
 
     # define name
     run_name = (f"{model_name.split('/')[-1]}_{problem_type}_bs{batch_size}"
@@ -324,7 +405,10 @@ def train_sprase_llm_code():
                      gradient_accumulation_steps=gradient_accumulation_steps, 
                      eval_steps = 5_000,
                      output_dir=output_dir,
-                     verbose=verbose)
+                     verbose=verbose,
+                     sparse_layers_dict = sparse_layers_dict,
+                     eps_threshold=eps_threshold,
+                     model_size_no_sparsity= sum(p.numel() for p in params_dict["net"]) )
 
     print('Training DONE.')
 
