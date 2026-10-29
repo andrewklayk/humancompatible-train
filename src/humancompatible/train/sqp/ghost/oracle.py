@@ -24,13 +24,13 @@ def n_params(net):
     return sum(p.numel() for p in net.parameters())
 
 
-def _flat_grad(scalar, params):
+def _flat_grad(scalar, params, retain_graph=False):
     """Flatten dL/dparams into a single 1-D numpy vector of length n.
 
     ``allow_unused=True`` lets a constraint depend on only part of the network
     (the unused parameters contribute a zero gradient block).
     """
-    grads = torch.autograd.grad(scalar, params, allow_unused=True, retain_graph=False)
+    grads = torch.autograd.grad(scalar, params, allow_unused=True, retain_graph=retain_graph)
     flat = [
         (p.new_zeros(p.numel()) if g is None else g.reshape(-1))
         for p, g in zip(params, grads)
@@ -48,7 +48,7 @@ def evaluate_oracle_from_tensors(
     params = list(model.parameters())
 
     # objective
-    grad_f = _flat_grad(objective, params)
+    grad_f = _flat_grad(objective, params, retain_graph=True)
     n = grad_f.shape[0]
     
     # constraints (if passed as a single tensor)

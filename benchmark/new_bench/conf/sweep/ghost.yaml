@@ -1,0 +1,13 @@
+# @package _global_
+# Stochastic Ghost SQP hyperparameter grid for E1 (manual grid, BASIC sweeper).
+# Full cartesian product: 3 * 2 * 2 * 2 = 24 configs (gamma0 x gamma_power x tau x rho).
+defaults:
+  - override /algorithm: ghost
+
+hydra:
+  sweeper:
+    params:
+      algorithm.primal.cfg.gamma0: choice(0.1, 0.5, 0.9)
+      algorithm.primal.cfg.gamma_power: choice(0.6, 0.9)
+      algorithm.primal.cfg.tau: choice(0.1, 1.0)
+      algorithm.primal.cfg.rho: choice(0.1, 0.8)

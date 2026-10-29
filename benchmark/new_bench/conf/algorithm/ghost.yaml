@@ -1,0 +1,27 @@
+# Stochastic Ghost-penalty SQP (humancompatible.train.sqp.ghost). Not a torch optimizer:
+# GhostSQP takes the model, and each step consumes the loop's loss and (c - bound).
+# GhostConfig MUST keep its own _target_ so Hydra builds it (and runs its validation)
+# before the outer partial; without it GhostSQP would get a raw DictConfig.
+# Single-solve, relaxed dual QP only: MLMC needs fresh draws at several batch sizes,
+# which the loop's one batch can't provide (GhostSQP raises).
+name: ghost
+updater: ghost
+constraints_to_eq: false
+select_filter: upper
+primal:
+  _target_: humancompatible.train.sqp.ghost.GhostSQP
+  _partial_: true
+  objective_fn: null
+  constraint_fns: null
+  sampler: null
+  cfg:
+    _target_: humancompatible.train.sqp.ghost.GhostConfig
+    tau: 1.0
+    rho: 0.8
+    lambda_: 0.5
+    gamma0: 0.5
+    gamma_power: 0.6
+    qp_solver: osqp
+    solve_dual: true
+    solve_relaxed: true
+    monte_carlo_sampling: false

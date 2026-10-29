@@ -53,11 +53,13 @@ def direction(
     ``info`` holds per-step diagnostics.
     """
 
+    use_tensors = objective is not None and constraints is not None
+
     # define a solve function - solves the QP
-    def solve(batch):
-        if objective_fn is not None and constraint_fns is not None:
+    def solve(batch = None):
+        if not use_tensors:
             grad_f, cval, cgrad = evaluate_oracle(net, objective_fn, constraint_fns, batch)
-        elif objective is not None and constraints is not None:
+        elif use_tensors:
             grad_f, cval, cgrad = evaluate_oracle_from_tensors(net, objective, constraints)
         else:
             raise ValueError
@@ -100,8 +102,12 @@ def direction(
 
     # not using monte-carlo sampling - solve the subproblem once with base_batch samples
     else:
-        base = cfg.base_batch
-        batch = sampler.draw(base, rng)
+        if not use_tensors:
+            base = cfg.base_batch
+            batch = sampler.draw(base, rng)
+        else:
+            batch = None
+            base = None
 
         # solve the subproblem with base_batch samples
         d_tilde, cval, kappa = solve(batch)

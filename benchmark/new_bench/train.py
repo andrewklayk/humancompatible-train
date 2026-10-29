@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 
+from humancompatible.train.sqp.ghost.ghost_sqp import GhostSQP
 from humancompatible.train.fairness.utils import BalancedBatchSampler
 
 def calc_constraints(constraint_fn, bounds, fuse, constraints_to_eq, model, out, sens, labels, loss):
@@ -152,11 +153,11 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
     ``bundle.train_loader``'s sampler to be a ``BalancedBatchSampler`` and
     ``loss_fn`` to accept a per-sample ``weight=`` kwarg (e.g. bce, not ce)."""
     model.to(device)
-
-    print(torch.cuda.get_device_capability()[0])
-    if torch.cuda.get_device_capability()[0] <= 7:
-        print("Disabling cudnn")
-        torch.backends.cudnn.enabled = False
+    if not device == "cpu": 
+        print(torch.cuda.get_device_capability()[0])
+        if torch.cuda.get_device_capability()[0] <= 7:
+            print("Disabling cudnn")
+            torch.backends.cudnn.enabled = False
 
     bounds = torch.tensor([task.bound] * task.m).to(device)
     constraint_fn = task.constraint_fn
@@ -184,15 +185,18 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
     total_steps  = n_epochs * steps_per_epoch
     warmup_steps = int(0.05 * total_steps)
 
-    sched = SequentialLR(
-    algorithm.primal,
-    schedulers=[
-        LinearLR(algorithm.primal, 
-        total_iters=warmup_steps),
-        CosineAnnealingLR(algorithm.primal, T_max=total_steps - warmup_steps),
-    ],
-    milestones=[warmup_steps],
-)
+    if not isinstance(algorithm.primal, GhostSQP): 
+        sched = SequentialLR(
+            algorithm.primal,
+            schedulers=[
+                LinearLR(algorithm.primal, 
+                total_iters=warmup_steps),
+                CosineAnnealingLR(algorithm.primal, T_max=total_steps - warmup_steps),
+            ],
+            milestones=[warmup_steps],
+        )
+    else:
+        sched = None
 
     for epoch in range(n_epochs + 1):
         losses, constraints, accs = [], [], []
@@ -225,8 +229,9 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
                 constraints.append(c.detach().cpu().numpy())
                 accs.append(acc := calc_perclass_acc(sens, labels, out))
 
-                # step the lr scheduler
-                sched.step()
+                if sched is not None:
+                    # step the lr scheduler
+                    sched.step()
             if algorithm.name == 'ssg' and (constraint_tol := getattr(algorithm, "constraint_tol", 0.0)):
                     algorithm.constraint_tol = constraint_tol * (1 - epoch / n_epochs)  # linear decay to 0
 
