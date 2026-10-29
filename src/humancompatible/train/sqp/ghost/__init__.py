@@ -10,7 +10,7 @@ randomized-MLMC step estimator (Eq. 23) and the diminishing-step SA driver
 """
 
 from .ghost_sqp import GhostConfig, GhostSQP
-from .mlmc import mlmc_direction
+from .mlmc import direction
 from .oracle import evaluate_oracle, n_params
 from .sampler import Sampler, TensorSampler
 from .subproblems import compute_kappa, solve_subproblem
@@ -18,7 +18,7 @@ from .subproblems import compute_kappa, solve_subproblem
 __all__ = [
     "GhostConfig",
     "GhostSQP",
-    "mlmc_direction",
+    "direction",
     "evaluate_oracle",
     "n_params",
     "Sampler",

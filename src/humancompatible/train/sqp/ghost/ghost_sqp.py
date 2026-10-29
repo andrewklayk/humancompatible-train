@@ -18,11 +18,12 @@ the paper's assumptions every limit point is a KKT point (Theorem 2.1).
 """
 
 from dataclasses import dataclass
+from typing import Callable, Sequence
 
 import numpy as np
 import torch
 
-from .mlmc import mlmc_direction
+from .mlmc import direction
 
 
 @dataclass
@@ -92,10 +93,21 @@ class GhostSQP:
     rng : numpy.random.Generator, optional
     """
 
-    def __init__(self, net, objective_fn, constraint_fns, sampler, cfg=None, rng=None):
+    def __init__(
+            self,
+            net: torch.nn.Module,
+            objective_fn: Callable[..., torch.Tensor] | None,
+            constraint_fns: Callable[..., torch.Tensor] | Sequence[Callable[..., torch.Tensor]] | None,
+            sampler,
+            cfg: GhostConfig | None = None,
+            rng=None
+        ):
         self.net = net
+        if (objective_fn is None or constraint_fns is None) and cfg is not None and cfg.monte_carlo_sampling:
+            raise ValueError("MLMC direction estimation requires both objective and constraints to be passed as functions.")
+        # allow None for both objective and constraint functions to allow user to supply calculated tensors (when not using mlmc)
         self.objective_fn = objective_fn
-        self.constraint_fns = constraint_fns if callable(constraint_fns) else list(constraint_fns)
+        self.constraint_fns = constraint_fns if (callable(constraint_fns) or constraint_fns is None) else list(constraint_fns)
         self.sampler = sampler
         self.cfg = cfg or GhostConfig()
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -117,14 +129,22 @@ class GhostSQP:
             p.add_(chunk, alpha=gamma)
             i += k
 
-    def step(self):
+    def step(self, loss=None, constraints=None):
         """Perform one major SA iteration; returns a diagnostics dict."""
         self._nu += 1
         gamma = self.gamma(self._nu)
-        d, info = mlmc_direction(
-            self.net, self.objective_fn, self.constraint_fns,
-            self.sampler, self.cfg, self.rng, solve_dual = self.cfg.solve_dual, 
-            solve_relaxed=self.cfg.solve_relaxed, monte_carlo_sampling=self.cfg.monte_carlo_sampling
+        d, info = direction(
+            net=self.net,
+            objective=loss,
+            constraints=constraints,
+            objective_fn=self.objective_fn,
+            constraint_fns=self.constraint_fns,
+            sampler=self.sampler,
+            cfg=self.cfg,
+            rng=self.rng,
+            solve_dual=self.cfg.solve_dual, 
+            solve_relaxed=self.cfg.solve_relaxed,
+            monte_carlo_sampling=self.cfg.monte_carlo_sampling
         )
         self._apply_direction(d, gamma)
         info.update(iter=self._nu, gamma=gamma, step_norm=float(np.linalg.norm(d)))
