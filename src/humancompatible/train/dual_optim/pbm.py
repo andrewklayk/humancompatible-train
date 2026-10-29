@@ -26,8 +26,8 @@ class PBM(DualOptimizer):
         penalty_range: Tuple[float, float] = (0.1, 1.0),
         device=None,
         primal_update_process_length=1,  # length of the primal update process - if =1, is the original algorithm,
-        gamma_annealing=True,
-        penalty_annealing=True,
+        gamma_annealing=False,
+        penalty_annealing=False,
         epoch_length = None, # set this if gamma_annealing=True,
         rho = None, # only should be set if penalty_update == 'alm'; is equal to the penalty multiplier of the ALM; by default rho = 2.0
         process_group: Optional[dist.ProcessGroup] = None,
@@ -126,7 +126,7 @@ class PBM(DualOptimizer):
             )
 
         duals, settings = cls._base_group(
-            m, init_duals, dual_range, is_ineq=False, device=device
+            m, init_duals, dual_range, is_ineq=True, device=device
         )
         penalties = Parameter(init_penalties, requires_grad=False)
 

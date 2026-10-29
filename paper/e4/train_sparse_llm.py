@@ -16,6 +16,9 @@ import itertools
 from datetime import datetime
 from l0_layers import L0Linear
 from typing import Dict, List, Optional, Tuple, Type
+from humancompatible.train.dual_optim import ALM, PBM
+from humancompatible.train.dual_optim import MoreauEnvelope
+from torch.optim import Adam
 
 def load_code_ds_data():
     """
@@ -144,8 +147,8 @@ def get_grouped_params(model):
     return params_dict, sparse_layers_dict
 
 
-def compute_constraints(sparse_layers, per_layer=True):
-    layers = sparse_layers["sparse_layers"]
+def compute_constraints(sparse_layers_dict, per_layer=True):
+    layers = sparse_layers_dict["sparse_layers"]
     if per_layer:
         dens = torch.stack([m.regularization()["exp_l0"] for m in layers])
     else:
@@ -185,18 +188,130 @@ def evaluate(model, eval_dataloader):
     # return both the test loss and perplexity
     return loss.item(), perplexity.item()
 
+def probability_of_1_of_z(sparse_layers_dict):
+    """
+    Computes probability if 1 in z
+    """
+
+    with torch.no_grad():
+
+        weights_z_all = []
+        # sample weights_z
+        for sparse_layer in sparse_layers_dict["sparse_layers"]:
+            weights_z_all.append(sparse_layer.sample_gates()[0])
+
+        # flatten and compute the probability if 1 
+        weights_z_all = torch.cat(weights_z_all)
+        probability = ((weights_z_all == 1).sum() ) / weights_z_all.nelement()
+
+    return probability
+
+def toy_params(method="spbm"):
+    """
+    TODO: this function is just a toy, later this will be passed as a parameter to the main
+    and this function will be removed
+    """
+
+    params = {
+        # ---------------- model / data
+        "model_name": "meta-llama/Llama-3.2-1B",
+        "data_save_dir": "data/codeparrot_tokenized_lamma32_1B_1024",
+        "context_length": 1024,             # changing this requires re-tokenizing the dataset
+
+        # ---------------- training
+        "method": method,
+        "num_epochs": 1,
+        "batch_size": 16,                   # needs H200
+        "gradient_accumulation_steps": 8,
+        "gradient_checkpointing": False,    # True saves memory, ~30% slower
+        "primal_lr": 5e-5,                  # lr of the network weights
+        "weight_decay": 0.01,               # network weights only, never the gates
+        "seed": 42,
+        "device": "cuda",
+        "verbose": True,
+    }
+
+    if method == "unconstrained":
+        return params
+
+    # ---------------- sparsity problem (shared by ALL constrained methods)
+    params.update({
+        "candidates_to_sparsify": ["down_proj"],
+        "init_mean": 4.5,                   # gate log_alpha at init: ~95% of z == 1, eval gates exactly 1
+        "target_density": 0.7,              # constraint: expected DENSITY <= 0.7, i.e. >= 30% sparsity
+        "per_layer": True,                  # True: one constraint per layer, False: one global constraint
+        "primal_lr_gates": 5e-2,            # lr of the gates (log_alpha)
+    })
+
+    # ---------------- method-specific (keys match the constructor arguments exactly)
+    if method == "spbm":
+        params["moreau"] = {                # MoreauEnvelope(optimizer_primal, **params["moreau"])
+            "mu": 1.0,
+            "beta": 0.5,
+        }
+        params["pbm"] = {                   # PBM(m=..., device=..., **params["pbm"])
+            "penalty_mult": 0.1,
+            "penalty_update": "dimin_adapt",
+            "pbf": "quadratic_logarithmic",
+            "init_duals": 0.001,
+            "init_penalties": 1.0,
+            "dual_range": (1e-4, 100.0),
+            "gamma": 0.9,
+            "penalty_range": (1e-1, 1.0)
+        }
+    else:
+        raise ValueError(f"unknown method: {method}")
+
+    return params
+
+def create_primal_dual_optimizer(model, params, sparse_layers_dict):
+    """
+    Creates dual and primal optimizers based on the given params
+    """
+
+    if params['method'] == 'unconstrained':
+        optimizer_primal = AdamW([ # IMPORTANT: the network weights shuold be on the first position - important for weight clipping!
+                {"params": params_dict["net"],   "lr": params['primal_lr'], "weight_decay": 0.01},  # params of the network
+                {"params": params_dict["gates"], "lr": params['primal_lr_gates'], "weight_decay": 0.0},   # params of the gates
+            ])
+        return optimizer_primal, None
+
+
+    if params['method'] == 'spbm':
+
+        # create a primal optimizer
+        params_dict, sparse_layers_dict = get_grouped_params(model)
+        optimizer_primal = AdamW([ # IMPORTANT: the network weights shuold be on the first position - important for weight clipping!
+                        {"params": params_dict["net"],   "lr": params['primal_lr'], "weight_decay": 0.01},  # params of the network
+                        {"params": params_dict["gates"], "lr": params['primal_lr_gates'], "weight_decay": 0.0},   # params of the gates
+                    ])
+
+        # create a dual optimizer
+        n_constraints = len(sparse_layers_dict["sparse_layers"]) if params["per_layer"] else 1
+        # optimizer_primal = MoreauEnvelope(optimizer_primal, **params["moreau"])
+        optimizer_dual = PBM(m=n_constraints, device=params["device"], **params["pbm"])
+
+        return optimizer_primal, optimizer_dual
+
+    if params['method'] == 'ALM':
+        pass
+        # TODO
+    if params['method'] == 'ghost':
+        pass
+        # TODO
+
 def inner_train_loop(model, train_dataloader, eval_dataloader,
-                     num_epochs, optimizer_primal,
-                     problem_type='unconstrained',
+                     num_epochs, primal_optimizer, dual_optimizer,
+                     method='unconstrained',
                      gradient_accumulation_steps = 8, eval_steps = 5_000,
                      output_dir="saved_models/gpt2-code",
                      verbose=True,
                      sparse_layers_dict = [],
-                     eps_threshold=0.7, 
+                     target_density=0.7, 
                      model_size_no_sparsity=0):
     """
     Inner training loop for training sparse llms. 
-    problem_type: Options ["unconstrained", "ssl-alm", "spbm", "sqp"]
+    method: Options ["unconstrained", "ssl-alm", "spbm", "sqp"]
     """
 
     # create the directory for models
@@ -209,10 +324,14 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
     # setup lr scheduler
     lr_scheduler_primal = get_scheduler(
         name="linear",
-        optimizer=optimizer_primal,
+        optimizer=primal_optimizer,
         num_warmup_steps=1_000,
         num_training_steps=num_training_steps // gradient_accumulation_steps,
     )
+
+    print(primal_optimizer)
+    print(dual_optimizer)
+    # exit()
 
     # train the model
     model.train()
@@ -253,7 +372,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     print(f"peak:           {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
                     print(f"total_available:{torch.cuda.get_device_properties(0).total_memory / 1e9, "GB"}")
 
-            if problem_type == "unconstrained":
+            if method == "unconstrained":
                 
                 # accumulate gradients
                 loss = loss / gradient_accumulation_steps
@@ -262,26 +381,43 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 # update once accumulation is done
                 if step % gradient_accumulation_steps == 0:
 
-                    # step the weights
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    optimizer_primal.step()
-                    optimizer_primal.zero_grad()
+                    # clip the grads
+                    net_params = next(g["params"] for g in primal_optimizer.param_groups if g["name"] == "net")
+                    torch.nn.utils.clip_grad_norm_(net_params, 1.0)
+
+                    # step the weights    
+                    primal_optimizer.step()
+                    primal_optimizer.zero_grad()
 
                     # step the scheduler + info
                     lr_scheduler_primal.step()
                     completed_steps += 1
 
-            elif problem_type == "spbm":
+            elif method == "spbm":
+                # TODO: this is not implemented yet
 
-                
-                # step the weights
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer_primal.step()
-                optimizer_primal.zero_grad()
+                # accumulate gradients
+                loss = loss / gradient_accumulation_steps
+                loss.backward()
 
-                # step the scheduler + info
-                lr_scheduler_primal.step()
-                completed_steps += 1
+                # update once accumulation is done
+                if step % gradient_accumulation_steps == 0:
+
+                    print(compute_constraints(sparse_layers_dict).shape)
+                    # clip the weights
+                    torch.nn.utils.clip_grad_norm_(primal_optimizer.param_groups[0]['params'], 1.0) # IMPORTANT: here we assume that network weights are on the first position
+
+                    # step the weights
+                    primal_optimizer.step()
+                    primal_optimizer.zero_grad()
+
+                    # clip the gate means
+                    for sparse_layer in sparse_layers_dict["sparse_layers"]:
+                        sparse_layer.clamp_parameters() 
+
+                    # step the scheduler + info
+                    lr_scheduler_primal.step()
+                    completed_steps += 1
 
                 # constraints = compute_constraints(sparse_layers_dict)
 
@@ -301,7 +437,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 model.save_pretrained(output_dir)
 
 
-def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'], init_mean=0.0):
+def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'], init_mean=4.5):
     """
     Creates a L0 linear layer in the candidates mlps
     init_L0_w_pretrained: sets the weights of the linear sparse layer copied in the original.
@@ -333,81 +469,85 @@ def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'],
 def train_sprase_llm_code():
 
     # define hyperparams here 
-    num_epochs = 1
-    context_length = 1024 # changing this would need a recomputation of the dataset
-    gradient_accumulation_steps = 4
-    batch_size = 16                     # needs H200
-    # problem_type='unconstrained'
-    problem_type='spbm'
-    model_name = "meta-llama/Llama-3.2-1B"
-    data_save_dir =  "data/codeparrot_tokenized_lamma32_1B_1024"
-    gradient_checkpointing = False # to save memory
-    seed = 42
-    device = 'cuda'
-    verbose = True
-    candidates_to_sparsify =['down_proj'] # what layer to sparsify
-    eps_threshold = 0.7   # constraint threshold
+    # num_epochs = 1
+    # context_length = 1024 # changing this would need a recomputation of the dataset
+    # gradient_accumulation_steps = 4
+    # batch_size = 16                     # needs H200
+    # # method='unconstrained'
+    # model_name = "meta-llama/Llama-3.2-1B"
+    # data_save_dir =  "data/codeparrot_tokenized_lamma32_1B_1024"
+    # gradient_checkpointing = False # to save memory
+    # seed = 42
+    # device = 'cuda'
+    # init_mean = 4.5 # init mean of the gates - 4.5 corresponds to roughly 95% of z==1
+    # verbose = True
+    # candidates_to_sparsify =['down_proj'] # what layer to sparsify
+    # target_density = 0.7   # constraint threshold
+
+    params = toy_params(method='spbm')
+    # params = toy_params(type='unconstrained')
 
     # set a seed
-    torch.manual_seed(seed)
+    torch.manual_seed(params['seed'])
 
     # load a corresponding tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(params['model_name'])
 
     # define context length here
-    tokenized_datasets = get_load_tokenized_code_ds_data(context_length = context_length, 
+    tokenized_datasets = get_load_tokenized_code_ds_data(context_length = params['context_length'], 
                                 tokenizer=tokenizer,
-                                save_dir=data_save_dir)
+                                save_dir=params['data_save_dir'])
 
     # create dataloaders
-    train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=batch_size, 
+    train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=params['batch_size'], 
                                   shuffle=True, collate_fn=default_data_collator, num_workers=2, pin_memory=True)
-    eval_dataloader = DataLoader(tokenized_datasets["valid"], batch_size=batch_size, 
+    eval_dataloader = DataLoader(tokenized_datasets["valid"], batch_size=params['batch_size'], 
                                  collate_fn=default_data_collator, num_workers=2, pin_memory=True)
 
     # load the model
-    model = AutoModelForCausalLM.from_pretrained(model_name, use_cache= not gradient_checkpointing)
+    model = AutoModelForCausalLM.from_pretrained(params['model_name'], use_cache= not params['gradient_checkpointing'])
 
-    if gradient_checkpointing:
+    if params['gradient_checkpointing']:
         model.gradient_checkpointing_enable()
 
     # print the model size
     model_size = sum(t.numel() for t in model.parameters())
 
     # create a sprase model - in the constrained case
-    if problem_type != 'unconstrained':
-        set_sparse_model(model, candidates=candidates_to_sparsify)        
+    if params['method'] != 'unconstrained':
+        set_sparse_model(model, candidates=params['candidates_to_sparsify'], init_mean=params['init_mean'])        
 
-    if verbose:
+    if params['verbose']:
         print("Model Details: ")
         print(f"Lamma size: {model_size/1000**2:.1f}M parameters")
         print(model)
 
     # move the model to gpu
-    model.to(device)
+    model.to(params['device'])
 
     # create an optimizer
     params_dict, sparse_layers_dict = get_grouped_params(model)
-    optimizer = AdamW([
-                    {"params": params_dict["net"],   "lr": 5e-4, "weight_decay": 0.01},  # params of the network
-                    {"params": params_dict["gates"], "lr": 5e-4, "weight_decay": 0.0},   # params of the gates
-                ])
+    primal_optimizer, dual_optimizer = create_primal_dual_optimizer(model, params, sparse_layers_dict)
+    # optimizer = AdamW([ # IMPORTANT: the network weights shuold be on the first position - important for weight clipping!
+                #     {"params": params_dict["net"],   "lr": 5e-5, "weight_decay": 0.01},  # params of the network
+                #     {"params": params_dict["gates"], "lr": 5e-2, "weight_decay": 0.0},   # params of the gates
+                # ])
 
     # define name
-    run_name = (f"{model_name.split('/')[-1]}_{problem_type}_bs{batch_size}"
-                f"_ctx{context_length}_seed{seed}")
+    run_name = (f"{params['model_name'].split('/')[-1]}_{params['method']}_bs{params['batch_size']}"
+                f"_ctx{params['context_length']}_seed{params['seed']}")
     output_dir = os.path.join("saved_models", run_name)
     os.makedirs(output_dir, exist_ok=True)
 
     inner_train_loop(model, train_dataloader, eval_dataloader,
-                     num_epochs, optimizer,
-                     problem_type=problem_type,
-                     gradient_accumulation_steps=gradient_accumulation_steps, 
+                     params['num_epochs'], primal_optimizer, dual_optimizer,
+                     method=params['method'],
+                     gradient_accumulation_steps=params['gradient_accumulation_steps'], 
                      eval_steps = 5_000,
                      output_dir=output_dir,
-                     verbose=verbose,
+                     verbose=params['verbose'],
                      sparse_layers_dict = sparse_layers_dict,
-                     eps_threshold=eps_threshold,
+                     target_density=params['target_density'],
                      model_size_no_sparsity= sum(p.numel() for p in params_dict["net"]) )
 
     print('Training DONE.')
