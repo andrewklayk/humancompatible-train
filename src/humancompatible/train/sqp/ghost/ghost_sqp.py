@@ -82,8 +82,10 @@ class GhostSQP:
         Model whose parameters x are optimized in place.
     objective_fn : callable(net, batch) -> scalar tensor
         Mean objective loss over the batch.
-    constraint_fns : sequence of callable(net, batch) -> scalar tensor
+    constraint_fns : sequence of callable(net, batch) -> scalar tensor, or
+        a single callable(net, batch) -> (m,) tensor
         Each returns the mean of a constraint ``c_i`` (interpreted ``≤ 0``).
+        Pass the vector form for large ``m``: see :func:`.oracle.evaluate_oracle`.
     sampler : Sampler
         Source of fresh i.i.d. minibatches (see :mod:`.sampler`).
     cfg : GhostConfig, optional
@@ -93,7 +95,7 @@ class GhostSQP:
     def __init__(self, net, objective_fn, constraint_fns, sampler, cfg=None, rng=None):
         self.net = net
         self.objective_fn = objective_fn
-        self.constraint_fns = list(constraint_fns)
+        self.constraint_fns = constraint_fns if callable(constraint_fns) else list(constraint_fns)
         self.sampler = sampler
         self.cfg = cfg or GhostConfig()
         self.rng = rng if rng is not None else np.random.default_rng()

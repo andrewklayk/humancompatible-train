@@ -1,0 +1,18 @@
+# Stochastic Ghost-penalty SQP (sqp/ghost), E2d only. Not a dual optimizer, so `dual` is
+# null and _harness.ALGORITHMS skips this file; `ghost` holds GhostConfig's kwargs.
+# Relaxed dual QP and no MLMC: the fast path, one subproblem solve per step on
+# `base_batch` samples. base_batch = 72 is new_bench's Dutch batch (4 per group).
+name: ghost
+label: "Ghost"
+dual: null
+ghost:
+  base_batch: 72
+  tau: 1.0
+  rho: 0.8
+  lambda_: 0.5
+  gamma0: 0.5
+  gamma_power: 0.6
+  qp_solver: osqp
+  solve_dual: true
+  solve_relaxed: true
+  monte_carlo_sampling: false

@@ -1,0 +1,11 @@
+# E2d -- Ghost SQP on Dutch, mirroring new_bench's `dutch_positive_rate_pair` task in
+# `approach=opt` mode: whole dataset as train, pairwise positive-rate gaps (m = 306)
+# bounded by 0.1, 4 samples per group per batch. Use with `algorithm=ghost`.
+
+target: e2d
+
+epochs: 40   # new_bench conf/config.yaml n_epochs
+tail: 5      # new_bench select_best.py --tail
+
+bound: 0.1
+per_group: 4

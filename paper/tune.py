@@ -225,6 +225,32 @@ def _run_e2c(cfg) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# adapter: E2d -- Ghost SQP on Dutch
+# --------------------------------------------------------------------------- #
+
+
+def _run_e2d(cfg) -> dict:
+    """One Ghost config on new_bench's Dutch opt problem; use with ``algorithm=ghost``."""
+    from paper.e2 import d_ghost
+
+    seed = int(cfg.seed)
+    history = d_ghost.train(
+        OmegaConf.to_container(cfg.algorithm.ghost, resolve=True), seed,
+        int(cfg.experiment.epochs),
+        bound=float(cfg.experiment.bound), per_group=int(cfg.experiment.per_group),
+    )
+    _harness.write_csv(history, "e2d_opt", "e2d")
+
+    row = {"method": str(cfg.algorithm.label), "seed": seed,
+           **d_ghost.tail_summary(history, int(cfg.experiment.tail))}
+    # No test split in the opt setup, so f on the full data is the quality term.
+    row["objective"] = row["loss"] + INFEASIBLE_WEIGHT * max(0.0, row["max_viol"])
+    print(f"  f {row['loss']:.4f}  max_viol {row['max_viol']:+.4f}  "
+          f"-> objective {row['objective']:.4f}")
+    return row
+
+
+# --------------------------------------------------------------------------- #
 # adapter: E3 -- CIFAR
 # --------------------------------------------------------------------------- #
 
@@ -355,7 +381,7 @@ def _density_objective(quality, achieved, eps, constrained: bool) -> float:
 # entry point
 # --------------------------------------------------------------------------- #
 
-ADAPTERS = {"e2a": _run_e2a, "e2c": _run_e2c, "e3_cifar": _run_e3_cifar, "e3_llm": _run_e3_llm}
+ADAPTERS = {"e2a": _run_e2a, "e2c": _run_e2c, "e2d": _run_e2d, "e3_cifar": _run_e3_cifar, "e3_llm": _run_e3_llm}
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")

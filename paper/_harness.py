@@ -55,7 +55,8 @@ def set_results_dir(path) -> Path:
 # --------------------------------------------------------------------------- #
 
 ALGORITHM_CONF = Path(__file__).resolve().parent / "conf" / "algorithm"
-ALGORITHMS = sorted(p.stem for p in ALGORITHM_CONF.glob("*.yaml"))
+# ghost.yaml configures an SQP solver, not a dual optimizer (E2d only).
+ALGORITHMS = sorted(p.stem for p in ALGORITHM_CONF.glob("*.yaml") if p.stem != "ghost")
 
 
 def dual_factory(dual_cfg):

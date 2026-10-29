@@ -46,9 +46,11 @@ def evaluate_oracle(net, objective_fn, constraint_fns, batch):
     objective_fn : callable(net, batch) -> scalar tensor
         Mean objective loss over ``batch`` (its gradient is the SAA average of
         ``∇f``).
-    constraint_fns : sequence of callable(net, batch) -> scalar tensor
+    constraint_fns : sequence of callable(net, batch) -> scalar tensor, or
+        a single callable(net, batch) -> (m,) tensor
         Each returns the mean of constraint ``c_i`` over ``batch``; the
-        constraint is interpreted as ``c_i(x) <= 0``.
+        constraint is interpreted as ``c_i(x) <= 0``. The vector form shares
+        one forward pass and gets the Jacobian from one batched backward.
     batch : object
         Whatever ``objective_fn`` / ``constraint_fns`` consume (e.g. an
         ``(X, y)`` tuple). The same ``batch`` is fed to every function.
@@ -63,6 +65,22 @@ def evaluate_oracle(net, objective_fn, constraint_fns, batch):
 
     grad_f = _flat_grad(objective_fn(net, batch), params)
     n = grad_f.shape[0]
+
+    # if constraint_fns passed as a single R^n -> R^m function instead of a list of scalar functions,
+    # we can use is_grads_batched=True to do a single backward pass instead of m
+    if callable(constraint_fns):
+        c = constraint_fns(net, batch).reshape(-1) # reshape to flatten
+        m = c.numel()
+        grads = torch.autograd.grad(
+            c, params, grad_outputs=torch.eye(m, dtype=c.dtype, device=c.device),
+            is_grads_batched=True, allow_unused=True,
+        )
+        cgrad = torch.cat([
+            (p.new_zeros(m, p.numel()) if g is None else g.reshape(m, -1))
+            for p, g in zip(params, grads)
+        ], dim=1)
+        return grad_f, c.detach().cpu().numpy().astype(float), cgrad.detach().cpu().numpy().astype(float)
+
     m = len(constraint_fns)
 
     cval = np.empty(m, dtype=float)
