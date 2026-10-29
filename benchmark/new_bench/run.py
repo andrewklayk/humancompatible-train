@@ -60,6 +60,7 @@ def main(cfg: DictConfig):
     fold = int(cfg.fold)
     approach = str(cfg.get("approach", "ml"))
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
     torch.set_default_device(device)
     torch.manual_seed(init_seed)
 

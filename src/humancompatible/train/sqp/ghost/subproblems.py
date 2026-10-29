@@ -7,13 +7,21 @@ n-dimensional primal space, as written in the paper.
 * ``solve_subproblem`` -- the search-direction QP, Eq. (3), via ``qpsolvers``.
 """
 
+from typing import Optional
+
 import numpy as np
 import scipy.sparse as sparse
 from qpsolvers import solve_qp
+import torch
 from scipy.optimize import linprog
 
 
-def compute_kappa(cval, cgrad, lamb, rho):
+def compute_kappa(
+        cval: np.ndarray,
+        cgrad: np.ndarray,
+        lamb: float,
+        rho: float
+    ) -> float:
     """Ghost-penalty relaxation κ(x), Eq. (4):
 
         κ(x) = (1-λ) max_i {C_i(x)_+}
@@ -45,7 +53,17 @@ def compute_kappa(cval, cgrad, lamb, rho):
     return term1 + term2
 
 
-def solve_subproblem(grad_f, cval, cgrad, kappa, beta, tau, qp_solver="osqp", solve_dual=False, solve_relaxed=False):
+def solve_subproblem(
+        grad_f: np.ndarray,
+        cval: np.ndarray,
+        cgrad: np.ndarray,
+        kappa: float,
+        beta: float,
+        tau: float,
+        qp_solver: str = "osqp",
+        solve_dual: bool = False,
+        solve_relaxed: bool = False
+    )-> Optional[np.ndarray]:
     """Search-direction QP, Eq. (3):
 
         min_d  ∇F(x)^T d + (τ/2) ||d||^2

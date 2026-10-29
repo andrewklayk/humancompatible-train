@@ -26,22 +26,43 @@ Two details are essential for correctness:
 """
 
 import numpy as np
+import torch
+from typing import Optional, Sequence, Dict, Callable
 
-from .oracle import evaluate_oracle
+from .oracle import evaluate_oracle, evaluate_oracle_from_tensors
 from .subproblems import compute_kappa, solve_subproblem
 
 
-def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_dual=False, 
-                   solve_relaxed=False, monte_carlo_sampling=True):
+def direction(
+        net,
+        sampler,
+        cfg,
+        rng,
+        solve_dual: bool = False,
+        solve_relaxed: bool = False,
+        monte_carlo_sampling: bool = True,
+        objective: torch.Tensor | None = None,
+        constraints: torch.Tensor | None = None,
+        objective_fn: Callable[..., torch.Tensor] | None = None,
+        constraint_fns: Callable[..., torch.Tensor] | Sequence[Callable[..., torch.Tensor]] | None = None
+    ) -> tuple[np.ndarray, Dict]:
+
     """Compute one unbiased step estimate d̃(x) (Eq. 23).
 
     Returns ``(d_tilde, info)`` where ``d_tilde`` is an (n,) ndarray and
     ``info`` holds per-step diagnostics.
     """
 
+    use_tensors = objective is not None and constraints is not None
+
     # define a solve function - solves the QP
-    def solve(batch):
-        grad_f, cval, cgrad = evaluate_oracle(net, objective_fn, constraint_fns, batch)
+    def solve(batch = None):
+        if not use_tensors:
+            grad_f, cval, cgrad = evaluate_oracle(net, objective_fn, constraint_fns, batch)
+        elif use_tensors:
+            grad_f, cval, cgrad = evaluate_oracle_from_tensors(net, objective, constraints)
+        else:
+            raise ValueError
         kappa = compute_kappa(cval, cgrad, cfg.lambda_, cfg.rho)
         d = solve_subproblem(grad_f, cval, cgrad, kappa, cfg.beta, cfg.tau, cfg.qp_solver, 
                             solve_dual=solve_dual, solve_relaxed=solve_relaxed)
@@ -54,7 +75,7 @@ def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_d
         N = int(rng.geometric(cfg.alpha)) - 1
         p_N = cfg.alpha * (1.0 - cfg.alpha) ** N
         base = cfg.base_batch
-        J_base = base                # level-0 (base) sample count
+        J_base = base                 # level-0 (base) sample count
         J_fine = base * 2 ** (N + 1)  # fine batch; antithetic halves are base * 2^N each
 
         # Base term: level-0 direction d(x; X_base) on J_base fresh samples.
@@ -67,7 +88,7 @@ def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_d
         d_even, _, _ = solve(even)
         d_odd, _, _ = solve(odd)
 
-        delta_N = d_fine - 0.5 * (d_even + d_odd)
+        delta_N = d_fine - 0.5 * (d_even + d_odd) # type: ignore
         d_tilde = d_single + delta_N / p_N
 
         info = {
@@ -81,8 +102,12 @@ def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_d
 
     # not using monte-carlo sampling - solve the subproblem once with base_batch samples
     else:
-        base = cfg.base_batch
-        batch = sampler.draw(base, rng)
+        if not use_tensors:
+            base = cfg.base_batch
+            batch = sampler.draw(base, rng)
+        else:
+            batch = None
+            base = None
 
         # solve the subproblem with base_batch samples
         d_tilde, cval, kappa = solve(batch)
@@ -96,4 +121,4 @@ def mlmc_direction(net, objective_fn, constraint_fns, sampler, cfg, rng, solve_d
             "fine_batch": base,
         }
 
-    return d_tilde, info
+    return d_tilde, info # type: ignore

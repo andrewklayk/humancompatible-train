@@ -16,20 +16,21 @@ Four update strategies cover all algorithms:
   * switching    -> ssg             (step dual on max violation, else primal on loss)
 """
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from humancompatible.train.dual_optim import MoreauEnvelope
+from humancompatible.train.dual_optim import MoreauEnvelope, DualOptimizer
+from humancompatible.train.sqp.ghost.ghost_sqp import GhostSQP
 
 
 @dataclass
 class Algorithm:
     name: str
-    primal: object                       # primal optimizer (possibly Moreau-wrapped)
-    dual: Optional[object]               # dual optimizer / second primal (ssg), or None
+    primal: torch.optim.Optimizer | GhostSQP                       # primal optimizer (possibly Moreau-wrapped)
+    dual: Optional[DualOptimizer]               # dual optimizer / second primal (ssg), or None
     updater: str                         # 'plain' | 'reg' | 'primal_dual' | 'switching'
     constraints_to_eq: bool
     select_filter: str                   # used downstream by select_best.py (saved in config)
@@ -39,7 +40,8 @@ class Algorithm:
     grad_clip: Optional[float] = None    # max grad-norm; None disables clipping
 
     def zero_grad(self):
-        self.primal.zero_grad()
+        if isinstance(self.primal, torch.optim.Optimizer):
+            self.primal.zero_grad()
 
     def _clip(self):
         """Clip the model's gradient norm in place; no-op when disabled. Guards
@@ -47,11 +49,11 @@ class Algorithm:
         penalty-barrier runs (the poisoned weights never recover). The model
         params are the primal optimizer's param groups (Moreau delegates via
         __getattr__), the same params the dual steps in ``switching``."""
-        if self.grad_clip is not None:
+        if self.grad_clip is not None and isinstance(self.primal, torch.optim.Optimizer):
             params = [p for g in self.primal.param_groups for p in g["params"]]
             torch.nn.utils.clip_grad_norm_(params, self.grad_clip)
 
-    def step(self, loss_mean, constraints_bounded_eq):
+    def step(self, loss_mean: torch.Tensor, constraints_bounded_eq: torch.Tensor):
         """One optimization step. ``loss_mean`` is the scalar (mean) loss;
         ``constraints_bounded_eq`` is the (c - bound) [or max(c-bound,0)] tensor.
         Assumes ``zero_grad()`` and the forward pass already happened."""
@@ -66,6 +68,9 @@ class Algorithm:
             penalized.backward()
             self._clip()
             self.primal.step()
+        elif self.updater == "ghost":
+            # self.primal is a Ghost object
+            self.primal.step(loss_mean, constraints_bounded_eq) # type: ignore
         elif self.updater == "primal_dual":
             lgr = self.dual.forward_update(loss_mean, constraints_bounded_eq)
             lgr.backward()
@@ -97,7 +102,11 @@ def build_algorithm(cfg_algo, model, m, epoch_length) -> Algorithm:
     grad_clip = float(grad_clip) if grad_clip is not None else None
 
     # ----- primal optimizer (e.g. Adam), built from a partial _target_ -----
-    primal_opt = instantiate(cfg_algo["primal"])(model.parameters())
+    # GhostSQP updates the module in place, so it takes the model, not its parameters.
+    if str(cfg_algo["primal"]["_target_"]).split(".")[-1] == "GhostSQP":
+        primal_opt = instantiate(cfg_algo["primal"])(model)
+    else:
+        primal_opt = instantiate(cfg_algo["primal"])(model.parameters())
 
     if updater == "plain":
         # adam: bare primal, no dual, no Moreau envelope.
@@ -118,6 +127,18 @@ def build_algorithm(cfg_algo, model, m, epoch_length) -> Algorithm:
             select_filter=cfg_algo.get("select_filter", "none"),
             passes_loss_to_constraints=True,
             reg_const=float(cfg_algo.get("reg_const", 1.0)),
+            grad_clip=grad_clip,
+        )
+
+    if updater == "ghost":
+        if not isinstance(primal_opt, GhostSQP):
+            raise TypeError
+        # Stochastic Ghost
+        return Algorithm(
+            name=name, primal=primal_opt, dual=None, updater=updater,
+            constraints_to_eq=bool(cfg_algo.get("constraints_to_eq", False)),
+            select_filter=cfg_algo.get("select_filter", "upper"),
+            passes_loss_to_constraints=True,
             grad_clip=grad_clip,
         )
 
