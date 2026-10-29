@@ -237,10 +237,10 @@ def toy_params(method="spbm"):
     # ---------------- sparsity problem (shared by ALL constrained methods)
     params.update({
         "candidates_to_sparsify": ["down_proj"],
-        "init_mean": 4.5,                   # gate log_alpha at init: ~95% of z == 1, eval gates exactly 1
+        "init_mean": 1.0,                   # gate log_alpha at init: ~95% of z == 1, eval gates exactly 1
         "target_density": 0.7,              # constraint: expected DENSITY <= 0.7, i.e. >= 30% sparsity
         "per_layer": True,                  # True: one constraint per layer, False: one global constraint
-        "primal_lr_gates": 5e-2,            # lr of the gates (log_alpha)
+        "primal_lr_gates": 0.1,            # lr of the gates (log_alpha)
     })
 
     # ---------------- method-specific (keys match the constructor arguments exactly)
@@ -255,8 +255,8 @@ def toy_params(method="spbm"):
             "pbf": "quadratic_logarithmic",
             "init_duals": 0.001,
             "init_penalties": 1.0,
-            "dual_range": (1e-4, 100.0),
-            "gamma": 0.9,
+            "dual_range": (1e-4, 1000.0),
+            "gamma": 0.1,
             "penalty_range": (1e-1, 1.0)
         }
     else:
@@ -271,8 +271,7 @@ def create_primal_dual_optimizer(model, params, sparse_layers_dict):
 
     if params['method'] == 'unconstrained':
         optimizer_primal = AdamW([ # IMPORTANT: the network weights shuold be on the first position - important for weight clipping!
-                {"params": params_dict["net"],   "lr": params['primal_lr'], "weight_decay": 0.01},  # params of the network
-                {"params": params_dict["gates"], "lr": params['primal_lr_gates'], "weight_decay": 0.0},   # params of the gates
+                {"params": model.parameters(),   "lr": params['primal_lr'], "weight_decay": 0.01},  # params of the network
             ])
         return optimizer_primal, None
 
@@ -288,7 +287,7 @@ def create_primal_dual_optimizer(model, params, sparse_layers_dict):
 
         # create a dual optimizer
         n_constraints = len(sparse_layers_dict["sparse_layers"]) if params["per_layer"] else 1
-        # optimizer_primal = MoreauEnvelope(optimizer_primal, **params["moreau"])
+        optimizer_primal = MoreauEnvelope(optimizer_primal, **params["moreau"])
         optimizer_dual = PBM(m=n_constraints, device=params["device"], **params["pbm"])
 
         return optimizer_primal, optimizer_dual
@@ -301,13 +300,12 @@ def create_primal_dual_optimizer(model, params, sparse_layers_dict):
         # TODO
 
 def inner_train_loop(model, train_dataloader, eval_dataloader,
-                     num_epochs, primal_optimizer, dual_optimizer,
+                     num_epochs, primal_optimizer, dual_optimizer, params,
                      method='unconstrained',
                      gradient_accumulation_steps = 8, eval_steps = 5_000,
                      output_dir="saved_models/gpt2-code",
                      verbose=True,
                      sparse_layers_dict = [],
-                     target_density=0.7, 
                      model_size_no_sparsity=0):
     """
     Inner training loop for training sparse llms. 
@@ -329,10 +327,6 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
         num_training_steps=num_training_steps // gradient_accumulation_steps,
     )
 
-    print(primal_optimizer)
-    print(dual_optimizer)
-    # exit()
-
     # train the model
     model.train()
     completed_steps = 0
@@ -350,28 +344,33 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
             if step % 100 == 0:
 
                 # compute the number of active constraints and print it 
-                with torch.no_grad():
-                    layers = sparse_layers_dict["sparse_layers"]
-                    ep_np = sum(m.expected_active_parameters() for m in layers).item()
-                    total_sparse = sum(m.num_sparsifiable_params for m in layers)
-                    constraints = compute_constraints(sparse_layers_dict, per_layer=True)
+                if method != "unconstrained":
+                    with torch.no_grad():
+                        layers = sparse_layers_dict["sparse_layers"]
+                        ep_np = sum(m.expected_active_parameters() for m in layers).item()
+                        total_sparse = sum(m.num_sparsifiable_params for m in layers)
+                        constraints = compute_constraints(sparse_layers_dict, per_layer=True)
+                        active = model_size_no_sparsity - total_sparse + ep_np
+                log = {
+                    "samples": (epoch * len(train_dataloader) + step) * train_dataloader.batch_size,
+                    "updates": completed_steps,
+                    "loss/train": f"{loss.item():.4f}",
+                    }
+                if method != "unconstrained":
+                    log["max constraint"] = f"{constraints.max().item():.3f}"
+                    log["params"] = f"{active:,.0f} ({100 * active / model_size_no_sparsity:.2f}%)"
 
-                active = model_size_no_sparsity - total_sparse + ep_np
-                print({
-                        "num samples": (epoch * step + step) * train_dataloader.batch_size,
-                        "number of update steps": completed_steps,
-                        "loss/train": loss.item(),
-                        "num params": f"{active:,.0f} ({100 * active / model_size_no_sparsity:.2f}%)",
-                        "max constraint": f"{constraints.max().item():.3f}"
-                })
-
+                # write the output
+                tqdm.write(" | ".join(f"{k}: {v}" for k, v in log.items()))
+                
                 if verbose:
-                    print("VRAM status: ")
-                    print(f"allocated:      {torch.cuda.memory_allocated() / 1e9:.2f} GB")
-                    print(f"reserved:       {torch.cuda.memory_reserved() / 1e9:.2f} GB")
-                    print(f"peak:           {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
-                    print(f"total_available:{torch.cuda.get_device_properties(0).total_memory / 1e9, "GB"}")
+                    gb = 1e9
+                    tqdm.write(f"VRAM | allocated: {torch.cuda.memory_allocated() / gb:.2f} GB"
+                            f" | reserved: {torch.cuda.memory_reserved() / gb:.2f} GB"
+                            f" | peak: {torch.cuda.max_memory_allocated() / gb:.2f} GB"
+                            f" | total: {torch.cuda.get_device_properties(0).total_memory / gb:.2f} GB")
 
+            # update loop for unconstrained case
             if method == "unconstrained":
                 
                 # accumulate gradients
@@ -382,8 +381,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 if step % gradient_accumulation_steps == 0:
 
                     # clip the grads
-                    net_params = next(g["params"] for g in primal_optimizer.param_groups if g["name"] == "net")
-                    torch.nn.utils.clip_grad_norm_(net_params, 1.0)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                     # step the weights    
                     primal_optimizer.step()
@@ -393,17 +391,29 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     lr_scheduler_primal.step()
                     completed_steps += 1
 
+            # update loop for constrained case
             elif method == "spbm":
-                # TODO: this is not implemented yet
 
-                # accumulate gradients
-                loss = loss / gradient_accumulation_steps
-                loss.backward()
+                if step % (gradient_accumulation_steps - 1) != 0: # still accumulating for gradient_accumulation_steps - 1 steps - last step is performed in the else statement
 
+                    loss = loss / gradient_accumulation_steps
+                    loss.backward()
+                    
                 # update once accumulation is done
-                if step % gradient_accumulation_steps == 0:
+                else:  
 
-                    print(compute_constraints(sparse_layers_dict).shape)
+                    # compute the constraints
+                    constraints = compute_constraints(sparse_layers_dict, per_layer=params['per_layer']) - params['target_density']
+
+                    # compute the lagrangian 
+                    lagrangian = dual_optimizer.forward_update(loss / gradient_accumulation_steps, constraints )
+
+                    # accumulate gradients
+                    lagrangian.backward()
+
+                    print(dual_optimizer.duals)
+                    print(constraints)    
+
                     # clip the weights
                     torch.nn.utils.clip_grad_norm_(primal_optimizer.param_groups[0]['params'], 1.0) # IMPORTANT: here we assume that network weights are on the first position
 
@@ -468,24 +478,9 @@ def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'],
 
 def train_sprase_llm_code():
 
-    # define hyperparams here 
-    # num_epochs = 1
-    # context_length = 1024 # changing this would need a recomputation of the dataset
-    # gradient_accumulation_steps = 4
-    # batch_size = 16                     # needs H200
-    # # method='unconstrained'
-    # model_name = "meta-llama/Llama-3.2-1B"
-    # data_save_dir =  "data/codeparrot_tokenized_lamma32_1B_1024"
-    # gradient_checkpointing = False # to save memory
-    # seed = 42
-    # device = 'cuda'
-    # init_mean = 4.5 # init mean of the gates - 4.5 corresponds to roughly 95% of z==1
-    # verbose = True
-    # candidates_to_sparsify =['down_proj'] # what layer to sparsify
-    # target_density = 0.7   # constraint threshold
-
-    params = toy_params(method='spbm')
-    # params = toy_params(type='unconstrained')
+    # TODO: this will be removed and replaced by params pass to the main function
+    params = toy_params(method='spbm')    
+    # params = toy_params(method='unconstrained')
 
     # set a seed
     torch.manual_seed(params['seed'])
@@ -528,10 +523,6 @@ def train_sprase_llm_code():
     # create an optimizer
     params_dict, sparse_layers_dict = get_grouped_params(model)
     primal_optimizer, dual_optimizer = create_primal_dual_optimizer(model, params, sparse_layers_dict)
-    # optimizer = AdamW([ # IMPORTANT: the network weights shuold be on the first position - important for weight clipping!
-                #     {"params": params_dict["net"],   "lr": 5e-5, "weight_decay": 0.01},  # params of the network
-                #     {"params": params_dict["gates"], "lr": 5e-2, "weight_decay": 0.0},   # params of the gates
-                # ])
 
     # define name
     run_name = (f"{params['model_name'].split('/')[-1]}_{params['method']}_bs{params['batch_size']}"
@@ -540,14 +531,13 @@ def train_sprase_llm_code():
     os.makedirs(output_dir, exist_ok=True)
 
     inner_train_loop(model, train_dataloader, eval_dataloader,
-                     params['num_epochs'], primal_optimizer, dual_optimizer,
+                     params['num_epochs'], primal_optimizer, dual_optimizer, params,
                      method=params['method'],
                      gradient_accumulation_steps=params['gradient_accumulation_steps'], 
                      eval_steps = 5_000,
                      output_dir=output_dir,
                      verbose=params['verbose'],
                      sparse_layers_dict = sparse_layers_dict,
-                     target_density=params['target_density'],
                      model_size_no_sparsity= sum(p.numel() for p in params_dict["net"]) )
 
     print('Training DONE.')
