@@ -144,8 +144,8 @@ def get_grouped_params(model):
     return params_dict, sparse_layers_dict
 
 
-def compute_constraints(sparse_layers, per_layer=True):
-    layers = sparse_layers["sparse_layers"]
+def compute_constraints(sparse_layers_dict, per_layer=True):
+    layers = sparse_layers_dict["sparse_layers"]
     if per_layer:
         dens = torch.stack([m.regularization()["exp_l0"] for m in layers])
     else:
@@ -184,6 +184,26 @@ def evaluate(model, eval_dataloader):
 
     # return both the test loss and perplexity
     return loss.item(), perplexity.item()
+
+def probability_of_1_of_z(sparse_layers_dict):
+    """
+    Computes probability if 1 in z
+    """
+
+    with torch.no_grad():
+
+        weights_z_all = []
+        # sample weights_z
+        for sparse_layer in sparse_layers_dict["sparse_layers"]:
+            weights_z_all.append(sparse_layer.sample_gates()[0])
+
+        # flatten and compute the probability if 1 
+        weights_z_all = torch.cat(weights_z_all)
+        probability = ((weights_z_all == 1).sum() ) / weights_z_all.nelement()
+
+    return probability
+ 
+
 
 def inner_train_loop(model, train_dataloader, eval_dataloader,
                      num_epochs, optimizer_primal,
@@ -262,8 +282,11 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 # update once accumulation is done
                 if step % gradient_accumulation_steps == 0:
 
-                    # step the weights
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    # clip the grads
+                    net_params = next(g["params"] for g in optimizer_primal.param_groups if g["name"] == "net")
+                    torch.nn.utils.clip_grad_norm_(net_params, 1.0)
+
+                    # step the weights    
                     optimizer_primal.step()
                     optimizer_primal.zero_grad()
 
@@ -272,16 +295,30 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     completed_steps += 1
 
             elif problem_type == "spbm":
+                # TODO: this is not implemented yet
 
-                
-                # step the weights
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer_primal.step()
-                optimizer_primal.zero_grad()
+                # accumulate gradients
+                loss = loss / gradient_accumulation_steps
+                loss.backward()
 
-                # step the scheduler + info
-                lr_scheduler_primal.step()
-                completed_steps += 1
+                # update once accumulation is done
+                if step % gradient_accumulation_steps == 0:
+
+                    print(compute_constraints(sparse_layers_dict).shape)
+                    # clip the weights
+                    torch.nn.utils.clip_grad_norm_(optimizer_primal.param_groups[0]['params'], 1.0) # IMPORTANT: here we assume that network weights are on the first position
+
+                    # step the weights
+                    optimizer_primal.step()
+                    optimizer_primal.zero_grad()
+
+                    # clip the gate means
+                    for sparse_layer in sparse_layers_dict["sparse_layers"]:
+                        sparse_layer.clamp_parameters() 
+
+                    # step the scheduler + info
+                    lr_scheduler_primal.step()
+                    completed_steps += 1
 
                 # constraints = compute_constraints(sparse_layers_dict)
 
@@ -301,7 +338,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 model.save_pretrained(output_dir)
 
 
-def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'], init_mean=0.0):
+def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'], init_mean=4.5):
     """
     Creates a L0 linear layer in the candidates mlps
     init_L0_w_pretrained: sets the weights of the linear sparse layer copied in the original.
@@ -344,6 +381,7 @@ def train_sprase_llm_code():
     gradient_checkpointing = False # to save memory
     seed = 42
     device = 'cuda'
+    init_mean = 4.5 # init mean of the gates - 4.5 corresponds to roughly 95% of z==1
     verbose = True
     candidates_to_sparsify =['down_proj'] # what layer to sparsify
     eps_threshold = 0.7   # constraint threshold
@@ -376,7 +414,7 @@ def train_sprase_llm_code():
 
     # create a sprase model - in the constrained case
     if problem_type != 'unconstrained':
-        set_sparse_model(model, candidates=candidates_to_sparsify)        
+        set_sparse_model(model, candidates=candidates_to_sparsify, init_mean=init_mean)        
 
     if verbose:
         print("Model Details: ")
@@ -388,9 +426,9 @@ def train_sprase_llm_code():
 
     # create an optimizer
     params_dict, sparse_layers_dict = get_grouped_params(model)
-    optimizer = AdamW([
-                    {"params": params_dict["net"],   "lr": 5e-4, "weight_decay": 0.01},  # params of the network
-                    {"params": params_dict["gates"], "lr": 5e-4, "weight_decay": 0.0},   # params of the gates
+    optimizer = AdamW([ # IMPORTANT: the network weights shuold be on the first position - important for weight clipping!
+                    {"params": params_dict["net"],   "lr": 5e-5, "weight_decay": 0.01},  # params of the network
+                    {"params": params_dict["gates"], "lr": 5e-2, "weight_decay": 0.0},   # params of the gates
                 ])
 
     # define name

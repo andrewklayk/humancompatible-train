@@ -324,7 +324,7 @@ class BaseL0Layer(nn.Module):
         # sparsifiable parameters in this layer.
         nsp = self.num_sparsifiable_params
         exp_l0 = self.expected_active_parameters() / nsp
-
+    
         return {"exp_l0": exp_l0, "num_params": nsp, "l2_reg": exp_l2}
 
 
