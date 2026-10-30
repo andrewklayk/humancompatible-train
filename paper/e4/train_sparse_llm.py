@@ -178,10 +178,6 @@ def evaluate(model, eval_dataloader):
         
                 loss += loss_cur.item() / len(eval_dataloader)
 
-        # TODO: remove this
-        if (step + 1) % 100 == 0:
-            break
-
     # compute the perplexity
     try:
         perplexity = torch.exp(loss)
@@ -211,10 +207,9 @@ def probability_of_1_of_z(sparse_layers_dict):
 
     return probability
 
-def toy_params(method="spbm"):
+def default_params(method="spbm"):
     """
-    TODO: this function is just a toy, later this will be passed as a parameter to the main
-    and this function will be removed
+    This is a default params function
     """
 
     params = {
@@ -321,12 +316,6 @@ def create_primal_dual_optimizer(model, params, sparse_layers_dict):
         optimizer_dual = ALM(m=n_constraints, device=params["device"], **params["alm"])
 
         return optimizer_primal, optimizer_dual
-
-        
-        # TODO
-    if params['method'] == 'ghost':
-        pass
-        # TODO
 
 def inner_train_loop(model, train_dataloader, eval_dataloader,
                      num_epochs, primal_optimizer, dual_optimizer, params,
@@ -450,9 +439,6 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     # accumulate gradients
                     lagrangian.backward()
 
-                    print(dual_optimizer.duals)
-                    print(constraints)    
-
                     # clip the weights
                     torch.nn.utils.clip_grad_norm_(primal_optimizer.param_groups[0]['params'], 1.0) # IMPORTANT: here we assume that network weights are on the first position
 
@@ -469,8 +455,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     completed_steps += 1
 
             # ---------------- evaluate the model + log the step
-            # if (step % (eval_steps * gradient_accumulation_steps)) == 0:
-            if step % 10 == 0: # TODO: remove this later
+            if (step % (eval_steps * gradient_accumulation_steps)) == 0:
                 row = {"update": completed_steps, "loss": (loss_sum / n_micro).item()}
                 torch.cuda.synchronize()
                 now = time.perf_counter()
@@ -505,7 +490,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 loss_sum, n_micro = 0.0, 0
 
             # TODO: remove this
-            if step % 100 == 0:
+            if step % 40050 == 0:
                 break
 
 
@@ -566,14 +551,14 @@ def parse_args():
     parser.add_argument("--method", default="unconstrained", choices=["unconstrained", "spbm", "alm"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                        help="override a toy_params entry, e.g. --set primal_lr=1e-4 --set spbm.penalty_mult=0.5")
+                        help="override a default_params entry, e.g. --set primal_lr=1e-4 --set spbm.penalty_mult=0.5")
     return parser.parse_args()
 
 
 def train_sprase_llm_code():
 
     args = parse_args()
-    params = apply_overrides(toy_params(method=args.method), args.set)
+    params = apply_overrides(default_params(method=args.method), args.set)
     params['seed'] = args.seed
 
     # set a seed
