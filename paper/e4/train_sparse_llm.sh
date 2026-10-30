@@ -11,24 +11,32 @@
 #SBATCH --partition=h200
 
 # One array task = one (grid line x seed). From paper/e4 on a LOGIN node, with bash, not sbatch:
-#   GRID=grid.txt SEEDS="0 1 2" bash train_sparse_llm.sh
+#   bash train_sparse_llm.sh                       # grid.txt x seeds 0 1 2
+#   GRID=my_grid.txt SEEDS="0" bash train_sparse_llm.sh   # override either
 # Each non-comment line of $GRID is the argument list for train_sparse_llm.py (no spaces inside values).
 # `sbatch train_sparse_llm.sh` alone runs the first grid line with the first seed.
 # Results land in results/runs/<model>_<method>_seed<s>_<config hash>/{metrics.csv,params.json}.
 
+# set  the grid and seeds variables
 GRID="${GRID:-grid.txt}"
-SEEDS=(${SEEDS:-0})
+SEEDS=(${SEEDS:-0 1})
+
+# parse the grid file
 mapfile -t LINES < <(grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$GRID")
 
+# if running on a login node -> exec a new process on the same script
+# that will have slurm_id = exec will not be called
 if [ -z "${SLURM_JOB_ID:-}" ]; then
   mkdir -p results/logs
   exec sbatch --array=0-$(( ${#LINES[@]} * ${#SEEDS[@]} - 1 )) "$0"
 fi
 
+# get the line + seed based on the slurm number
 TASK="${SLURM_ARRAY_TASK_ID:-0}"
 LINE="${LINES[TASK / ${#SEEDS[@]}]}"
 SEED="${SEEDS[TASK % ${#SEEDS[@]}]}"
 
+# load the environment - uncomment the commented in case you run this for the first time
 if command -v ml >/dev/null 2>&1; then
   ml PyTorch/2.11.0-foss-2025b-CUDA-12.9.1
   ml Hydra/1.3.2-GCCcore-14.3.0

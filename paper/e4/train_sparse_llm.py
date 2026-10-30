@@ -267,7 +267,7 @@ def toy_params(method="spbm"):
         }
     elif method == "alm":
         params["alm"] = {         
-            "lr": 1e-2,         
+            "lr": 1e-1,         
             "init_duals": 0.001,    
             "dual_range": (-100.0, 100.0),
             "is_ineq": True,
@@ -480,19 +480,21 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     g = compute_constraints(sparse_layers_dict, per_layer=params['per_layer']) - params['target_density']
                     row["constraint_max_viol"] = g.max().item()
                     row["constraint_mean_viol"] = g.mean().item()
+
+                    # log the size of the network
+                    with torch.no_grad():
+                        layers = sparse_layers_dict["sparse_layers"]
+                        ep_np = sum(m.expected_active_parameters() for m in layers).item()
+                        total_sparse = sum(m.num_sparsifiable_params for m in layers)
+                        constraints = compute_constraints(sparse_layers_dict, per_layer=True)
+                        active = model_size_no_sparsity - total_sparse + ep_np
+                    row["network_size"] = 100 * active / model_size_no_sparsity
+                        
                 else:  # for unconstrained - constraint is just 1
                     row["constraint_max_viol"] = 1.0
                     row["constraint_mean_viol"] = 1.0
+                    row["network_size"] = 100.0
 
-                # log the size of the network
-                with torch.no_grad():
-                    layers = sparse_layers_dict["sparse_layers"]
-                    ep_np = sum(m.expected_active_parameters() for m in layers).item()
-                    total_sparse = sum(m.num_sparsifiable_params for m in layers)
-                    constraints = compute_constraints(sparse_layers_dict, per_layer=True)
-                    active = model_size_no_sparsity - total_sparse + ep_np
-
-                row["network_size"] = 100 * active / model_size_no_sparsity
                 # compute the validation loss
                 eval_loss, perplexity = evaluate(model, eval_dataloader)
                 t0 = time.perf_counter() # restart time - do not include evaluate in the timing
@@ -561,7 +563,7 @@ def apply_overrides(params, overrides):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", default="alm", choices=["unconstrained", "spbm", "alm"])
+    parser.add_argument("--method", default="unconstrained", choices=["unconstrained", "spbm", "alm"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="override a toy_params entry, e.g. --set primal_lr=1e-4 --set spbm.penalty_mult=0.5")
