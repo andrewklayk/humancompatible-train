@@ -29,6 +29,7 @@ docs/source/tutorials/*.ipynb
 env*/
 paper/e4/results/logs
 paper/e4/saved_models
+paper/e4/results/runs
 
 # Local files
 NOTES.txt

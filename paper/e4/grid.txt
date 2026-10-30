@@ -1,0 +1,7 @@
+# One run config per line: arguments for train_sparse_llm.py, no spaces inside values.
+# Seeds come from SEEDS in train_sparse_llm.sh, so don't put --seed here.
+--method unconstrained
+--method spbm
+--method alm
+# --method spbm --set pbm.penalty_mult=0.5 --set primal_lr_gates=0.05
+# --method alm --set alm.lr=1e-3 --set alm.dual_range=(-10.0,10.0)

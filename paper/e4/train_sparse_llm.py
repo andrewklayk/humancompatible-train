@@ -19,6 +19,12 @@ from typing import Dict, List, Optional, Tuple, Type
 from humancompatible.train.dual_optim import ALM, PBM
 from humancompatible.train.dual_optim import MoreauEnvelope
 from torch.optim import Adam
+import argparse
+import ast
+import csv
+import hashlib
+import json
+import time
 
 def load_code_ds_data():
     """
@@ -157,7 +163,7 @@ def compute_constraints(sparse_layers_dict, per_layer=True):
 
 def evaluate(model, eval_dataloader):
     model.eval()
-    losses = []
+    loss = torch.tensor(0.0)
 
     # evaluate the model losses on eval dataset
     for step, batch in enumerate(eval_dataloader):
@@ -168,22 +174,21 @@ def evaluate(model, eval_dataloader):
         
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 logits = model(input_ids).logits
-                loss = loss_fn(input_ids, logits)
+                loss_cur = loss_fn(input_ids, logits)
+        
+                loss += loss_cur.item() / len(eval_dataloader)
 
-            losses.append(loss.item())
-
-            # # TODO: remove
-            # print(step)
-            # if step == 100:
-            #     break
-
-    loss = torch.mean(torch.tensor(losses))
+        # TODO: remove this
+        if (step + 1) % 100 == 0:
+            break
 
     # compute the perplexity
     try:
         perplexity = torch.exp(loss)
     except OverflowError:
         perplexity = float("inf")
+
+    model.train() # back to train
 
     # return both the test loss and perplexity
     return loss.item(), perplexity.item()
@@ -227,6 +232,7 @@ def toy_params(method="spbm"):
         "primal_lr": 5e-5,                  # lr of the network weights
         "weight_decay": 0.01,               # network weights only, never the gates
         "seed": 42,
+        "eval_steps": 1_250,                # in optimizer updates
         "device": "cuda",
         "verbose": True,
     }
@@ -249,7 +255,7 @@ def toy_params(method="spbm"):
             "mu": 1.0,
             "beta": 0.5,
         }
-        params["pbm"] = {                   # PBM(m=..., device=..., **params["pbm"])
+        params["spbm"] = {                   # PBM(m=..., device=..., **params["spbm"])
             "penalty_mult": 0.1,
             "penalty_update": "dimin_adapt",
             "pbf": "quadratic_logarithmic",
@@ -258,6 +264,15 @@ def toy_params(method="spbm"):
             "dual_range": (1e-4, 1000.0),
             "gamma": 0.1,
             "penalty_range": (1e-1, 1.0)
+        }
+    elif method == "alm":
+        params["alm"] = {         
+            "lr": 1e-2,         
+            "init_duals": 0.001,    
+            "dual_range": (-100.0, 100.0),
+            "is_ineq": True,
+            "penalty": 1.0
+
         }
     else:
         raise ValueError(f"unknown method: {method}")
@@ -288,12 +303,26 @@ def create_primal_dual_optimizer(model, params, sparse_layers_dict):
         # create a dual optimizer
         n_constraints = len(sparse_layers_dict["sparse_layers"]) if params["per_layer"] else 1
         optimizer_primal = MoreauEnvelope(optimizer_primal, **params["moreau"])
-        optimizer_dual = PBM(m=n_constraints, device=params["device"], **params["pbm"])
+        optimizer_dual = PBM(m=n_constraints, device=params["device"], **params["spbm"])
 
         return optimizer_primal, optimizer_dual
 
-    if params['method'] == 'ALM':
-        pass
+    if params['method'] == 'alm':
+
+        # create a primal optimizer
+        params_dict, sparse_layers_dict = get_grouped_params(model)
+        optimizer_primal = AdamW([ # IMPORTANT: the network weights shuold be on the first position - important for weight clipping!
+                        {"params": params_dict["net"],   "lr": params['primal_lr'], "weight_decay": 0.01},  # params of the network
+                        {"params": params_dict["gates"], "lr": params['primal_lr_gates'], "weight_decay": 0.0},   # params of the gates
+                    ])
+
+        # create a dual optimizer
+        n_constraints = len(sparse_layers_dict["sparse_layers"]) if params["per_layer"] else 1
+        optimizer_dual = ALM(m=n_constraints, device=params["device"], **params["alm"])
+
+        return optimizer_primal, optimizer_dual
+
+        
         # TODO
     if params['method'] == 'ghost':
         pass
@@ -306,14 +335,23 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                      output_dir="saved_models/gpt2-code",
                      verbose=True,
                      sparse_layers_dict = [],
-                     model_size_no_sparsity=0):
+                     model_size_no_sparsity=0,
+                     metrics_path="metrics.csv"):
     """
-    Inner training loop for training sparse llms. 
+    Inner training loop for training sparse llms.
     method: Options ["unconstrained", "ssl-alm", "spbm", "sqp"]
     """
 
     # create the directory for models
     os.makedirs(output_dir, exist_ok=True)
+
+    # one row per optimizer update, flushed each row so a killed job keeps its curve
+    metrics_file = open(metrics_path, "w", newline="")
+    metrics = csv.DictWriter(metrics_file, fieldnames=["update", "time_s", "loss", "constraint_max_viol",
+                                                        "constraint_mean_viol", "network_size", "val_loss", "perplexity"])
+    metrics.writeheader()
+    train_time, t0 = 0.0, time.perf_counter()   # train_time excludes evaluation
+    loss_sum, n_micro = 0.0, 0
 
     # define number of steps
     num_update_steps_per_epoch = len(train_dataloader)
@@ -339,6 +377,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 logits = model(input_ids).logits
                 loss = loss_fn(input_ids, logits)
+            loss_sum, n_micro = loss_sum + loss.detach(), n_micro + 1
 
             # print the status
             if step % 100 == 0:
@@ -392,7 +431,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     completed_steps += 1
 
             # update loop for constrained case
-            elif method == "spbm":
+            elif method == "spbm" or method == "alm":
 
                 if step % (gradient_accumulation_steps - 1) != 0: # still accumulating for gradient_accumulation_steps - 1 steps - last step is performed in the else statement
 
@@ -429,22 +468,47 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     lr_scheduler_primal.step()
                     completed_steps += 1
 
-                # constraints = compute_constraints(sparse_layers_dict)
+            # ---------------- evaluate the model + log the step
+            # if (step % (eval_steps * gradient_accumulation_steps)) == 0:
+            if step % 10 == 0: # TODO: remove this later
+                row = {"update": completed_steps, "loss": (loss_sum / n_micro).item()}
+                torch.cuda.synchronize()
+                now = time.perf_counter()
+                train_time = train_time + now - t0
+                row["time_s"] = train_time
+                if method != "unconstrained":   # here constraints = density - target, <= 0 is feasible
+                    g = compute_constraints(sparse_layers_dict, per_layer=params['per_layer']) - params['target_density']
+                    row["constraint_max_viol"] = g.max().item()
+                    row["constraint_mean_viol"] = g.mean().item()
+                else:  # for unconstrained - constraint is just 1
+                    row["constraint_max_viol"] = 1.0
+                    row["constraint_mean_viol"] = 1.0
 
-                # print(constraints)
-                # exit()
+                # log the size of the network
+                with torch.no_grad():
+                    layers = sparse_layers_dict["sparse_layers"]
+                    ep_np = sum(m.expected_active_parameters() for m in layers).item()
+                    total_sparse = sum(m.num_sparsifiable_params for m in layers)
+                    constraints = compute_constraints(sparse_layers_dict, per_layer=True)
+                    active = model_size_no_sparsity - total_sparse + ep_np
 
-
-            # ---------------- Evaluate the model + save the model
-            if (step % (eval_steps * gradient_accumulation_steps)) == 0:
-            # if (step % 10 ) == 0:
-                print('evaluating')
+                row["network_size"] = 100 * active / model_size_no_sparsity
+                # compute the validation loss
                 eval_loss, perplexity = evaluate(model, eval_dataloader)
-                print({"loss/eval": eval_loss, "perplexity": perplexity})
-                model.train() # back to train
+                t0 = time.perf_counter() # restart time - do not include evaluate in the timing
+                row["val_loss"] = eval_loss
+                row["perplexity"] = perplexity
+                metrics.writerow(row)
+                metrics_file.flush()
+                loss_sum, n_micro = 0.0, 0
 
-                # save the model
-                model.save_pretrained(output_dir)
+            # TODO: remove this
+            if step % 100 == 0:
+                break
+
+
+    # final evaluation, so every run has a val loss at the end
+    metrics_file.close()
 
 
 def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'], init_mean=4.5):
@@ -476,11 +540,39 @@ def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'],
     
 
 
+def apply_overrides(params, overrides):
+    """
+    Applies "key=value" overrides in place; dotted keys reach nested dicts (spbm.penalty_mult=0.5)
+    """
+    for item in overrides:
+        key, value = item.split("=", 1)
+        *path, last = key.split(".")
+        d = params
+        for k in path:
+            d = d[k]
+        if last not in d:   # a typo in a grid must fail, not silently run the default
+            raise KeyError(f"unknown param {key!r}")
+        try:
+            d[last] = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            d[last] = value  # plain string, e.g. spbm.pbf=quadratic_logarithmic
+    return params
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--method", default="alm", choices=["unconstrained", "spbm", "alm"])
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                        help="override a toy_params entry, e.g. --set primal_lr=1e-4 --set spbm.penalty_mult=0.5")
+    return parser.parse_args()
+
+
 def train_sprase_llm_code():
 
-    # TODO: this will be removed and replaced by params pass to the main function
-    params = toy_params(method='spbm')    
-    # params = toy_params(method='unconstrained')
+    args = parse_args()
+    params = apply_overrides(toy_params(method=args.method), args.set)
+    params['seed'] = args.seed
 
     # set a seed
     torch.manual_seed(params['seed'])
@@ -524,21 +616,27 @@ def train_sprase_llm_code():
     params_dict, sparse_layers_dict = get_grouped_params(model)
     primal_optimizer, dual_optimizer = create_primal_dual_optimizer(model, params, sparse_layers_dict)
 
-    # define name
-    run_name = (f"{params['model_name'].split('/')[-1]}_{params['method']}_bs{params['batch_size']}"
-                f"_ctx{params['context_length']}_seed{params['seed']}")
+    # define name; the hash covers every param but the seed, so seeds of one grid cell share it
+    cfg_hash = hashlib.md5(json.dumps({k: v for k, v in params.items() if k != 'seed'},
+                                      sort_keys=True, default=str).encode()).hexdigest()[:8]
+    run_name = f"{params['model_name'].split('/')[-1]}_{params['method']}_seed{params['seed']}_{cfg_hash}"
     output_dir = os.path.join("saved_models", run_name)
     os.makedirs(output_dir, exist_ok=True)
+    run_dir = os.path.join("results", "runs", run_name)
+    os.makedirs(run_dir, exist_ok=True)
+    with open(os.path.join(run_dir, "params.json"), "w") as f:
+        json.dump(params, f, indent=2)
 
     inner_train_loop(model, train_dataloader, eval_dataloader,
                      params['num_epochs'], primal_optimizer, dual_optimizer, params,
                      method=params['method'],
                      gradient_accumulation_steps=params['gradient_accumulation_steps'], 
-                     eval_steps = 5_000,
+                     eval_steps = params['eval_steps'],
                      output_dir=output_dir,
                      verbose=params['verbose'],
                      sparse_layers_dict = sparse_layers_dict,
-                     model_size_no_sparsity= sum(p.numel() for p in params_dict["net"]) )
+                     model_size_no_sparsity= sum(p.numel() for p in params_dict["net"]),
+                     metrics_path=os.path.join(run_dir, "metrics.csv"))
 
     print('Training DONE.')
 
