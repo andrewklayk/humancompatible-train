@@ -7,6 +7,7 @@ the two coarse solves use the even / odd index halves of the fine batch
 returned by ``split_even_odd`` (antithetic coupling). Both contracts are
 documented here and respected by :func:`mlmc_direction`.
 """
+# TODO: stale name in docstring: mlmc_direction -> direction
 
 import numpy as np
 import torch

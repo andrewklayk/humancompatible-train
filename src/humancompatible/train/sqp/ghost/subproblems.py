@@ -12,6 +12,7 @@ from typing import Optional
 import numpy as np
 import scipy.sparse as sparse
 from qpsolvers import solve_qp
+# TODO: unused import
 import torch
 from scipy.optimize import linprog
 
@@ -38,6 +39,7 @@ def compute_kappa(
     cgrad = np.asarray(cgrad, dtype=float)
     m, n = cgrad.shape
 
+    # TODO: skip LP if cval.max() <= 0 (kappa = 0 exactly)
     term1 = (1.0 - lamb) * np.maximum(cval, 0.0).max()
 
     c_obj = np.zeros(n + 1)
@@ -45,6 +47,7 @@ def compute_kappa(
     # -t + ∇C_i^T d ≤ -C_i
     A_ub = np.hstack([-np.ones((m, 1)), cgrad])
     b_ub = -cval
+    # TODO: pass (n+1, 2) array, not list of n tuples
     bounds = [(0.0, None)] + [(-rho, rho)] * n
 
     res = linprog(c_obj, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method="highs")
@@ -83,12 +86,14 @@ def solve_subproblem(
     m, n = cgrad.shape
     d = None
 
+    # TODO: build Q,c,A,b once; 4 branches are copy-paste (b recomputed, Q unused in dual)
     if solve_dual:  # solve the dual problem
 
         if solve_relaxed: # solve the dual problem with no beta constraints - relaxation
             # create the primal problem
             Q = tau * sparse.identity(n, format="csc")
             c = grad_f
+            # TODO: keep A dense here; Q_dual is m x m
             A = sparse.csc_matrix(cgrad)
             b = kappa * np.ones(m) - cval
 
@@ -104,6 +109,7 @@ def solve_subproblem(
             # recover the primal solution from the dual solution
             d = -1/tau * (A.T @ lambda_optimal + c)
         
+        # TODO: dual has m+2n vars > n primal: never cheaper, drop or fall back to primal
         else:   # solve the dual problem with beta constraints
             # create the primal problem
             Q = tau * sparse.identity(n, format="csc")
