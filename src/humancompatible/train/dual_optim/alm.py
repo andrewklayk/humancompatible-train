@@ -49,6 +49,9 @@ class ALM(DualOptimizer):
 
         self.penalty = penalty
         self.augmentation = augmentation
+        # SGD-style momentum. Set here, not in _make_group, so groups added later inherit it.
+        if dampening is None:
+            dampening = 0.0
         params, settings = self._make_group(
             m, lr, momentum, dampening, init_duals, dual_range, is_ineq, restart, device
         )
@@ -71,10 +74,6 @@ class ALM(DualOptimizer):
         restart: bool = None,
         device=None,
     ):
-
-        # Default dampening to momentum (EMA) when unset and momentum > 0; else 0.1
-        if dampening is None:
-            dampening = 0.0
 
         if not isinstance(restart, bool):
             raise ValueError(
@@ -105,8 +104,8 @@ class ALM(DualOptimizer):
         dampening: Optional[float] = None,
         init_duals: Tensor = None,
         dual_range: tuple[float, float] = None,
-        is_ineq: bool = False,
-        restart: bool = False,
+        is_ineq: bool = None,
+        restart: bool = None,
         device = None,
         *,
         name: str = None,
@@ -140,6 +139,20 @@ class ALM(DualOptimizer):
             Parameters here will default to values set when initializing the dual optimizer.
 
         """
+        # Resolved here because _make_group / _base_group would otherwise fill
+        # these with their own fallbacks instead of the optimizer's settings.
+        d = self.defaults
+        if dampening is None:
+            dampening = d.get("dampening")
+        if is_ineq is None:
+            is_ineq = d["is_ineq"]
+        if restart is None:
+            restart = d["restart"]
+        if dual_range is None:
+            dual_range = (d.get("lower_bound"), d.get("upper_bound"))
+        if device is None:
+            device = self.param_groups[0]["params"][0].device
+
         params, settings = self._make_group(
             m, lr, momentum, dampening, init_duals, dual_range, is_ineq, restart, device
         )
@@ -174,7 +187,8 @@ class ALM(DualOptimizer):
             group["params"][0],
             buffer if momentum > 0 else d,
             group["lr"],
-            group.get("restart"),
+            # c < 0 is a violation, not satisfaction, for equality constraints.
+            group.get("restart") and group.get("is_ineq"),
             raw_constraints=c,
         )
 

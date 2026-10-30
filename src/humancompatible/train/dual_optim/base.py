@@ -137,8 +137,12 @@ class DualOptimizer(Optimizer, abc.ABC):
         if dual_range is None:
             dual_range = (0, None) if is_ineq else (None, None)
 
+        lower = dual_range[0]
+        if is_ineq:
+            lower = 0 if lower is None else max(lower, 0)
+
         settings = {
-            "lower_bound": max(dual_range[0], 0) if is_ineq else dual_range[0],
+            "lower_bound": lower,
             "upper_bound": dual_range[1],
             "is_ineq": is_ineq,
             "bound": bound,
@@ -262,15 +266,9 @@ class DualOptimizer(Optimizer, abc.ABC):
             )
         return flat
 
+    # TODO: deprecated, used only in quadratic ineq constraints
     def _penalty_constraints(self, constraints: Tensor) -> Tensor:
         """The constraint vector as a quadratic penalty term should see it.
-
-        For an inequality constraint :math:`c \\le 0`, a penalty on the raw value
-        also penalises being *strictly feasible*, and is minimised by driving
-        :math:`c \\to 0` — it pulls feasible iterates back onto the boundary. The
-        correct exterior penalty acts on the violation only, so entries belonging
-        to groups registered with ``is_ineq=True`` are clamped to
-        :math:`[c]_+ = \\max(c, 0)`. Equality groups pass through unchanged.
 
         Returns the argument itself when no group is an inequality group, so the
         all-equality path is unchanged down to the last bit.
