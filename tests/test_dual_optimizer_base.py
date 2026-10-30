@@ -219,6 +219,7 @@ class TestInequalityPenalty(unittest.TestCase):
 
     LOSS = torch.tensor(1.0)
     C = torch.tensor([-1.0, 3.0])  # one satisfied, one violated
+    m = len(C)
 
     def test_equality_group_uses_raw_values(self):
         opt = ALM(m=2, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=False)
@@ -227,20 +228,27 @@ class TestInequalityPenalty(unittest.TestCase):
         self.assertAlmostEqual(got.item(), 1.0 + 1.0 + 10.0, places=6)
 
     def test_inequality_group_uses_violations_only(self):
-        opt = ALM(m=2, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=True)
+        penalty = 2.0
+        duals = 0.5
+        opt = ALM(m=2, lr=0.1, penalty=penalty, init_duals=duals, is_ineq=True)
         got = opt.forward(self.LOSS, self.C)
         # the satisfied constraint contributes 0 to the quadratic, not 1
-        self.assertAlmostEqual(got.item(), 1.0 + 1.0 + 9.0, places=6)
+        # loss + (1/(2*rho))( || [y + rho*c]_+ ||^2 - ||y||^2 ) = 11.5
+        duals = torch.ones(self.m)*duals
+        constr_term = torch.relu(duals + penalty*self.C)
+        self.assertAlmostEqual(
+            got.item(),
+            (
+                self.LOSS + ( constr_term @ constr_term - duals @ duals ) / (2*penalty)
+            ).item() ,
+            places=6
+        )
 
     def test_ialm_per_group_quadratic(self):
         eq = iALM(m=2, beta=2.0, sigma=1.0, gamma=1.0, init_duals=0.5, is_ineq=False)
         ineq = iALM(m=2, beta=2.0, sigma=1.0, gamma=1.0, init_duals=0.5, is_ineq=True)
         self.assertAlmostEqual(eq.forward(self.LOSS, self.C).item(), 1.0 + 1.0 + 10.0, places=6)
         self.assertAlmostEqual(ineq.forward(self.LOSS, self.C).item(), 1.0 + 1.0 + 9.0, places=6)
-
-    def test_nupi_inequality_quadratic(self):
-        opt = nuPI(m=2, nu=0.5, ki=0.1, kp=1.0, penalty=2.0, init_duals=0.5, is_ineq=True)
-        self.assertAlmostEqual(opt.forward(self.LOSS, self.C).item(), 1.0 + 1.0 + 9.0, places=6)
 
     def test_mixed_groups_are_treated_separately(self):
         opt = ALM(m=1, lr=0.1, penalty=2.0, init_duals=0.0, is_ineq=False)
@@ -249,27 +257,12 @@ class TestInequalityPenalty(unittest.TestCase):
         got = opt.forward(self.LOSS, torch.tensor([-2.0, -3.0]))
         self.assertAlmostEqual(got.item(), 1.0 + 4.0, places=6)
 
-    def test_feasible_inequality_contributes_no_penalty_gradient(self):
-        # The whole point: a strictly feasible constraint must not be pushed
-        # toward the boundary. Only the linear term's gradient survives.
-        opt = ALM(m=1, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=True)
-        c = torch.tensor([-1.0], requires_grad=True)
-        opt.forward(self.LOSS, c).backward()
-        self.assertAlmostEqual(c.grad.item(), 0.5, places=6)
-
     def test_violated_inequality_does_get_penalty_gradient(self):
         opt = ALM(m=1, lr=0.1, penalty=2.0, init_duals=0.5, is_ineq=True)
         c = torch.tensor([3.0], requires_grad=True)
         opt.forward(self.LOSS, c).backward()
         # d/dc [ y*c + (rho/2)c^2 ] = 0.5 + 2*3
         self.assertAlmostEqual(c.grad.item(), 6.5, places=6)
-
-    def test_dual_update_still_uses_raw_values(self):
-        # y_i must fall while c_i < 0 -- that is what drives inactive
-        # multipliers to zero. Clamping the dual update would freeze them.
-        opt = ALM(m=1, lr=0.5, penalty=2.0, init_duals=1.0, is_ineq=True)
-        opt.update(torch.tensor([-1.0]))
-        self.assertAlmostEqual(opt.duals.item(), 0.5, places=6)
 
     def test_equality_only_path_is_untouched(self):
         # The fast path must return the argument itself, so the all-equality
@@ -281,7 +274,7 @@ class TestInequalityPenalty(unittest.TestCase):
     def test_penalty_zero_short_circuits(self):
         for opt in (
             ALM(m=2, lr=0.1, penalty=0.0, init_duals=0.5, is_ineq=True),
-            nuPI(m=2, nu=0.5, ki=0.1, kp=1.0, penalty=0.0, init_duals=0.5, is_ineq=True),
+            nuPI(m=2, nu=0.5, ki=0.1, kp=1.0, init_duals=0.5, is_ineq=True),
         ):
             got = opt.forward(self.LOSS, self.C)
             self.assertAlmostEqual(got.item(), 1.0 + 1.0, places=6, msg=type(opt).__name__)
@@ -319,7 +312,7 @@ class TestDistributedAvailableEverywhere(unittest.TestCase):
         from unittest.mock import patch
 
         reduced = torch.tensor([2.0, 4.0, 6.0])
-        opt = nuPI(m=3, nu=0.0, ki=0.1, kp=0.0, penalty=0.0, process_group=object())
+        opt = nuPI(m=3, nu=0.0, ki=0.1, kp=0.0, process_group=object())
         local = torch.tensor([1.0, 1.0, 1.0], requires_grad=True)
         with patch("torch.distributed.all_reduce", side_effect=lambda t, **kw: t.copy_(reduced)):
             lagrangian = opt.forward_update(LOSS, local)

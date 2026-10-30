@@ -30,6 +30,7 @@ from .mlmc import direction
 class GhostConfig:
     """Hyperparameters for :class:`GhostSQP`."""
 
+    # TODO: drop monte_carlo_sampling/solve_relaxed bools; use alpha/beta None-ness instead
     alpha: float | None = None      # geometric level parameter p_α ∈ (0, 1)
     base_batch: int = 1     # level-0 sample count m0; level ℓ uses m0·2^ℓ samples
     tau: float = 1.0        # QP regularization τ > 0
@@ -103,6 +104,7 @@ class GhostSQP:
             rng=None
         ):
         self.net = net
+        # TODO: set self.cfg first and validate it; list() conversion unneeded
         if (objective_fn is None or constraint_fns is None) and cfg is not None and cfg.monte_carlo_sampling:
             raise ValueError("MLMC direction estimation requires both objective and constraints to be passed as functions.")
         # allow None for both objective and constraint functions to allow user to supply calculated tensors (when not using mlmc)
@@ -120,6 +122,7 @@ class GhostSQP:
         return self.cfg.gamma0 / nu ** self.cfg.gamma_power
 
     @torch.no_grad()
+    # TODO: use parameters_to_vector/vector_to_parameters with one tensor conversion
     def _apply_direction(self, d, gamma):
         """In-place update x ← x + γ d, unflattening d across parameters."""
         i = 0
@@ -142,6 +145,7 @@ class GhostSQP:
             sampler=self.sampler,
             cfg=self.cfg,
             rng=self.rng,
+            # TODO: redundant with cfg; pass a single oracle(batch) callable instead of net/loss/fns
             solve_dual=self.cfg.solve_dual, 
             solve_relaxed=self.cfg.solve_relaxed,
             monte_carlo_sampling=self.cfg.monte_carlo_sampling

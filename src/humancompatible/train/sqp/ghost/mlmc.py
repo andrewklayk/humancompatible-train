@@ -38,6 +38,7 @@ def direction(
         sampler,
         cfg,
         rng,
+        # TODO: read these flags from cfg; replace net/objective/constraints/*_fns with one oracle(batch) callable
         solve_dual: bool = False,
         solve_relaxed: bool = False,
         monte_carlo_sampling: bool = True,
@@ -75,6 +76,7 @@ def direction(
         N = int(rng.geometric(cfg.alpha)) - 1
         p_N = cfg.alpha * (1.0 - cfg.alpha) ** N
         base = cfg.base_batch
+        # TODO: drop alias
         J_base = base                 # level-0 (base) sample count
         J_fine = base * 2 ** (N + 1)  # fine batch; antithetic halves are base * 2^N each
 
@@ -113,6 +115,7 @@ def direction(
         d_tilde, cval, kappa = solve(batch)
 
         info = {
+            # TODO: N is a level index; omit N/p_N/fine_batch here
             "N": base,
             "p_N": 1.0,
             "kappa": kappa,
