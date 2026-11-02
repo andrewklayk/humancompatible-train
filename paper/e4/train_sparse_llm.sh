@@ -19,7 +19,7 @@
 
 # set  the grid and seeds variables
 GRID="${GRID:-grid.txt}"
-SEEDS=(${SEEDS:-0 1})
+SEEDS=(${SEEDS:-0 1 2})
 
 # parse the grid file
 mapfile -t LINES < <(grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$GRID")

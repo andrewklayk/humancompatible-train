@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple, Type
 from humancompatible.train.dual_optim import ALM, PBM
 from humancompatible.train.dual_optim import MoreauEnvelope
 from torch.optim import Adam
+from datasets import Dataset
 import argparse
 import ast
 import csv
@@ -28,12 +29,12 @@ import time
 
 def load_code_ds_data():
     """
-    TODO: swap for OpenWebText, FineWeb or FineWeb-Edu sample
+    Loads a code dataset from HuggingFace. The dataset is already split into train and validation sets.
     """
 
     ds_train = load_dataset("huggingface-course/codeparrot-ds-train", split="train")
     ds_valid = load_dataset("huggingface-course/codeparrot-ds-valid", split="validation")
-
+    
     raw_datasets = DatasetDict(
         {
             "train": ds_train,  
@@ -90,7 +91,7 @@ def tokenize_curry_lamma(tokenizer, context_length):
 
 
 
-def get_load_tokenized_code_ds_data(context_length = 128, 
+def get_load_tokenized_data(context_length = 128, 
                                     tokenizer=AutoTokenizer.from_pretrained("huggingface-course/code-search-net-tokenizer"),
                                     save_dir="data/codeparrot_tokenized_ctx128", lamma=True):
 
@@ -207,6 +208,52 @@ def probability_of_1_of_z(sparse_layers_dict):
 
     return probability
 
+def get_expected_network_size(model, candidates_to_sparsify=['down_proj', 'o_proj']):
+    """
+    Computes the expected network size based on the expected active parameters in the sparse layers
+    """
+
+    network_size = 0
+    active_parameters = 0
+    total_sparse = 0
+    
+    # compute the total number of parameters in the model
+    network_size += sum(p.numel() for n, p in model.named_parameters() if "log_alpha" not in n)
+
+    with torch.no_grad():
+    
+        for layer in model.model.layers:
+            
+            # sparsify each candidate in the layer
+            for candidate in candidates_to_sparsify:
+
+                # get the model candidate
+                if candidate == 'down_proj':
+                    mlp = getattr(layer.mlp, candidate)
+                elif candidate == 'o_proj':
+                    mlp = getattr(layer.self_attn, candidate)
+                else: 
+                    raise ValueError(candidate)
+
+                # check if the layer is a L0Linear layer
+                if isinstance(mlp, L0Linear):
+                    ep_np = mlp.expected_active_parameters().item()
+                    np = mlp.num_sparsifiable_params
+                    active_parameters += ep_np
+                    total_sparse += np
+
+                    # also remove the preivous number of parameters from the network size
+                    if candidate == 'down_proj':
+                        total_sparse += layer.mlp.gate_proj.weight.numel()
+                        total_sparse += layer.mlp.up_proj.weight.numel()
+
+                        # compute expected active parameters for the gate_proj and up_proj based on the input size of the down_proj
+                        active_parameters += layer.mlp.gate_proj.in_features * (layer.mlp.gate_proj.out_features *  (ep_np / np))
+                        active_parameters += layer.mlp.up_proj.in_features * (layer.mlp.up_proj.out_features *  (ep_np / np))
+
+
+    return network_size - total_sparse + active_parameters
+
 def default_params(method="spbm"):
     """
     This is a default params function
@@ -214,7 +261,7 @@ def default_params(method="spbm"):
 
     params = {
         # ---------------- model / data
-        "model_name": "meta-llama/Llama-3.2-1B",
+        "model_name": "meta-llama/Llama-3.2-1B",  # Llama 3.2 Version Release Date: September 25, 2024
         "data_save_dir": "data/codeparrot_tokenized_lamma32_1B_1024",
         "context_length": 1024,             # changing this requires re-tokenizing the dataset
 
@@ -227,7 +274,7 @@ def default_params(method="spbm"):
         "primal_lr": 5e-5,                  # lr of the network weights
         "weight_decay": 0.01,               # network weights only, never the gates
         "seed": 42,
-        "eval_steps": 1_250,                # in optimizer updates
+        "eval_steps": 800,                # in optimizer updates
         "device": "cuda",
         "verbose": True,
     }
@@ -359,7 +406,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
     completed_steps = 0
     for epoch in range(num_epochs):
         for step, batch in tqdm(
-            enumerate(train_dataloader, start=1), total=num_training_steps
+            enumerate(train_dataloader, start=0), total=num_training_steps
         ):
             
             input_ids = batch["input_ids"].to("cuda")
@@ -373,16 +420,12 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
 
                 # compute the number of active constraints and print it 
                 if method != "unconstrained":
-                    with torch.no_grad():
-                        layers = sparse_layers_dict["sparse_layers"]
-                        ep_np = sum(m.expected_active_parameters() for m in layers).item()
-                        total_sparse = sum(m.num_sparsifiable_params for m in layers)
-                        constraints = compute_constraints(sparse_layers_dict, per_layer=True)
-                        active = model_size_no_sparsity - total_sparse + ep_np
+                    active = get_expected_network_size(model)
                 log = {
                     "samples": (epoch * len(train_dataloader) + step) * train_dataloader.batch_size,
                     "updates": completed_steps,
                     "loss/train": f"{loss.item():.4f}",
+                    "network_size": f"{100 * active / model_size_no_sparsity:.2f}%" if method != "unconstrained" else "100%",
                     }
                 if method != "unconstrained":
                     log["max constraint"] = f"{constraints.max().item():.3f}"
@@ -467,12 +510,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     row["constraint_mean_viol"] = g.mean().item()
 
                     # log the size of the network
-                    with torch.no_grad():
-                        layers = sparse_layers_dict["sparse_layers"]
-                        ep_np = sum(m.expected_active_parameters() for m in layers).item()
-                        total_sparse = sum(m.num_sparsifiable_params for m in layers)
-                        constraints = compute_constraints(sparse_layers_dict, per_layer=True)
-                        active = model_size_no_sparsity - total_sparse + ep_np
+                    active = get_expected_network_size(model)
                     row["network_size"] = 100 * active / model_size_no_sparsity
                         
                 else:  # for unconstrained - constraint is just 1
@@ -489,10 +527,9 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 metrics_file.flush()
                 loss_sum, n_micro = 0.0, 0
 
-            # TODO: remove this
+            # 40k steps - equal to 0.5B tokens 
             if step % 40050 == 0:
                 break
-
 
     # final evaluation, so every run has a val loss at the end
     metrics_file.close()
@@ -506,7 +543,7 @@ def set_sparse_model(model, init_L0_w_pretrained=True, candidates={'mlp': 'down_
 
     # sparsify each layer of the model
     for layer in model.model.layers:
-        print(layer)
+        
         # sparsify each candidate in the layer
         for module_type, candidate in candidates.items():
 
@@ -553,7 +590,7 @@ def apply_overrides(params, overrides):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", default="unconstrained", choices=["unconstrained", "spbm", "alm"])
+    parser.add_argument("--method", default="spbm", choices=["unconstrained", "spbm", "alm"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="override a default_params entry, e.g. --set primal_lr=1e-4 --set spbm.penalty_mult=0.5")
@@ -573,7 +610,7 @@ def train_sprase_llm_code():
     tokenizer = AutoTokenizer.from_pretrained(params['model_name'])
 
     # define context length here
-    tokenized_datasets = get_load_tokenized_code_ds_data(context_length = params['context_length'], 
+    tokenized_datasets = get_load_tokenized_data(context_length = params['context_length'], 
                                 tokenizer=tokenizer,
                                 save_dir=params['data_save_dir'])
 
