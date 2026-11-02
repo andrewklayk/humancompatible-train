@@ -237,7 +237,7 @@ def default_params(method="spbm"):
 
     # ---------------- sparsity problem (shared by ALL constrained methods)
     params.update({
-        "candidates_to_sparsify": ["down_proj"],
+        "candidates_to_sparsify": {"mlp": "down_proj", "self_attn": "o_proj"},  # candidates to sparsify in the mlp and self-attention
         "init_mean": 1.0,                   # gate log_alpha at init: ~95% of z == 1, eval gates exactly 1
         "target_density": 0.7,              # constraint: expected DENSITY <= 0.7, i.e. >= 30% sparsity
         "per_layer": True,                  # True: one constraint per layer, False: one global constraint
@@ -248,15 +248,15 @@ def default_params(method="spbm"):
     if method == "spbm":
         params["moreau"] = {                # MoreauEnvelope(optimizer_primal, **params["moreau"])
             "mu": 1.0,
-            "beta": 0.5,
+            "beta": 0.1,
         }
         params["spbm"] = {                   # PBM(m=..., device=..., **params["spbm"])
-            "penalty_mult": 0.1,
+            "penalty_mult": 0.9,
             "penalty_update": "dimin_adapt",
             "pbf": "quadratic_logarithmic",
             "init_duals": 0.001,
             "init_penalties": 1.0,
-            "dual_range": (1e-4, 1000.0),
+            "dual_range": (1e-4, 100.0),
             "gamma": 0.1,
             "penalty_range": (1e-1, 1.0)
         }
@@ -320,7 +320,7 @@ def create_primal_dual_optimizer(model, params, sparse_layers_dict):
 def inner_train_loop(model, train_dataloader, eval_dataloader,
                      num_epochs, primal_optimizer, dual_optimizer, params,
                      method='unconstrained',
-                     gradient_accumulation_steps = 8, eval_steps = 5_000,
+                     gradient_accumulation_steps = 8, eval_steps = 1250,
                      output_dir="saved_models/gpt2-code",
                      verbose=True,
                      sparse_layers_dict = [],
@@ -498,7 +498,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
     metrics_file.close()
 
 
-def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'], init_mean=4.5):
+def set_sparse_model(model, init_L0_w_pretrained=True, candidates={'mlp': 'down_proj', 'self_attn': 'o_proj'}, init_mean=1.0):
     """
     Creates a L0 linear layer in the candidates mlps
     init_L0_w_pretrained: sets the weights of the linear sparse layer copied in the original.
@@ -506,12 +506,15 @@ def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'],
 
     # sparsify each layer of the model
     for layer in model.model.layers:
-
+        print(layer)
         # sparsify each candidate in the layer
-        for candidate in candidates:
+        for module_type, candidate in candidates.items():
 
             # get the model candidate
-            mlp_old = getattr(layer.mlp, candidate)
+            if module_type == 'mlp':
+                mlp_old = getattr(layer.mlp, candidate)
+            elif module_type == 'self_attn':
+                mlp_old = getattr(layer.self_attn, candidate)
 
             # create a new sparse l0 layer
             mlp_sparse = L0Linear(in_features=mlp_old.in_features, out_features=mlp_old.out_features, 
@@ -523,8 +526,10 @@ def set_sparse_model(model, init_L0_w_pretrained=True, candidates=['down_proj'],
                 mlp_sparse.weight_log_alpha.data += init_mean
                 
             # swap the mlp in the layer
-            setattr(layer.mlp, candidate, mlp_sparse)
-    
+            if module_type == 'mlp':
+                setattr(layer.mlp, candidate, mlp_sparse)
+            elif module_type == 'self_attn':
+                setattr(layer.self_attn, candidate, mlp_sparse)
 
 
 def apply_overrides(params, overrides):
