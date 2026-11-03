@@ -530,7 +530,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 loss_sum, n_micro = 0.0, 0
 
             # 40k steps - equal to 0.5B tokens 
-            if step % 40050 == 0:
+            if step == 40050:
                 break
 
     # final evaluation, so every run has a val loss at the end
