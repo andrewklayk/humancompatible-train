@@ -21,7 +21,7 @@ import torch
 
 def n_params(net):
     """Total number of (trainable) scalar parameters n of ``net``."""
-    return sum(p.numel() for p in net.parameters())
+    return sum(p.numel() for p in net.parameters() if p.requires_grad)
 
 
 def _flat_grad(scalar, params, retain_graph=False):
@@ -45,7 +45,8 @@ def evaluate_oracle_from_tensors(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Evaluate the oracle: objective gradient and constraint Jacobian"""
 
-    params = list(model.parameters())
+    # frozen params get no autograd graph; parameters() order keeps this aligned with _apply_direction
+    params = [p for p in model.parameters() if p.requires_grad]
 
     # objective
     grad_f = _flat_grad(objective, params, retain_graph=True)

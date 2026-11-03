@@ -38,10 +38,7 @@ def direction(
         sampler,
         cfg,
         rng,
-        # TODO: read these flags from cfg; replace net/objective/constraints/*_fns with one oracle(batch) callable
-        solve_dual: bool = False,
-        solve_relaxed: bool = False,
-        monte_carlo_sampling: bool = True,
+        # TODO: replace net/objective/constraints/*_fns with one oracle(batch) callable
         objective: torch.Tensor | None = None,
         constraints: torch.Tensor | None = None,
         objective_fn: Callable[..., torch.Tensor] | None = None,
@@ -54,23 +51,22 @@ def direction(
     ``info`` holds per-step diagnostics.
     """
 
-    use_tensors = objective is not None and constraints is not None
+    use_tensors = (objective is not None) and (constraints is not None)
 
     # define a solve function - solves the QP
     def solve(batch = None):
-        if not use_tensors:
-            grad_f, cval, cgrad = evaluate_oracle(net, objective_fn, constraint_fns, batch)
-        elif use_tensors:
+        if use_tensors:
             grad_f, cval, cgrad = evaluate_oracle_from_tensors(net, objective, constraints)
         else:
-            raise ValueError
+            grad_f, cval, cgrad = evaluate_oracle(net, objective_fn, constraint_fns, batch)
+        
         kappa = compute_kappa(cval, cgrad, cfg.lambda_, cfg.rho)
         d = solve_subproblem(grad_f, cval, cgrad, kappa, cfg.beta, cfg.tau, cfg.qp_solver, 
-                            solve_dual=solve_dual, solve_relaxed=solve_relaxed)
+                            solve_dual=cfg.solve_dual, solve_relaxed=cfg.solve_relaxed)
         return d, cval, kappa
 
     # if using monte carlo sampling - solve the subproblem 4x, see the paper for details
-    if monte_carlo_sampling:
+    if cfg.monte_carlo_sampling:
 
         # Geometric level on {0, 1, 2, ...} with p(N) = α (1-α)^N.
         N = int(rng.geometric(cfg.alpha)) - 1

@@ -330,7 +330,7 @@ class TestALMHPR(unittest.TestCase):
     def test_mixed_groups(self):
         rho = 1.0
         hpr = self._hpr(m=2, lr=0.1, penalty=rho, init_duals=0.5, is_ineq=True)
-        hpr.add_constraint_group(m=2, lr=0.1, init_duals=torch.full((2,), 0.5))
+        hpr.add_constraint_group(m=2, lr=0.1, init_duals=torch.full((2,), 0.5), is_ineq=False)
 
         c = torch.tensor([0.5, -2.0, 1.0, -1.0])
         lag = hpr.forward(self.loss, c)
@@ -347,10 +347,14 @@ class TestALMHPR(unittest.TestCase):
     # --- validation and checkpointing ---
 
     def test_rejects_nonpositive_penalty(self):
-        with self.assertRaises(ValueError):
-            ALM(m=3, lr=0.1, penalty=0.0, augmentation="hpr")
+        # penalty=0 deliberately means the plain Lagrangian, whatever the augmentation
+        self.assertIsNone(ALM(m=3, lr=0.1, penalty=0.0, augmentation="hpr").augmentation)
         with self.assertRaises(ValueError):
             ALM(m=3, lr=0.1, penalty=-1.0, augmentation="hpr")
+        with self.assertRaises(ValueError):
+            ALM(m=3, lr=0.1, penalty=-1.0, augmentation="quadratic")
+        with self.assertRaises(ValueError):
+            ALM(m=3, lr=0.1, penalty=-1.0)
         # zero penalty stays valid in the default mode (Cooper parity relies on it)
         ALM(m=3, lr=0.1, penalty=0.0)
 

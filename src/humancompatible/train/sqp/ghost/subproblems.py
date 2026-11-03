@@ -7,14 +7,20 @@ n-dimensional primal space, as written in the paper.
 * ``solve_subproblem`` -- the search-direction QP, Eq. (3), via ``qpsolvers``.
 """
 
-from typing import Optional
-
 import numpy as np
 import scipy.sparse as sparse
 from qpsolvers import solve_qp
 # TODO: unused import
 import torch
 from scipy.optimize import linprog
+
+
+def _qp(*args, solver, **kw):
+    # qpsolvers returns None on failure; fail here rather than on arithmetic with None downstream
+    x = solve_qp(*args, solver=solver, **kw)
+    if x is None:
+        raise RuntimeError(f"QP subproblem not solved by {solver!r}; try another qp_solver")
+    return x
 
 
 def compute_kappa(
@@ -37,9 +43,10 @@ def compute_kappa(
     """
     cval = np.asarray(cval, dtype=float)
     cgrad = np.asarray(cgrad, dtype=float)
+    if cval.max() <= 0:
+        return 0.0  # d = 0 is LP-feasible with t = 0, and term1 = 0
     m, n = cgrad.shape
 
-    # TODO: skip LP if cval.max() <= 0 (kappa = 0 exactly)
     term1 = (1.0 - lamb) * np.maximum(cval, 0.0).max()
 
     c_obj = np.zeros(n + 1)
@@ -66,7 +73,7 @@ def solve_subproblem(
         qp_solver: str = "osqp",
         solve_dual: bool = False,
         solve_relaxed: bool = False
-    )-> Optional[np.ndarray]:
+    )-> np.ndarray:
     """Search-direction QP, Eq. (3):
 
         min_d  ∇F(x)^T d + (τ/2) ||d||^2
@@ -100,11 +107,9 @@ def solve_subproblem(
             # create the dual problem
             Q_dual = A @ A.T / tau
             c_dual = A @ c / tau + b
-            A_dual = -sparse.identity(m, format="csc")
-            b_dual = np.zeros(m)
 
-            # solve the dual problem
-            lambda_optimal = solve_qp(Q_dual, c_dual, A_dual, b_dual, None, None, None, None, solver=qp_solver)
+            # solve the dual problem, lambda >= 0 as a bound
+            lambda_optimal = _qp(Q_dual, c_dual, lb=np.zeros(m), solver=qp_solver)
 
             # recover the primal solution from the dual solution
             d = -1/tau * (A.T @ lambda_optimal + c)
@@ -129,7 +134,7 @@ def solve_subproblem(
             b_dual = np.zeros(m + 2*n)
 
             # solve the dual problem
-            lambda_optimal = solve_qp(Q_dual, c_dual, A_dual, b_dual, None, None, None, None, solver=qp_solver)
+            lambda_optimal = _qp(Q_dual, c_dual, A_dual, b_dual, None, None, None, None, solver=qp_solver)
 
             # recover the primal solution from the dual solution
             d = -1/tau * (A.T @ lambda_optimal + c)
@@ -142,7 +147,7 @@ def solve_subproblem(
             c = grad_f
             A = sparse.csc_matrix(cgrad)
             b = kappa * np.ones(m) - cval
-            d = solve_qp(Q, c, A, b, None, None, None, None, solver=qp_solver)
+            d = _qp(Q, c, A, b, None, None, None, None, solver=qp_solver)
 
         else:  # beta is not ignored in the subproblem - slower solution, but equal to the proposed stochastic ghost method
             Q = tau * sparse.identity(n, format="csc")
@@ -151,6 +156,6 @@ def solve_subproblem(
             b = kappa * np.ones(m) - cval
             lb = -beta * np.ones(n)
             ub = beta * np.ones(n)
-            d = solve_qp(Q, c, A, b, None, None, lb, ub, solver=qp_solver)
+            d = _qp(Q, c, A, b, None, None, lb, ub, solver=qp_solver)
 
     return d

@@ -26,6 +26,7 @@ class iALM(DualOptimizer):
         is_ineq: bool = False,
         device=None,
         process_group: Optional[dist.ProcessGroup] = None,
+        name: Optional[str] = None,
     ) -> None:
 
         self.penalty = penalty
@@ -33,9 +34,13 @@ class iALM(DualOptimizer):
             m, beta, sigma, gamma, momentum, dampening, init_duals, dual_range,
             is_ineq, device,
         )
+        if name is not None:
+            settings["name"] = name
         super().__init__(
             [{"params": params, **settings}],
-            self._scalar_defaults(settings),
+            # beta/sigma/gamma are tensors in the group, which _scalar_defaults
+            # drops, so later groups inherit them from these floats instead.
+            {**self._scalar_defaults(settings), "beta": beta, "sigma": sigma, "gamma": gamma},
             process_group=process_group,
         )
 
@@ -82,18 +87,17 @@ class iALM(DualOptimizer):
     def add_constraint_group(
         self,
         m: int = None,
-        beta: float = 1.0,
-        sigma: float = 1.0,
-        gamma: float = 1.0,
+        beta: float = None,
+        sigma: float = None,
+        gamma: float = None,
         momentum: float = None,
         dampening: Optional[float] = None,
         init_duals: Tensor = None,
         dual_range: tuple[float, float] = None,
-        is_ineq: bool = False,
+        is_ineq: bool = None,
         device = None,
         *,
         name: str = None,
-        bound: float = None,
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
@@ -118,15 +122,31 @@ class iALM(DualOptimizer):
         :type is_ineq: bool
         :param name: Name for this group, used when passing constraints as a mapping. Defaults to `group<k>`.
         :type name: str
-        :param bound: Right-hand side of this group's constraints, if any. Only used by :meth:`violation`.
-        :type bound: float
+
+        .. note::
+            Parameters here will default to values set when initializing the dual optimizer.
         """
+        d = self.defaults
+        beta = d["beta"] if beta is None else beta
+        sigma = d["sigma"] if sigma is None else sigma
+        gamma = d["gamma"] if gamma is None else gamma
+        # Resolved together: _make_group defaults dampening to momentum, which
+        # must be the inherited momentum, not None.
+        if momentum is None:
+            momentum = d.get("momentum")
+            if dampening is None:
+                dampening = d.get("dampening")
+        if is_ineq is None:
+            is_ineq = d["is_ineq"]
+        if dual_range is None:
+            dual_range = d.get("dual_range")
+        if device is None:
+            device = self._device
+
         params, settings = self._make_group(
             m, beta, sigma, gamma, momentum, dampening, init_duals, dual_range,
             is_ineq, device,
         )
-        if bound is not None:
-            settings["bound"] = bound
         if name is not None:
             settings["name"] = name
         self.add_param_group({"params": params, **settings})
@@ -238,6 +258,8 @@ iALM.__doc__ = (
     :type is_ineq: bool
     :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
     :type process_group: dist.ProcessGroup, optional
+    :param name: Name of the first constraint group, used when passing constraints as a mapping. Defaults to `group0`.
+    :type name: str, optional
 
     .. note::
         Constraint values may be passed to :meth:`forward` / :meth:`update` /

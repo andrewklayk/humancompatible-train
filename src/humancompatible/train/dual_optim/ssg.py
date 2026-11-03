@@ -43,6 +43,8 @@ class SSG(DualOptimizer):
         values are averaged across workers before the switch is evaluated, so all
         replicas take the same branch. Defaults to ``None``.
     :type process_group: dist.ProcessGroup, optional
+    :param name: Name of the first constraint group, used when passing constraints as a mapping. Defaults to `group0`.
+    :type name: str, optional
 
     .. warning::
         The reference algorithm uses **separate step sizes** for the objective and
@@ -71,6 +73,7 @@ class SSG(DualOptimizer):
         constraint_scale: float = 1.0,
         device=None,
         process_group: Optional[dist.ProcessGroup] = None,
+        name: Optional[str] = None,
     ) -> None:
 
         self.constraint_tol = constraint_tol
@@ -78,6 +81,8 @@ class SSG(DualOptimizer):
         self._switched = False
 
         params, settings = self._make_group(m, device)
+        if name is not None:
+            settings["name"] = name
         super().__init__(
             [{"params": params, **settings}],
             self._scalar_defaults(settings),
@@ -85,11 +90,11 @@ class SSG(DualOptimizer):
         )
 
     @classmethod
-    def _make_group(cls, m: int = None, device=None, *, bound: float = None):
+    def _make_group(cls, m: int = None, device=None):
         # The duals exist only so that the group bookkeeping and the `duals`
         # property behave like every other dual optimizer; they never move.
         duals, settings = cls._base_group(
-            m, None, (0.0, 0.0), is_ineq=True, device=device, bound=bound
+            m, None, (0.0, 0.0), is_ineq=True, device=device
         )
         return [duals], cls._drop_none(settings)
 
@@ -99,22 +104,21 @@ class SSG(DualOptimizer):
         device=None,
         *,
         name: str = None,
-        bound: float = None,
     ) -> None:
         """
         Adds a further group of constraints.
 
-        Groups exist here only to name and bound subsets of the constraint vector;
+        Groups exist here only to name subsets of the constraint vector;
         the switch is always taken on the largest violation across all groups.
 
         :param m: Size of group (number of constraints to add)
         :type m: int
         :param name: Name for this group, used when passing constraints as a mapping. Defaults to `group<k>`.
         :type name: str
-        :param bound: Right-hand side of this group's constraints, if any. Only used by :meth:`violation`.
-        :type bound: float
         """
-        params, settings = self._make_group(m, device, bound=bound)
+        if device is None:
+            device = self._device
+        params, settings = self._make_group(m, device)
         if name is not None:
             settings["name"] = name
         self.add_param_group({"params": params, **settings})

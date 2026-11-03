@@ -2,7 +2,7 @@
 Tests for the shared DualOptimizer base class.
 
 Covers the behaviour introduced with the base class -- constraint-input
-normalization and validation, group names, declared bounds -- plus two defects
+normalization and validation, group names -- plus two defects
 that the per-class implementations shared and that centralising fixed.
 """
 
@@ -10,7 +10,9 @@ import unittest
 
 import torch
 
-from humancompatible.train.dual_optim import ALM, PBM, iALM, nuPI
+import copy
+
+from humancompatible.train.dual_optim import ALM, PBM, SSG, MoreauEnvelope, iALM, nuPI
 from humancompatible.train.dual_optim.base import DualOptimizer
 
 LOSS = torch.tensor(5.0)
@@ -42,6 +44,19 @@ def _two_group(cls):
         opt.add_constraint_group(m=3, name="b")
     opt.param_groups[0]["name"] = "a"
     return opt
+
+
+def _one_group(cls, **kw):
+    """A single-group optimizer of `cls` with unit step sizes."""
+    if cls is ALM:
+        return ALM(m=1, lr=1.0, **kw)
+    if cls is iALM:
+        return iALM(m=1, beta=1.0, sigma=1.0, gamma=1e6, **kw)
+    if cls is nuPI:
+        return nuPI(m=1, nu=0.0, ki=1.0, kp=0.0, **kw)
+    if cls is PBM:
+        return PBM(m=1, gamma_annealing=False, penalty_annealing=False, **kw)
+    return SSG(m=1, **kw)
 
 
 class TestInheritance(unittest.TestCase):
@@ -148,31 +163,6 @@ class TestGatherConstraints(unittest.TestCase):
             lagrangian = opt.forward_update(LOSS, torch.tensor(0.25))
             self.assertEqual(lagrangian.shape, ())
             self.assertEqual(len(opt.duals), 1)
-
-
-class TestBoundsAndViolation(unittest.TestCase):
-    def test_no_bounds_declared(self):
-        opt = ALM(m=3, lr=0.1)
-        self.assertIsNone(opt.bounds)
-        # With no bounds, violation is just the largest constraint value.
-        self.assertEqual(opt.violation(torch.tensor([-1.0, 0.5, 0.2])).item(), 0.5)
-
-    def test_declared_bounds_shift_the_violation(self):
-        opt = ALM(m=2, lr=0.1)
-        opt.add_constraint_group(m=1, lr=0.1, bound=1.0)
-        self.assertTrue(torch.equal(opt.bounds, torch.tensor([0.0, 0.0, 1.0])))
-        # third constraint is 0.9 against a bound of 1.0 -> satisfied by 0.1
-        v = opt.violation(torch.tensor([-0.5, -0.2, 0.9]))
-        self.assertAlmostEqual(v.item(), -0.1, places=6)
-
-    def test_violation_accepts_every_input_form(self):
-        opt = _two_group(ALM)
-        flat = torch.tensor([1.0, 2.0, 10.0, 20.0, 30.0])
-        self.assertEqual(opt.violation(flat).item(), 30.0)
-        self.assertEqual(
-            opt.violation([torch.tensor([1.0, 2.0]), torch.tensor([10.0, 20.0, 30.0])]).item(),
-            30.0,
-        )
 
 
 class TestSharedDefectsFixed(unittest.TestCase):
@@ -318,6 +308,147 @@ class TestDistributedAvailableEverywhere(unittest.TestCase):
             lagrangian = opt.forward_update(LOSS, local)
         expected = LOSS + opt.duals @ local
         self.assertTrue(torch.allclose(lagrangian, expected))
+
+
+class TestAddedGroupSettings(unittest.TestCase):
+    """Groups added later inherit the optimizer's settings, per group."""
+
+    def test_equality_group_after_inequality_group_can_go_negative(self):
+        # The first group's clipped lower bound (0) must not leak into an
+        # equality group added after it.
+        for cls in (ALM, iALM, nuPI):
+            opt = _one_group(cls, is_ineq=True)
+            opt.add_constraint_group(m=1, is_ineq=False)
+            opt.update(torch.tensor([-1.0, -1.0]))
+            self.assertEqual(opt.duals[0].item(), 0.0, cls.__name__)
+            self.assertLess(opt.duals[1].item(), 0.0, cls.__name__)
+
+    def test_added_group_follows_optimizer_device(self):
+        for cls in (ALM, iALM, nuPI, PBM, SSG):
+            opt = _one_group(cls, device="meta")
+            opt.add_constraint_group(m=1)
+            for group in opt.param_groups:
+                for t in group["params"]:
+                    self.assertEqual(t.device.type, "meta", cls.__name__)
+
+    def test_ialm_added_group_inherits_settings(self):
+        opt = iALM(m=1, beta=0.05, sigma=1.5, gamma=2.0, momentum=0.9, is_ineq=True)
+        opt.add_constraint_group(m=1)
+        g = opt.param_groups[1]
+        self.assertAlmostEqual(g["beta"].item(), 0.05, places=6)
+        self.assertAlmostEqual(g["sigma"].item(), 1.5, places=6)
+        self.assertAlmostEqual(g["gamma"].item(), 2.0, places=6)
+        self.assertEqual(g["momentum"], 0.9)
+        self.assertEqual(g["dampening"], 0.9)  # EMA, as for the first group
+        self.assertTrue(g["is_ineq"])
+
+    def test_nupi_added_group_inherits_is_ineq(self):
+        opt = nuPI(m=1, is_ineq=True)
+        opt.add_constraint_group(m=1)
+        self.assertTrue(opt.param_groups[1]["is_ineq"])
+
+
+class TestConstraintAndDualInputs(unittest.TestCase):
+    def test_column_vector_constraints_match_flat(self):
+        for cls in (ALM, iALM, nuPI, PBM):
+            a, b = _two_group(cls), _two_group(cls)
+            flat = torch.tensor([1.0, 2.0, 10.0, 20.0, 30.0])
+            la = a.forward_update(LOSS, flat)
+            lb = b.forward_update(LOSS, flat.reshape(-1, 1))
+            self.assertTrue(torch.equal(la, lb), cls.__name__)
+            self.assertTrue(torch.equal(a.duals, b.duals), cls.__name__)
+
+    def test_init_duals_tensor_is_copied(self):
+        init = torch.zeros(2)
+        opt = ALM(m=2, lr=1.0, init_duals=init)
+        opt.update(torch.ones(2))
+        self.assertTrue(torch.equal(init, torch.zeros(2)))
+        self.assertTrue(torch.equal(opt.duals, torch.ones(2)))
+
+    def test_list_of_tensors_keeps_the_graph(self):
+        w = torch.tensor([0.3, 0.2], requires_grad=True)
+        for form in ({"a": [2 * w[0], 2 * w[1]]}, [[2 * w[0], 2 * w[1]]]):
+            w.grad = None
+            opt = ALM(m=2, lr=0.1, init_duals=1.0, name="a")
+            opt.forward(torch.tensor(0.0), form).backward()
+            self.assertTrue(torch.equal(w.grad, torch.tensor([2.0, 2.0])))
+
+    def test_numpy_scalar_init_duals_keeps_default_dtype(self):
+        import numpy as np
+
+        opt = ALM(m=2, init_duals=np.float64(0.5))
+        self.assertEqual(opt.duals.dtype, torch.get_default_dtype())
+
+    def test_init_duals_length_mismatch_raises(self):
+        with self.assertRaises(ValueError):
+            ALM(m=5, init_duals=torch.zeros(3))
+
+    def test_init_duals_dtype_and_device_are_kept(self):
+        opt = ALM(m=2, init_duals=torch.zeros(2, dtype=torch.float64))
+        self.assertEqual(opt.duals.dtype, torch.float64)
+        loss, c = torch.tensor(1.0, dtype=torch.float64), torch.ones(2, dtype=torch.float64)
+        opt.forward_update(loss, c)  # used to fail on a Float/Double mismatch
+        opt = ALM(m=2, init_duals=torch.zeros(2), device="meta")
+        self.assertEqual(opt.duals.device.type, "meta")
+
+
+class TestGroupNames(unittest.TestCase):
+    def test_first_group_can_be_named(self):
+        for cls in (ALM, iALM, nuPI, PBM, SSG):
+            opt = _one_group(cls, name="first")
+            opt.add_constraint_group(m=2, name="second")
+            self.assertEqual(opt.names, ["first", "second"], cls.__name__)
+            opt.update({"second": torch.zeros(2), "first": torch.zeros(1)})
+
+    def test_duals_by_group_returns_live_tensors(self):
+        opt = ALM(m=1, lr=1.0, name="a")
+        opt.add_constraint_group(m=2, name="b")
+        opt.update(torch.tensor([1.0, 2.0, 3.0]))
+        by_group = opt.duals_by_group
+        self.assertEqual(list(by_group), ["a", "b"])
+        self.assertTrue(torch.equal(by_group["b"], torch.tensor([2.0, 3.0])))
+        by_group["a"].fill_(7.0)
+        self.assertEqual(opt.duals[0].item(), 7.0)
+
+
+class TestMoreauEnvelope(unittest.TestCase):
+    def test_param_without_grad_is_skipped(self):
+        a, b = torch.nn.Parameter(torch.ones(2)), torch.nn.Parameter(torch.ones(2))
+        opt = MoreauEnvelope(torch.optim.SGD([a, b], lr=0.1))
+        a.sum().backward()
+        opt.step()  # used to fail on b.grad being None
+        self.assertIsNone(b.grad)
+
+    def test_group_added_after_wrapping_gets_prox_term(self):
+        w, s = torch.nn.Parameter(torch.zeros(1)), torch.nn.Parameter(torch.zeros(1))
+        opt = MoreauEnvelope(torch.optim.SGD([w], lr=1.0), mu=1.0, beta=0.0)
+        opt.add_param_group({"params": [s]})
+        (w + s).sum().backward()
+        opt.step()  # creates the prox centres at 0, then moves both to -1
+        for p in (w, s):
+            p.grad = torch.zeros(1)
+        opt.step()  # only the prox term is left: grad = mu * (-1 - 0)
+        self.assertTrue(torch.equal(w.detach(), s.detach()))
+        self.assertEqual(s.item(), 0.0)
+
+    def test_deepcopy_does_not_double_inner_hooks(self):
+        p = torch.nn.Parameter(torch.ones(1))
+        sgd = torch.optim.SGD([p], lr=0.1)
+        calls = []
+        sgd.register_step_post_hook(lambda *a: calls.append(1))
+        opt = MoreauEnvelope(sgd)
+        copy.deepcopy(MoreauEnvelope(torch.optim.SGD([torch.nn.Parameter(torch.ones(1))], lr=0.1)))
+        p.grad = torch.ones(1)
+        opt.step()
+        self.assertEqual(len(calls), 1)
+
+    def test_deepcopy_can_step(self):
+        p = torch.nn.Parameter(torch.ones(2))
+        opt = copy.deepcopy(MoreauEnvelope(torch.optim.SGD([p], lr=0.1)))
+        q = opt.param_groups[0]["params"][0]
+        q.sum().backward()
+        opt.step()
+        self.assertTrue(torch.allclose(q.detach(), torch.full((2,), 0.9)))
 
 
 if __name__ == "__main__":

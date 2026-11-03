@@ -27,25 +27,24 @@ class ALM(DualOptimizer):
         augmentation: Optional[str] = None,
         device=None,
         process_group: Optional[dist.ProcessGroup] = None,
+        name: Optional[str] = None,
     ) -> None:
 
-        # Unset + a nonzero penalty means "augment"; HPR is the better default surrogate.
-        if augmentation is None and penalty > 0:
-            augmentation = "hpr"
-        
-        if augmentation is not None and penalty == 0:
-            augmentation = None
-
+        # Validated before the coercions below, which would otherwise hide a typo.
         if augmentation not in AUGMENTATIONS:
             raise ValueError(
                 f"Unknown augmentation: {augmentation!r}; expected one of "
                 f"{AUGMENTATIONS}"
             )
-        if augmentation == "hpr" and penalty < 0:
-            raise ValueError(
-                f"The 'hpr' augmentation divides by the penalty, so it requires "
-                f"penalty > 0; got {penalty}"
-            )
+        if penalty < 0:
+            raise ValueError(f"penalty must be non-negative; got {penalty}")
+
+        # Unset + a nonzero penalty means "augment"; HPR is the better default surrogate.
+        if augmentation is None and penalty > 0:
+            augmentation = "hpr"
+        # A zero penalty always means the plain Lagrangian.
+        if augmentation is not None and penalty == 0:
+            augmentation = None
 
         self.penalty = penalty
         self.augmentation = augmentation
@@ -55,6 +54,8 @@ class ALM(DualOptimizer):
         params, settings = self._make_group(
             m, lr, momentum, dampening, init_duals, dual_range, is_ineq, restart, device
         )
+        if name is not None:
+            settings["name"] = name
         super().__init__(
             [{"params": params, **settings}],
             self._scalar_defaults(settings),
@@ -109,7 +110,6 @@ class ALM(DualOptimizer):
         device = None,
         *,
         name: str = None,
-        bound: float = None,
     ) -> None:
         """
         Allows to add a group of dual variables with separate initial values and learning rates.
@@ -132,8 +132,6 @@ class ALM(DualOptimizer):
         :type restart: bool
         :param name: Name for this group, used when passing constraints as a mapping. Defaults to `group<k>`.
         :type name: str
-        :param bound: Right-hand side of this group's constraints, if any. Only used by :meth:`violation`.
-        :type bound: float
 
         .. note::
             Parameters here will default to values set when initializing the dual optimizer.
@@ -149,15 +147,13 @@ class ALM(DualOptimizer):
         if restart is None:
             restart = d["restart"]
         if dual_range is None:
-            dual_range = (d.get("lower_bound"), d.get("upper_bound"))
+            dual_range = d.get("dual_range")
         if device is None:
-            device = self.param_groups[0]["params"][0].device
+            device = self._device
 
         params, settings = self._make_group(
             m, lr, momentum, dampening, init_duals, dual_range, is_ineq, restart, device
         )
-        if bound is not None:
-            settings["bound"] = bound
         if name is not None:
             settings["name"] = name
         self.add_param_group({"params": params, **settings})
@@ -342,6 +338,8 @@ ALM.__doc__ = (
     :type augmentation: str, optional
     :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
     :type process_group: dist.ProcessGroup, optional
+    :param name: Name of the first constraint group, used when passing constraints as a mapping. Defaults to `group0`.
+    :type name: str, optional
 
     .. note::
         Constraint values may be passed to :meth:`forward` / :meth:`update` /
