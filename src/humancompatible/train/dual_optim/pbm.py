@@ -6,7 +6,14 @@ from torch.nn import Parameter
 from typing import Any, Optional, Tuple
 from torch import clamp_, Tensor
 
-from .barrier import quad_log, quad_log_der, quad_recipr, quad_recipr_der
+from .barrier import (
+    aug_lagr_der,
+    augmented_lagrangian,
+    quad_log,
+    quad_log_der,
+    quad_recipr,
+    quad_recipr_der,
+)
 from .base import DualOptimizer
 
 
@@ -31,7 +38,14 @@ class PBM(DualOptimizer):
         epoch_length = None, # set this if gamma_annealing=True,
         rho = None, # only should be set if penalty_update == 'alm'; is equal to the penalty multiplier of the ALM; by default rho = 2.0
         process_group: Optional[dist.ProcessGroup] = None,
+        name: Optional[str] = None,
     ) -> None:
+
+        if penalty_range[0] <= 0:
+            raise ValueError(
+                f"penalty_range must be strictly positive, since the surrogate "
+                f"divides by the penalty; got {penalty_range}"
+            )
 
         self.dual_range = dual_range
         self.penalty_range = penalty_range
@@ -87,6 +101,8 @@ class PBM(DualOptimizer):
             rho=rho,
             device=device,
         )
+        if name is not None:
+            settings["name"] = name
         super().__init__(
             [{"params": params, **settings}],
             self._scalar_defaults(settings),
@@ -113,25 +129,38 @@ class PBM(DualOptimizer):
         # the "neither m nor init_duals given" error.
         if init_duals is None and m is None:
             raise ValueError("At least one of m, init_duals must be set")
+        if m is None:
+            m = torch.as_tensor(init_duals).numel()
 
         # Duals default to the lower end of their range (they must stay strictly
         # positive), penalties to the upper end of theirs.
         if init_duals is None:
             init_duals = dual_range[0]
-        if init_penalties is None or isinstance(init_penalties, (int, float)):
-            init_penalties = torch.zeros(m, requires_grad=False, device=device) + (
-                init_penalties
-                if isinstance(init_penalties, (int, float))
-                else penalty_range[1]
-            )
+        if init_penalties is None:
+            init_penalties = penalty_range[1]
+        for label, value in (("init_duals", init_duals), ("init_penalties", init_penalties)):
+            if not (torch.as_tensor(value) > 0).all():
+                raise ValueError(
+                    f"PBM needs {label} > 0: the dual update is multiplicative, so a "
+                    f"zero dual never moves, and the surrogate divides by the "
+                    f"penalty; got {value}"
+                )
 
         duals, settings = cls._base_group(
             m, init_duals, dual_range, is_ineq=True, device=device
         )
-        penalties = Parameter(init_penalties, requires_grad=False)
+        # A fresh tensor on the duals' device; broadcasting also checks the length.
+        penalties = Parameter(
+            torch.zeros_like(duals) + torch.as_tensor(init_penalties).to(duals),
+            requires_grad=False,
+        )
 
         if penalty_update is not None and penalty_update not in penalty_updates:
             raise ValueError(f"Unknown penalty update function: {penalty_update}!")
+        if pbf is not None and pbf not in penalty_barrier_funcs:
+            raise ValueError(
+                f"Unknown pbf: {pbf!r}; expected one of {list(penalty_barrier_funcs)}"
+            )
 
         if penalty_update == "alm":
             if rho is None:
@@ -187,7 +216,6 @@ class PBM(DualOptimizer):
         primal_update_process_length: int = 1,
         rho: float = None,
         name: str = None,
-        bound: float = None,
     ) -> None:
         """
         Adds an additional group of dual variables with separate hyperparameters and barrier functions.
@@ -200,7 +228,7 @@ class PBM(DualOptimizer):
         :type penalty_update: str
         :param delta: Violation/satisfaction parameter for penalty update. If None, inherits from parent.
         :type delta: float
-        :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`, `quadratic_reciprocal`.
+        :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`, `quadratic_reciprocal`, `augmented_lagrangian`.
         :type pbf: str
         :param init_duals: Initial values for the dual variables in this group. Defaults to dual lower bound for all.
         :type init_duals: float | Tensor
@@ -214,8 +242,6 @@ class PBM(DualOptimizer):
         :type rho: float
         :param name: Name for this group, used when passing constraints as a mapping. Defaults to `group<k>`.
         :type name: str
-        :param bound: Right-hand side of this group's constraints, if any. Only used by :meth:`violation`.
-        :type bound: float
 
         .. note::
             The dual and penalty safeguarding ranges are properties of the
@@ -241,9 +267,8 @@ class PBM(DualOptimizer):
             self.penalty_range,
             primal_update_process_length,
             rho=rho,
+            device=self._device,
         )
-        if bound is not None:
-            settings["bound"] = bound
         if name is not None:
             settings["name"] = name
         self.add_param_group({"params": params, **settings})
@@ -338,6 +363,7 @@ class PBM(DualOptimizer):
 penalty_barrier_funcs = {
     "quadratic_logarithmic": {"f": quad_log, "d": quad_log_der},
     "quadratic_reciprocal": {"f": quad_recipr, "d": quad_recipr_der},
+    "augmented_lagrangian": {"f": augmented_lagrangian, "d": aug_lagr_der},
 }
 
 
@@ -473,7 +499,7 @@ PBM.__doc__ = (
     :type delta: float
     :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`dimin_adapt`,`const`,`aimd`,`alm`. Defaults to`dimin_adapt`.
     :type penalty_update: str
-    :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`,`quadratic_reciprocal`
+    :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`, `quadratic_reciprocal`, `augmented_lagrangian`
     :type pbf: str
     :param init_duals: Initial values for the dual variables. Defaults to dual lower bound for all.
     :type init_duals: float | Tensor
@@ -495,6 +521,8 @@ PBM.__doc__ = (
     :type rho: float
     :param process_group: Distributed process group for DDP. When set, constraint values are averaged across all workers via ``dist.all_reduce`` before each dual update, keeping dual variables consistent across replicas. Defaults to ``None`` (no synchronization).
     :type process_group: dist.ProcessGroup, optional
+    :param name: Name of the first constraint group, used when passing constraints as a mapping. Defaults to `group0`.
+    :type name: str, optional
 
     .. note::
         Constraint values may be passed to :meth:`forward` / :meth:`update` /

@@ -69,6 +69,17 @@ from torch.nn import Parameter
 from torch.optim import Optimizer
 
 
+def _flat(c) -> Tensor:
+    """One group's constraint values as a 1-D tensor.
+
+    A list of tensors is concatenated rather than passed to ``torch.as_tensor``,
+    which would copy the values and drop their autograd graph.
+    """
+    if isinstance(c, (list, tuple)):
+        return torch.cat([_flat(x) for x in c])
+    return torch.as_tensor(c).reshape(-1)
+
+
 class DualOptimizer(Optimizer, abc.ABC):
     """Base class for the dual (multiplier / penalty) optimizers.
 
@@ -108,8 +119,6 @@ class DualOptimizer(Optimizer, abc.ABC):
         dual_range: Optional[Tuple[float, float]],
         is_ineq: bool,
         device=None,
-        *,
-        bound: Optional[float] = None,
     ) -> Tuple[Parameter, dict[str, Any]]:
         """Validate a group's inputs and build its dual tensor and settings.
 
@@ -125,15 +134,28 @@ class DualOptimizer(Optimizer, abc.ABC):
                 f"Expected a Boolean value for is_ineq, got {type(is_ineq)}"
             )
 
-        m = m if m is not None else len(init_duals)
+        init = None if init_duals is None else torch.as_tensor(init_duals)
+        m = m if m is not None else init.numel()
+        if init is not None and init.ndim > 0 and init.numel() != m:
+            raise ValueError(f"init_duals has {init.numel()} entries, expected m={m}")
 
-        if init_duals is None:
-            init_duals = torch.zeros(m, requires_grad=False, device=device)
-        elif isinstance(init_duals, (int, float)):
-            init_duals = torch.zeros(m, requires_grad=False, device=device) + init_duals
+        # Always a fresh tensor: wrapping the caller's would alias it, so e.g. a
+        # sweep reusing one `init_duals` would start each run from the last run's duals.
+        duals = torch.zeros(
+            m,
+            device=device if device is not None else getattr(init, "device", None),
+            # Only a torch tensor sets the dtype; Python/NumPy scalars keep the default.
+            dtype=init_duals.dtype
+            if isinstance(init_duals, Tensor) and init_duals.is_floating_point()
+            else None,
+        )
+        if init is not None:
+            duals += init.to(duals)
+        duals = Parameter(duals, requires_grad=False)
 
-        duals = Parameter(init_duals, requires_grad=False)
-
+        # Kept as given, before the inequality clip below, for later groups to
+        # inherit: a clipped lower bound would wrongly carry over to equality groups.
+        raw_range = dual_range
         if dual_range is None:
             dual_range = (0, None) if is_ineq else (None, None)
 
@@ -145,7 +167,7 @@ class DualOptimizer(Optimizer, abc.ABC):
             "lower_bound": lower,
             "upper_bound": dual_range[1],
             "is_ineq": is_ineq,
-            "bound": bound,
+            "dual_range": raw_range,
         }
         return duals, settings
 
@@ -161,12 +183,15 @@ class DualOptimizer(Optimizer, abc.ABC):
         Per-group *state* must never be inherited: ``Optimizer.add_param_group``
         fills missing keys from ``self.defaults`` by reference, so leaving a
         tensor buffer in the defaults would make two groups share one buffer.
-        Names are per-group by definition.
+        Names are per-group by definition, and so are the clamp bounds, which
+        depend on the group's own ``is_ineq``; later groups re-derive them from
+        the inherited ``dual_range`` instead.
         """
         return {
             k: v
             for k, v in settings.items()
-            if k != "name" and not isinstance(v, torch.Tensor)
+            if k not in ("name", "lower_bound", "upper_bound")
+            and not isinstance(v, torch.Tensor)
         }
 
     def add_param_group(self, param_group: dict[str, Any]) -> None:
@@ -193,35 +218,26 @@ class DualOptimizer(Optimizer, abc.ABC):
         return [group["name"] for group in self.param_groups]
 
     @property
-    def bounds(self) -> Optional[Tensor]:
-        """Per-constraint bounds, or ``None`` if no group declared one.
-
-        Declaring ``bound=`` lets callers ask the optimizer for the violation
-        directly instead of re-deriving ``max_j (c_j - b_j)`` themselves.
-        """
-        if all(group.get("bound") is None for group in self.param_groups):
-            return None
-        parts = []
-        for group, n in zip(self.param_groups, self._sizes()):
-            b = group.get("bound") or 0.0
-            parts.append(torch.full((n,), float(b)))
-        return torch.cat(parts)
+    def _device(self) -> torch.device:
+        """Where groups added later put their tensors: alongside the first group's."""
+        return self.param_groups[0]["params"][0].device
 
     def _gather_constraints(self, constraints) -> Tensor:
         """Normalize and validate the caller's constraint values.
 
         Three input forms are accepted:
 
-        * a **flat tensor** of length ``m`` (a 0-dim tensor is promoted), whose
-          entries are matched to groups by position in registration order;
+        * a **flat tensor** with ``m`` entries (any shape, e.g. ``(m, 1)``; it is
+          flattened), whose entries are matched to groups by position in
+          registration order;
         * a **sequence** of per-group tensors, which additionally catches arity
           mistakes the flat form cannot see;
         * a **mapping** from group name to tensor, which removes the coupling
           between registration order and the order the caller happens to build
           its constraint values in.
 
-        The flat form is returned as-is (no copy) so the returned tensor keeps
-        the caller's autograd graph.
+        Every part is flattened with ``reshape(-1)``, a view wherever possible,
+        so the returned tensor keeps the caller's autograd graph.
         """
         sizes = self._sizes()
         total = sum(sizes)
@@ -244,7 +260,7 @@ class DualOptimizer(Optimizer, abc.ABC):
                     f"registered groups {names}, missing {missing}, "
                     f"unknown {unknown}"
                 )
-            parts = [torch.atleast_1d(constraints[n]) for n in names]
+            parts = [_flat(constraints[n]) for n in names]
             _check(parts, names)
             return parts[0] if len(parts) == 1 else torch.cat(parts)
 
@@ -254,11 +270,11 @@ class DualOptimizer(Optimizer, abc.ABC):
                     f"expected one constraint tensor per group ({len(sizes)}), "
                     f"got {len(constraints)}"
                 )
-            parts = [torch.atleast_1d(c) for c in constraints]
+            parts = [_flat(c) for c in constraints]
             _check(parts, self.names)
             return parts[0] if len(parts) == 1 else torch.cat(parts)
 
-        flat = constraints if constraints.ndim > 0 else constraints.unsqueeze(0)
+        flat = constraints.reshape(-1)
         if flat.numel() != total:
             raise ValueError(
                 f"expected {total} constraint value(s) for group sizes {sizes}, "
@@ -283,14 +299,6 @@ class DualOptimizer(Optimizer, abc.ABC):
             parts.append(chunk.clamp(min=0.0) if group.get("is_ineq") else chunk)
             offset += n
         return parts[0] if len(parts) == 1 else torch.cat(parts)
-
-    def violation(self, constraints) -> Tensor:
-        """``max_j (c_j - b_j)`` over all groups, using the declared bounds."""
-        flat = self._gather_constraints(constraints).detach()
-        bounds = self.bounds
-        if bounds is not None:
-            flat = flat - bounds.to(flat.device)
-        return flat.max()
 
     # ------------------------------------------------------------------ #
     # the shared step
@@ -421,6 +429,11 @@ class DualOptimizer(Optimizer, abc.ABC):
         :rtype: Tensor
         """
         return torch.cat([group["params"][0] for group in self.param_groups])
+
+    @property
+    def duals_by_group(self) -> dict[str, Tensor]:
+        """Each group's dual tensor by group name. These are the live tensors, not copies."""
+        return {group["name"]: group["params"][0] for group in self.param_groups}
 
     # ------------------------------------------------------------------ #
     # checkpointing
