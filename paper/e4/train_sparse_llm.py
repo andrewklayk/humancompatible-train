@@ -428,7 +428,8 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     "network_size": f"{100 * active / model_size_no_sparsity:.2f}%" if method != "unconstrained" else "100%",
                     }
                 if method != "unconstrained":
-                    log["max constraint"] = f"{constraints.max().item():.3f}"
+                    constraints = compute_constraints(sparse_layers_dict, per_layer=params['per_layer']) - params['target_density']
+                    log["max constraint violation"] = f"{constraints.max().item():.3f}"
                     log["params"] = f"{active:,.0f} ({100 * active / model_size_no_sparsity:.2f}%)"
 
                 # write the output
