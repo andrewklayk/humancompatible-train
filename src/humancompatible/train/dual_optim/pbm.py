@@ -21,7 +21,7 @@ class PBM(DualOptimizer):
     def __init__(
         self,
         m: int = None,
-        penalty_mult: float = 0.9,
+        kappa: float = 0.9,
         gamma: float = 0.9,
         penalty_update: str = "dimin_adapt",
         *,
@@ -88,7 +88,7 @@ class PBM(DualOptimizer):
 
         params, settings = self._make_group(
             m,
-            penalty_mult,
+            kappa,
             penalty_update,
             pbf,
             init_duals,
@@ -201,7 +201,7 @@ class PBM(DualOptimizer):
     def add_constraint_group(
         self,
         m: int,
-        penalty_mult: float = None,
+        kappa: float = None,
         penalty_update: str = None,
         pbf: str = None,
         init_duals: float | Tensor = None,
@@ -217,8 +217,8 @@ class PBM(DualOptimizer):
 
         :param m: Number of constraints in this group (determines the number of dual variables to add)
         :type m: int
-        :param penalty_mult: Multiplier for penalty update (K1 or K2). If None, inherits from parent. For adaptive penalty update, values close to 1 correspond to high "momentum".
-        :type penalty_mult: float
+        :param kappa: Multiplier for penalty update (K1 or K2). If None, inherits from parent. For adaptive penalty update, values close to 1 correspond to high "momentum".
+        :type kappa: float
         :param penalty_update: Penalty update strategy; must be one of `dimin`, `dimin_adapt`, `const`, `alm`. If None, inherits from parent.
         :type penalty_update: str
         :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`, `quadratic_reciprocal`.
@@ -250,7 +250,7 @@ class PBM(DualOptimizer):
 
         params, settings = self._make_group(
             m,
-            penalty_mult,
+            kappa,
             penalty_update,
             pbf,
             init_duals,
@@ -464,8 +464,8 @@ PBM.__doc__ = (
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int
-    :param penalty_mult: Multiplier for penalty update (K1 or K2). For K2 (adaptive penalty update), values close to 1 correspond to a high "momentum".
-    :type penalty_mult: float
+    :param kappa: Multiplier for penalty update (K1 or K2). For K2 (adaptive penalty update), values close to 1 correspond to a high "momentum".
+    :type kappa: float
     :param gamma: Multiplier for dual parameter update. Values close to 1 correspond to a high "momentum".
     :type gamma: float
     :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_adapt`,`const`,`alm`. Defaults to`dimin_adapt`.
