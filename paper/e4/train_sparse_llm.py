@@ -285,7 +285,7 @@ def default_params(method="spbm"):
     # ---------------- sparsity problem (shared by ALL constrained methods)
     params.update({
         "candidates_to_sparsify": {"mlp": "down_proj", "self_attn": "o_proj"},  # candidates to sparsify in the mlp and self-attention
-        "init_mean": 1.0,                   # gate log_alpha at init: ~95% of z == 1, eval gates exactly 1
+        "init_mean": 4.5,                   # gate log_alpha at 4.5: ~95% of z == 1, eval gates exactly 1
         "target_density": 0.7,              # constraint: expected DENSITY <= 0.7, i.e. >= 30% sparsity
         "per_layer": True,                  # True: one constraint per layer, False: one global constraint
         "primal_lr_gates": 0.1,            # lr of the gates (log_alpha)
@@ -304,7 +304,7 @@ def default_params(method="spbm"):
             "init_duals": 0.001,
             "init_penalties": 1.0,
             "dual_range": (1e-4, 100.0),
-            "gamma": 0.1,
+            "gamma": 0.9,
             "penalty_range": (1e-1, 1.0)
         }
     elif method == "alm":
@@ -428,7 +428,9 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                     "network_size": f"{100 * active / model_size_no_sparsity:.2f}%" if method != "unconstrained" else "100%",
                     }
                 if method != "unconstrained":
-                    log["max constraint"] = f"{constraints.max().item():.3f}"
+                    with torch.no_grad():
+                        constraints = compute_constraints(sparse_layers_dict, per_layer=params['per_layer']) - params['target_density']
+                    log["max constraint violation"] = f"{constraints.max().item():.3f}"
                     log["params"] = f"{active:,.0f} ({100 * active / model_size_no_sparsity:.2f}%)"
 
                 # write the output
@@ -528,7 +530,7 @@ def inner_train_loop(model, train_dataloader, eval_dataloader,
                 loss_sum, n_micro = 0.0, 0
 
             # 40k steps - equal to 0.5B tokens 
-            if step % 40050 == 0:
+            if step == 40050:
                 break
 
     # final evaluation, so every run has a val loss at the end
@@ -590,7 +592,7 @@ def apply_overrides(params, overrides):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", default="spbm", choices=["unconstrained", "spbm", "alm"])
+    parser.add_argument("--method", default="alm", choices=["unconstrained", "spbm", "alm"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="override a default_params entry, e.g. --set primal_lr=1e-4 --set spbm.penalty_mult=0.5")
