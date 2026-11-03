@@ -6,10 +6,10 @@
 --method unconstrained
 
 # spbm: penalty multiplier x gate lr
---method spbm --set spbm.gamma=0.95 --set spbm.penalty_mult=0.9 --set primal_lr_gates=1.0 --set primal_lr=0.00005
---method spbm --set spbm.gamma=0.95 --set spbm.penalty_mult=0.99 --set primal_lr_gates=1.0 --set primal_lr=0.00005
---method spbm --set spbm.gamma=0.95 --set spbm.penalty_mult=0.9 --set primal_lr_gates=3.0 --set primal_lr=0.00005
---method spbm --set spbm.gamma=0.95 --set spbm.penalty_mult=0.99 --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.9 --set primal_lr_gates=1.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.99 --set primal_lr_gates=1.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.9 --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.99 --set primal_lr_gates=3.0 --set primal_lr=0.00005
 
 
 # alm: dual lr x penalty

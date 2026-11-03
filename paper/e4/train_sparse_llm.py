@@ -298,7 +298,7 @@ def default_params(method="spbm"):
             "beta": 0.1,
         }
         params["spbm"] = {                   # PBM(m=..., device=..., **params["spbm"])
-            "penalty_mult": 0.9,
+            "kappa": 0.9,
             "penalty_update": "dimin_adapt",
             "pbf": "quadratic_logarithmic",
             "init_duals": 0.001,
@@ -573,7 +573,7 @@ def set_sparse_model(model, init_L0_w_pretrained=True, candidates={'mlp': 'down_
 
 def apply_overrides(params, overrides):
     """
-    Applies "key=value" overrides in place; dotted keys reach nested dicts (spbm.penalty_mult=0.5)
+    Applies "key=value" overrides in place; dotted keys reach nested dicts (spbm.kappa=0.5)
     """
     for item in overrides:
         key, value = item.split("=", 1)
@@ -595,7 +595,7 @@ def parse_args():
     parser.add_argument("--method", default="alm", choices=["unconstrained", "spbm", "alm"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                        help="override a default_params entry, e.g. --set primal_lr=1e-4 --set spbm.penalty_mult=0.5")
+                        help="override a default_params entry, e.g. --set primal_lr=1e-4 --set spbm.kappa=0.5")
     return parser.parse_args()
 
 
