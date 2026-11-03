@@ -55,13 +55,31 @@ class TestPBMInitialization(unittest.TestCase):
         self.assertEqual(len(pbm_recipr.duals), 3)
 
     def test_init_invalid_pbf_raises_error(self):
-        """Test that invalid pbf raises KeyError when used."""
-        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3, pbf='invalid_function')
-        # PBM creation doesn't validate pbf, but using it will fail
-        loss = torch.tensor(1.0)
-        constraints = torch.tensor([0.1, 0.1, 0.1])
-        with self.assertRaises(KeyError):
-            pbm.forward(loss, constraints)
+        """Test that invalid pbf raises at construction, not at the first forward."""
+        with self.assertRaises(ValueError):
+            PBM(gamma_annealing=False, penalty_annealing=False, m=3, pbf='invalid_function')
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=3)
+        with self.assertRaises(ValueError):
+            pbm.add_constraint_group(m=1, pbf='invalid_function')
+
+    def test_init_nonpositive_duals_or_penalties_raise(self):
+        """A zero dual never moves under the multiplicative update; a zero penalty gives NaN."""
+        with self.assertRaises(ValueError):
+            PBM(gamma_annealing=False, penalty_annealing=False, m=1, dual_range=(0.0, 100.0))
+        with self.assertRaises(ValueError):
+            PBM(gamma_annealing=False, penalty_annealing=False, m=1, init_penalties=0.0)
+        with self.assertRaises(ValueError):
+            PBM(gamma_annealing=False, penalty_annealing=False, m=1, penalty_range=(0.0, 1.0))
+
+    def test_init_duals_tensor_without_m(self):
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, init_duals=torch.ones(3))
+        self.assertEqual(len(pbm.duals), 3)
+        self.assertEqual(len(pbm.penalties), 3)
+
+    def test_augmented_lagrangian_pbf(self):
+        pbm = PBM(gamma_annealing=False, penalty_annealing=False, m=2, pbf='augmented_lagrangian')
+        lagrangian = pbm.forward_update(torch.tensor(1.0), torch.tensor([0.1, -0.1]))
+        self.assertTrue(torch.isfinite(lagrangian))
 
     def test_init_invalid_penalty_update_raises_error(self):
         """Test that invalid penalty_update raises ValueError."""

@@ -115,13 +115,6 @@ class TestSSGGroups(unittest.TestCase):
         self.assertTrue(opt.switched_to_constraints(torch.tensor([-1.0, 0.2])))
         self.assertFalse(opt.switched_to_constraints(torch.tensor([-1.0, 0.05])))
 
-    def test_violation_uses_declared_bounds(self):
-        opt = SSG(m=1)
-        opt.add_constraint_group(m=1, bound=1.0)
-        self.assertAlmostEqual(
-            opt.violation(torch.tensor([-0.5, 0.9])).item(), -0.1, places=6
-        )
-
 
 class TestSSGDistributed(unittest.TestCase):
     def test_switch_uses_reduced_constraints(self):

@@ -55,7 +55,7 @@ class TestBalancedBatchSampler(unittest.TestCase):
         self.assertEqual(i, 2)
 
     def test_batch_size_divisible(self):
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             BalancedBatchSampler(
                 group_indices=self.subset_indices, batch_size=4, drop_last=True
             )
@@ -65,6 +65,15 @@ class TestBalancedBatchSampler(unittest.TestCase):
         self.assertListEqual(
             [i.tolist() for i in sampler._group_indices], self.subset_indices
         )
+
+    def test_onehot_single_member_group(self):
+        # a one-member group must stay 1-d (np.argwhere(...).squeeze() made it 0-d)
+        onehot = torch.tensor([[1, 0], [1, 0], [1, 0], [0, 1]])
+        sampler = BalancedBatchSampler(group_onehot=onehot, batch_size=2)
+        batches = list(sampler)
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(len(batches[0]), 2)
+        self.assertIn(3, batches[0])
 
     def test_group_weights(self):
         # group sizes [2, 3, 5], n_groups=3 -> weight_g = 3 * size_g / 10
@@ -112,8 +121,8 @@ class TestBalancedBatchSampler(unittest.TestCase):
     
 
     def test_extend_large_batchsize(self):
-        # check AssertionError on batch_size / n_groups > size of one of the groups
-        with self.assertRaises(AssertionError):
+        # check ValueError on batch_size / n_groups > size of one of the groups
+        with self.assertRaises(ValueError):
             BalancedBatchSampler(
                 group_indices=self.subset_indices,
                 batch_size=9,
