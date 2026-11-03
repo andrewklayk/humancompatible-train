@@ -127,6 +127,8 @@ class GhostSQP:
         """In-place update x ← x + γ d, unflattening d across parameters."""
         i = 0
         for p in self.net.parameters():
+            if not p.requires_grad:
+                continue  # d covers trainable params only (see oracle.n_params)
             k = p.numel()
             chunk = torch.as_tensor(d[i:i + k], dtype=p.dtype, device=p.device).view_as(p)
             p.add_(chunk, alpha=gamma)
@@ -145,10 +147,7 @@ class GhostSQP:
             sampler=self.sampler,
             cfg=self.cfg,
             rng=self.rng,
-            # TODO: redundant with cfg; pass a single oracle(batch) callable instead of net/loss/fns
-            solve_dual=self.cfg.solve_dual, 
-            solve_relaxed=self.cfg.solve_relaxed,
-            monte_carlo_sampling=self.cfg.monte_carlo_sampling
+            # TODO: pass a single oracle(batch) callable instead of net/loss/fns
         )
         self._apply_direction(d, gamma)
         info.update(iter=self._nu, gamma=gamma, step_norm=float(np.linalg.norm(d)))
