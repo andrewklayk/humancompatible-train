@@ -14,9 +14,8 @@ class PBM(DualOptimizer):
     def __init__(
         self,
         m: int = None,
-        penalty_mult: float = 0.1,
-        gamma: float = 0.1,
-        delta: float = 1.0,
+        penalty_mult: float = 0.9,
+        gamma: float = 0.9,
         penalty_update: str = "dimin_adapt",
         *,
         pbf: str = "quadratic_logarithmic",
@@ -77,7 +76,6 @@ class PBM(DualOptimizer):
             m,
             penalty_mult,
             penalty_update,
-            delta,
             pbf,
             init_duals,
             init_penalties,
@@ -99,7 +97,6 @@ class PBM(DualOptimizer):
         m: int,
         p_mult: float = None,
         penalty_update: str = None,
-        delta: float = None,
         pbf: str = None,
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
@@ -155,7 +152,6 @@ class PBM(DualOptimizer):
             {
                 "p_mult": p_mult,
                 "penalty_update": penalty_update,
-                "delta": delta,
                 "pbf": pbf,
                 "primal_update_process_length": primal_update_process_length,
                 "rho": rho,
@@ -178,7 +174,6 @@ class PBM(DualOptimizer):
         m: int,
         penalty_mult: float = None,
         penalty_update: str = None,
-        delta: float = None,
         pbf: str = None,
         init_duals: float | Tensor = None,
         init_penalties: float | Tensor = None,
@@ -196,10 +191,8 @@ class PBM(DualOptimizer):
         :type m: int
         :param penalty_mult: Multiplier for penalty update (K1 or K2). If None, inherits from parent. For adaptive penalty update, values close to 1 correspond to high "momentum".
         :type penalty_mult: float
-        :param penalty_update: Penalty update strategy; must be one of `dimin`, `dimin_dual`, `dimin_adapt`, `const`, `aimd`, `alm`. If None, inherits from parent.
+        :param penalty_update: Penalty update strategy; must be one of `dimin`, `dimin_adapt`, `const`, `alm`. If None, inherits from parent.
         :type penalty_update: str
-        :param delta: Violation/satisfaction parameter for penalty update. If None, inherits from parent.
-        :type delta: float
         :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`, `quadratic_reciprocal`.
         :type pbf: str
         :param init_duals: Initial values for the dual variables in this group. Defaults to dual lower bound for all.
@@ -233,7 +226,6 @@ class PBM(DualOptimizer):
             m,
             penalty_mult,
             penalty_update,
-            delta,
             pbf,
             init_duals,
             init_penalties,
@@ -290,7 +282,6 @@ class PBM(DualOptimizer):
             p_mult,
             duals,
             penalty_barrier_funcs[pbf]["d"](c),
-            group["delta"],
             cdivp,
             rho=group.get("rho", 2.0),
         )
@@ -360,7 +351,6 @@ def _update_penalties_const(
     p_mult: Tensor = None,
     duals: Tensor = None,
     phi_der: Tensor = None,
-    delta: float = None,
     cdivp: Tensor = None,
     rho: float = None,
     ):
@@ -373,7 +363,6 @@ def _update_penalties_alm(
     p_mult: Tensor = None,
     duals: Tensor = None,
     phi_der: Tensor = None,
-    delta: float = None,
     cdivp: Tensor = None,
     rho: float = 2.0,
     ):
@@ -386,7 +375,6 @@ def _update_penalties_dimin(
     p_mult: Tensor,
     duals: Tensor = None,
     phi_der: Tensor = None,
-    delta: float = None,
     cdivp: Tensor = None,
     rho: float = None,
 ):
@@ -398,12 +386,10 @@ def _update_penalties_adapt(
     p_mult: Tensor,
     duals: Tensor,
     phi_der: Tensor,
-    delta: float,
     cdivp: Tensor = None,
     rho: float = None,
 ):
-    d_phd = torch.where(phi_der < 1.0, phi_der, delta * phi_der)
-    b = (1 - p_mult) * penalties / (d_phd + 1e-8)
+    b = (1 - p_mult) * penalties / (phi_der + 1e-8)
     penalties.mul_(p_mult).add_(b)
 
 
@@ -412,7 +398,6 @@ def _update_penalties_aimd(
     p_mult: Tensor,
     duals: Tensor,
     phi_der: Tensor,
-    delta: float,
     cdivp: Tensor,
     rho: float = None,
 ):
@@ -422,24 +407,12 @@ def _update_penalties_aimd(
     penalties.add_(p_upd_add).mul_(p_upd_mult)
 
 
-def _update_penalties_dimin_dual(
-    penalties: Tensor,
-    p_mult: Tensor,
-    duals: Tensor,
-    phi_der: Tensor = None,
-    delta: float = None,
-    cdivp: Tensor = None,
-    rho: float = None,
-):
-    penalties.mul_(p_mult).mul_(duals)
 
 
 penalty_updates = {
     "const": _update_penalties_const,
     "dimin": _update_penalties_dimin,
-    "dimin_dual": _update_penalties_dimin_dual,
     "dimin_adapt": _update_penalties_adapt,
-    "aimd": _update_penalties_aimd,
     "alm": _update_penalties_alm,
 }
 
@@ -469,9 +442,7 @@ PBM.__doc__ = (
     :type penalty_mult: float
     :param gamma: Multiplier for dual parameter update. Values close to 1 correspond to a high "momentum".
     :type gamma: float
-    :param delta: Violation/satisfaction parameter for penalty update; values > 1 make the penalties decrease faster on violated constraints and vice versa.
-    :type delta: float
-    :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_dual`,`dimin_adapt`,`const`,`aimd`,`alm`. Defaults to`dimin_adapt`.
+    :param penalty_update: Penalty update strategy; must be one of `dimin`,`dimin_adapt`,`const`,`alm`. Defaults to`dimin_adapt`.
     :type penalty_update: str
     :param pbf: Penalty-Barrier Function to use. Must be one of `quadratic_logarithmic`,`quadratic_reciprocal`
     :type pbf: str
