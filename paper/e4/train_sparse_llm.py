@@ -288,7 +288,7 @@ def default_params(method="spbm"):
         "init_mean": 4.5,                   # gate log_alpha at 4.5: ~95% of z == 1, eval gates exactly 1
         "target_density": 0.7,              # constraint: expected DENSITY <= 0.7, i.e. >= 30% sparsity
         "per_layer": True,                  # True: one constraint per layer, False: one global constraint
-        "primal_lr_gates": 0.1,            # lr of the gates (log_alpha)
+        "primal_lr_gates": 5.0,            # lr of the gates (log_alpha)
     })
 
     # ---------------- method-specific (keys match the constructor arguments exactly)
@@ -298,14 +298,15 @@ def default_params(method="spbm"):
             "beta": 0.1,
         }
         params["spbm"] = {                   # PBM(m=..., device=..., **params["spbm"])
-            "kappa": 0.9,
+            "kappa": 0.5,
             "penalty_update": "dimin_adapt",
             "pbf": "quadratic_logarithmic",
-            "init_duals": 0.001,
+            "init_duals": 0.1,
             "init_penalties": 1.0,
-            "dual_range": (1e-4, 100.0),
+            "dual_range": (1e-4, 1000.0),
             "gamma": 0.9,
-            "penalty_range": (1e-1, 1.0)
+            "penalty_range": (1e-1, 1.0),
+            "rho": None
         }
     elif method == "alm":
         params["alm"] = {         

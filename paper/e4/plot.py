@@ -17,7 +17,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from paper import _harness
 
-STYLE_KEY = {"unconstrained": "adam", "spbm": "pbm", "alm": "alm_proj"}   # e4 method -> plot_style key
+STYLE_KEY = {"unconstrained": "adam", "spbm": "pbm", "alm": "alm"}   # e4 method -> plot_style key
 PANELS = {"loss": "train loss", "val_loss": "val loss",
           "constraint_max_viol": "max constraint violation", "network_size": "network size [%]"}
 TICK_FORMAT = {"loss": "%.2f", "val_loss": "%.2f", "network_size": "%.1f"}

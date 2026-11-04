@@ -14,6 +14,7 @@ METHOD_COLORS = {
     "SPBM": "#D1495B",            # crimson — your method
     "Adam": "#4C4C4C",            # muted baseline
     "SSL-ALM (proj.)": "#2E86AB",
+    "ALM (proj.)": "#2E86AB",
     # "ALM": "#2E86AB",
     # "SSL-ALM (max)": "#5BC0BE",
     "SSw": "#E0A458",
@@ -23,14 +24,14 @@ METHOD_LABELS = {
     "adam": "Adam",
     "pbm": "SPBM",
     "alm_proj": "SSL-ALM (proj.)", # make it work in maths
-    # "alm_proj": "ALM",
+    "alm": "ALM (proj.)",
     # "alm_max": "SSL-ALM (max)",
     "ssg": "SSw",
     "nupi": r"$\nu$PI"
 }
 _MARKERS = {"adam": "o", "pbm": "s",
-            "alm_proj": "D", "alm_max": "^", "ssg": "v"}
-_LS = {"adam": "--", "pbm": "-", "alm_proj": "-",  "alm_max": "-", "ssg": ":"}
+            "alm_proj": "D", "alm": "^", "ssg": "v"}
+_LS = {"adam": "--", "pbm": "-", "alm_proj": "-",  "alm": "-", "ssg": ":"}
 
 
 def style_for(method):

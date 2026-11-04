@@ -173,7 +173,8 @@ class PBM(DualOptimizer):
                     "penalty range for ALM penalty update should be large. Note "
                     "that the penalty is in each iteration equal to lambda * rho, "
                     "which can give large numbers in norm. We suggest setting the "
-                    "upper range of the penalties to some bigger number.",
+                    "upper range of the penalties to some bigger number. Having small penalty range" \
+                    "might not lead to the alm-like behavior of the method.",
                     stacklevel=3,
                 )
 
@@ -464,7 +465,7 @@ PBM.__doc__ = (
 
     :param m: Number of constraints (determines the number of dual variables to create)
     :type m: int
-    :param kappa: Multiplier for penalty update (K1 or K2). For K2 (adaptive penalty update), values close to 1 correspond to a high "momentum".
+    :param kappa: Multiplier for penalty update (K1 or K2). For K2 (adaptive penalty update), values close to 1 correspond to a high "momentum". For penalty_update=`alm`, kappa is ignored.
     :type kappa: float
     :param gamma: Multiplier for dual parameter update. Values close to 1 correspond to a high "momentum".
     :type gamma: float

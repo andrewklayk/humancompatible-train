@@ -6,10 +6,15 @@
 --method unconstrained
 
 # spbm: penalty multiplier x gate lr
---method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.9 --set primal_lr_gates=1.0 --set primal_lr=0.00005
---method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.99 --set primal_lr_gates=1.0 --set primal_lr=0.00005
---method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.9 --set primal_lr_gates=3.0 --set primal_lr=0.00005
---method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.99 --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.9  --set spbm.kappa=0.5 --set primal_lr_gates=1.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.5 --set primal_lr_gates=1.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.95 --set spbm.kappa=0.5 --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set spbm.gamma=0.9  --set spbm.kappa=0.5 --set primal_lr_gates=3.0 --set primal_lr=0.00005
+
+--method spbm --set spbm.penalty_update=alm --set spbm.gamma=0.9 --set spbm.rho=2.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set spbm.penalty_update=alm --set spbm.gamma=0.9 --set spbm.rho=10.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set spbm.penalty_update=alm --set spbm.gamma=0.0 --set spbm.rho=2.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set spbm.penalty_update=alm --set spbm.gamma=0.0 --set spbm.rho=10.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
 
 
 # alm: dual lr x penalty
