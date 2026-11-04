@@ -21,7 +21,7 @@ STYLE_KEY = {"unconstrained": "adam", "spbm": "pbm", "alm": "alm"}   # e4 method
 PANELS = {"loss": "train loss", "val_loss": "val loss",
           "constraint_max_viol": "max constraint violation", "network_size": "network size [%]"}
 TICK_FORMAT = {"loss": "%.2f", "val_loss": "%.2f", "network_size": "%.1f"}
-
+TOTAL_TOKENS = 1024 * 40050 * 16
 
 def load_runs(root):
     """Every row of every run, tagged with its method, config hash and seed."""
@@ -51,8 +51,8 @@ def pick_best(runs, tol):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runs", default="results/runs")
-    parser.add_argument("--x", choices=["update", "time"], default="time")
+    parser.add_argument("--runs", default="results/runs-test")
+    parser.add_argument("--x", choices=["update", "time", "tokens"], default="tokens")
     parser.add_argument("--tol", type=float, default=0.01, help="feasible if max constraint <= tol")
     args = parser.parse_args()
 
@@ -62,14 +62,23 @@ def main():
     print(best.to_string(index=False))
 
     fig, axes, plt = _harness.figure(2, 2)
+    tokens_per_second = {}
     for _, b in best.iterrows():
         style = _harness._load_plot_style().style_for(STYLE_KEY.get(b["method"], b["method"]))
         label = style["label"] + ("" if b["feasible"] else " (infeasible)")
         # mean +- std over seeds, aligned on the update index (wall time differs per seed)
         stats = runs[(runs["method"] == b["method"]) & (runs["cfg"] == b["cfg"])].groupby("update")[
             ["time_s", *PANELS]].agg(["mean", "std"])
-        
-        x = stats[("time_s", "mean")] / 60 if args.x == "time" else stats.index
+
+        if args.x == "time":
+            x = stats[("time_s", "mean")] / 60
+        elif args.x == "update":
+            x = stats.index
+        else:
+            x = stats[("time_s", "mean")] / 60
+            t_max = x.max()
+            x = ((x / t_max) * TOTAL_TOKENS) / 1e6
+
         for ax, (col, name) in zip(axes, PANELS.items()):
             if col == "constraint_max_viol" and b["method"] == "unconstrained":
                 continue   # unconstrained logs a placeholder, not a real constraint
@@ -82,11 +91,31 @@ def main():
             else:
                 ax.ticklabel_format(axis="y", useOffset=False)   # show 0.23, not an offset like "+2.3e-1"
 
+
+        # save the tokens per second 
+        x = stats[("time_s", "mean")] / 60
+        t_max = x.max()
+        tokens_per_second_m = TOTAL_TOKENS / (t_max) / 1e3
+        tokens_per_second[b["method"]] = tokens_per_second_m
+        print("Tokens per second (M):", tokens_per_second)
+
     axes[2].axhline(args.tol, color="0.6", lw=0.5, ls=(0, (1, 2)))   # feasibility threshold
     for ax in axes[2:]:
-        ax.set_xlabel("wall time [min]" if args.x == "time" else "optimizer updates")
+        if args.x == "tokens":
+            ax.set_xlabel("tokens [M]")
+        else:
+            ax.set_xlabel("wall time [min]" if args.x == "time" else "optimizer updates")
     _harness._load_plot_style().top_legend(fig, axes[0])
     _harness.save_figure(fig, f"best_runs_{args.x}", "e4")
+
+    # save the tokens per second into a csv file
+    tokens_per_second_df = pd.DataFrame(list(tokens_per_second.items()), columns=['method', '1k_tokens_per_second'])
+    
+    # append relative speed 
+    unconstrained_speed = tokens_per_second_df.loc[tokens_per_second_df['method'] == 'unconstrained', '1k_tokens_per_second'].values[0]
+    tokens_per_second_df['relative_speed'] = tokens_per_second_df['1k_tokens_per_second'] / unconstrained_speed * 100.0
+
+    tokens_per_second_df.to_csv(f"../results/e4/tokens_per_second.csv", index=False)
 
 
 if __name__ == "__main__":
