@@ -30,7 +30,6 @@ from .mlmc import direction
 class GhostConfig:
     """Hyperparameters for :class:`GhostSQP`."""
 
-    # TODO: drop monte_carlo_sampling/solve_relaxed bools; use alpha/beta None-ness instead
     alpha: float | None = None      # geometric level parameter p_α ∈ (0, 1)
     base_batch: int = 1     # level-0 sample count m0; level ℓ uses m0·2^ℓ samples
     tau: float = 1.0        # QP regularization τ > 0
