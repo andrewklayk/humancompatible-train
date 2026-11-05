@@ -21,6 +21,8 @@ class MoreauEnvelope(Optimizer):
     :type beta: float
     :param primal_update_process_length: Number of primal steps per prox-centre update; defaults to 1.
     :type primal_update_process_length: int
+    :param blacklist: List of indices of param groups to not apply Moreau smoothing to; defaults to None.
+    :type blacklist: list[int] | None
     """
 
     def __init__(
@@ -30,6 +32,7 @@ class MoreauEnvelope(Optimizer):
         mu: float = 2.0,
         beta: float = 0.5,
         primal_update_process_length: int = 1,
+        blacklist: list[int] | None = None, # list of indices of 'params' to not apply Moreau smoothing to
     ) -> None:
         if mu < 0:
             raise ValueError(
@@ -40,11 +43,15 @@ class MoreauEnvelope(Optimizer):
         self.primal_update_process_length = primal_update_process_length
         self.iter = 0
         self._z = {}
+        self.blacklist = blacklist or [] 
 
     def step(self) -> None:
         with torch.no_grad():
             # add smoothing term gradient to the gradient w.r.t. primal params, and update smoothing params before optimizer step
-            for param_group in self.optimizer.param_groups:
+            for i, param_group in enumerate(self.optimizer.param_groups):
+                if i in self.blacklist: # if blacklisted - do not apply Moreau smoothing
+                    continue
+                                    
                 for param in param_group["params"]:
                     if param.grad is None:
                         continue

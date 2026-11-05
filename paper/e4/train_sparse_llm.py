@@ -345,7 +345,7 @@ def create_primal_dual_optimizer(model, params, sparse_layers_dict):
 
         # create a dual optimizer
         n_constraints = len(sparse_layers_dict["sparse_layers"]) if params["per_layer"] else 1
-        optimizer_primal = MoreauEnvelope(optimizer_primal, **params["moreau"])
+        optimizer_primal = MoreauEnvelope(optimizer_primal, **params["moreau"], blacklist=[1]) # do not apply Moreau smoothing to the gates (index 1)
         optimizer_dual = PBM(m=n_constraints, device=params["device"], **params["spbm"])
 
         return optimizer_primal, optimizer_dual
