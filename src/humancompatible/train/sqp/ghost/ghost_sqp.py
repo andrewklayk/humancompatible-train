@@ -1,20 +1,24 @@
 """
-Stochastic Ghost-penalty SQP driver (Facchinei & Kungurtsev, 2025).
+Stochastic ghost-penalty SQP (Facchinei & Kungurtsev, 2025).
 
 Solves the expectation-constrained nonconvex problem
 
     min_x  F(x) = E[f(x, ξ)]   s.t.   C_i(x) = E[c_i(x, ζ)] ≤ 0,  i = 1..m
 
-by the diminishing-step stochastic-approximation scheme of Section 2: at each
-major iteration ν it forms an unbiased MLMC estimate d̃(x^ν) of the SCP search
-direction (Eq. 23) and takes the step
+with the diminishing-step scheme of Section 2: at major iteration ν it estimates
+the SCP search direction d̃(x^ν)  and takes the step
 
-    x^{ν+1} = x^ν + γ^ν d̃(x^ν),       γ^ν = γ0 / ν
+    x^{ν+1} = x^ν + γ^ν d̃(x^ν),       γ^ν = γ0 / ν^p.
 
-with γ^ν satisfying Σ γ^ν = ∞ and Σ (γ^ν)^2 < ∞ (and γ^1 < 1 for γ0 < 1).
+For p ∈ (0.5, 1], Σ γ^ν = ∞ and Σ (γ^ν)^2 < ∞; γ0 < 1 gives γ^1 < 1. No penalty
+parameter is tuned and no line search is performed.
 
-No penalty parameter is tuned and no line search is performed; under MFCQ and
-the paper's assumptions every limit point is a KKT point (Theorem 2.1).
+The method of the paper corresponds to
+``GhostConfig(monte_carlo_sampling=True, solve_relaxed=False)``: the direction is
+an unbiased MLMC estimate, the subproblem keeps the trust region, and under MFCQ
+and the paper's assumptions every limit point is a KKT point (Theorem 2.1). The
+defaults are a faster variant that estimates the direction from a single batch
+and drops the trust region; Theorem 2.1 does not cover it.
 """
 
 from dataclasses import dataclass
@@ -75,30 +79,50 @@ class GhostConfig:
     
 
 class GhostSQP:
-    """Driver for the stochastic Ghost-penalty SQP method.
+    r"""Driver for the stochastic ghost-penalty SQP method.
 
-    Parameters
-    ----------
-    net : torch.nn.Module
-        Model whose parameters x are optimized in place.
-    objective_fn : callable(net, batch) -> scalar tensor
-        Mean objective loss over the batch.
-    constraint_fns : sequence of callable(net, batch) -> scalar tensor, or
-        a single callable(net, batch) -> (m,) tensor
-        Each returns the mean of a constraint ``c_i`` (interpreted ``≤ 0``).
-        Pass the vector form for large ``m``: see :func:`.oracle.evaluate_oracle`.
-    sampler : Sampler
-        Source of fresh i.i.d. minibatches (see :mod:`.sampler`).
-    cfg : GhostConfig, optional
-    rng : numpy.random.Generator, optional
+    **In your own training loop (recommended).** Compute the objective and the
+    constraints on your batch and pass them to :meth:`step`::
+
+        solver = GhostSQP(model, objective_fn=None, constraint_fns=None,
+                          sampler=None, cfg=cfg)
+        for batch in loader:
+            loss = objective(model, batch)
+            constraints = constraint_values(model, batch)
+            solver.step(loss, constraints)
+
+    **As a self-contained loop.** Pass ``objective_fn``, ``constraint_fns`` and
+    ``sampler``; :meth:`step` then draws its own batches and :meth:`train` runs
+    the iterations. MLMC (``cfg.monte_carlo_sampling=True``) requires this mode.
+
+    :param net: Model whose trainable parameters are updated in place.
+    :type net: torch.nn.Module
+    :param objective_fn: ``callable(net, batch) -> scalar tensor`` returning the
+        mean objective over the batch, or ``None`` to pass the loss to
+        :meth:`step`.
+    :type objective_fn: Callable | None; defaults to None
+    :param constraint_fns: One ``callable(net, batch) -> scalar tensor`` per
+        constraint :math:`c_i \le 0`, or a single
+        ``callable(net, batch) -> (m,) tensor`` (preferable for large :math:`m`;
+        see :func:`.oracle.evaluate_oracle`), or ``None`` to pass the
+        constraints to :meth:`step`.
+    :type constraint_fns: Callable | Sequence[Callable] | None; defaults to None
+    :param sampler: Source of fresh i.i.d. mini-batches (see :mod:`.sampler`);
+        used only when ``objective_fn`` and ``constraint_fns`` are given.
+    :type sampler: Sampler | None; defaults to None
+    :param cfg: Hyperparameters; defaults to ``GhostConfig()``.
+    :type cfg: GhostConfig | None
+    :param rng: Random generator used by the direction estimator; defaults to
+        ``numpy.random.default_rng()``.
+    :type rng: numpy.random.Generator | None
     """
 
     def __init__(
             self,
             net: torch.nn.Module,
-            objective_fn: Callable[..., torch.Tensor] | None,
-            constraint_fns: Callable[..., torch.Tensor] | Sequence[Callable[..., torch.Tensor]] | None,
-            sampler,
+            objective_fn: Callable[..., torch.Tensor] | None = None,
+            constraint_fns: Callable[..., torch.Tensor] | Sequence[Callable[..., torch.Tensor]] | None = None,
+            sampler = None,
             cfg: GhostConfig | None = None,
             rng=None
         ):
