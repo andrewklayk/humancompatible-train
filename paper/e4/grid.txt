@@ -18,8 +18,8 @@
 
 --method spbm --set moreau.mu=0 --set spbm.penalty_update=alm --set spbm.gamma=0.1 --set spbm.rho=2.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
 --method spbm --set moreau.mu=0 --set spbm.penalty_update=alm --set spbm.gamma=0.1 --set spbm.rho=10.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
---method spbm --set moreau.mu=1.0 --set spbm.penalty_update=alm --set spbm.gamma=0.1 --set spbm.rho=2.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
---method spbm --set moreau.mu=1.0 --set spbm.penalty_update=alm --set spbm.gamma=0.1 --set spbm.rho=10.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set moreau.mu=1.0 --set spbm.penalty_update=alm --set spbm.gamma=0.0 --set spbm.rho=2.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
+--method spbm --set moreau.mu=1.0 --set spbm.penalty_update=alm --set spbm.gamma=0.0 --set spbm.rho=10.0 --set spbm.penalty_range=[0.1,200.0] --set primal_lr_gates=3.0 --set primal_lr=0.00005
 
 
 # alm: dual lr x penalty

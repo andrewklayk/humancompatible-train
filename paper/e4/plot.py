@@ -51,7 +51,7 @@ def pick_best(runs, tol):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runs", default="results/runs-test")
+    parser.add_argument("--runs", default="results/runs")
     parser.add_argument("--x", choices=["update", "time", "tokens"], default="tokens")
     parser.add_argument("--tol", type=float, default=0.01, help="feasible if max constraint <= tol")
     args = parser.parse_args()

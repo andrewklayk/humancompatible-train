@@ -303,7 +303,7 @@ def default_params(method="spbm"):
             "pbf": "quadratic_logarithmic",
             "init_duals": 0.1,
             "init_penalties": 1.0,
-            "dual_range": (1e-4, 1000.0),
+            "dual_range": (1e-4, 100.0),
             "gamma": 0.9,
             "penalty_range": (1e-1, 1.0),
             "rho": None
