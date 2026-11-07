@@ -59,8 +59,10 @@ def main(cfg: DictConfig):
     n_folds = int(cfg.n_folds)
     fold = int(cfg.fold)
     approach = str(cfg.get("approach", "ml"))
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
+    # `+device=cpu|cuda:0` overrides. Default: GPU if available, except ghost, which
+    # stays on CPU (its QP step goes through qpsolvers / numpy).
+    device = cfg.get("device") or (
+        "cuda:0" if torch.cuda.is_available() and cfg.algorithm.name != "ghost" else "cpu")
     torch.set_default_device(device)
     torch.manual_seed(init_seed)
 
@@ -121,6 +123,7 @@ def main(cfg: DictConfig):
         "algorithm": _choice("algorithm", algorithm.name),
         "approach": approach,
         "init_seed": init_seed,
+        "batch_size": int(cfg.task.batch_size),
         "fold": fold,
         "n_folds": n_folds,
         "cv_seed": cv_seed,
