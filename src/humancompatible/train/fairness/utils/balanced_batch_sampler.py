@@ -7,7 +7,7 @@ from typing import Iterable, Optional
 class BalancedBatchSampler(Sampler):
     """
     A Sampler that yields an equal number of samples from each groups specified with either one-hot encoding or indices.
-    Specifically, if given`S`groups and batch size of`N`, yields a batch consisting of`N//S`samples of each group, sorted by group, but shuffled within each group.
+    Specifically, if given`S`groups and batch size of`N`, yields a batch consisting of`N//S`samples of each group, in random order (the whole batch is shuffled, so samples of one group are NOT contiguous).
 
     Groups listed in`extend_groups`are oversampled: their samples are reused across batches so that the epoch is
     as long as the largest group allows, instead of ending when the smallest group is exhausted. A group that is not

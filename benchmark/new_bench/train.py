@@ -142,7 +142,7 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
 
 
 def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbose=False,
-          reweight_loss=False):
+          reweight_loss=False, split_batch=False):
     """Run training; returns (history_train, history_val, history_test, history_opt)
     as lists of dicts. ``history_opt`` holds the full-batch KKT optimality metrics
     (only populated when ``approach='opt'`` on a tabular task; empty otherwise).
@@ -171,6 +171,12 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
         if not isinstance(sampler, BalancedBatchSampler):
             raise ValueError("reweight_loss=True requires a BalancedBatchSampler train loader")
         group_weights = sampler.group_weights.to(device)
+
+    if split_batch:
+        sampler = getattr(bundle.train_loader, "batch_sampler", None)
+        if not isinstance(sampler, BalancedBatchSampler) or sampler._n_samples_per_group % 2:
+            raise ValueError("split_batch needs a BalancedBatchSampler with an even number "
+                             "of samples per group (batch_size / n_groups)")
 
     def _loss(out, labels, sens):
         if group_weights is None:
@@ -219,9 +225,21 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
                 feats, sens, labels = feats.to(device), sens.to(device), labels.to(device)
                 algorithm.zero_grad()
                 out = model(feats)
-                loss = _loss(out, labels, sens)
-                loss_for_c = loss if algorithm.passes_loss_to_constraints else None
-                c, c_eq = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model, out, sens, labels, loss_for_c)
+                # split_batch: independent samples for loss and constraints. The sampler
+                # SHUFFLES the batch, so first sort it by group (stable -> random order
+                # within a group kept); with an even B/S per group, alternating positions
+                # then give each half exactly B/(2S) samples of every group.
+                if split_batch:
+                    order = torch.argsort(sens.argmax(dim=1), stable=True)
+                    lo, co = order[0::2], order[1::2]
+                else:
+                    lo, co = slice(None), slice(None)
+                loss = _loss(out[lo], labels[lo], sens[lo])
+                loss_for_c = None
+                if algorithm.passes_loss_to_constraints:
+                    loss_for_c = _loss(out[co], labels[co], sens[co]) if split_batch else loss
+                c, c_eq = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model,
+                                           out[co], sens[co], labels[co], loss_for_c)
                 loss_mean = loss.mean() if loss.dim() > 0 else loss
                 
                 algorithm.step(loss_mean, c_eq)

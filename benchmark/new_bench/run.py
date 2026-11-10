@@ -93,7 +93,8 @@ def main(cfg: DictConfig):
     h_train, h_val, h_test, h_opt = train(model, algorithm, task, bundle,
                                           n_epochs=int(cfg.n_epochs), device=device,
                                           approach=approach, verbose=cfg.verbose,
-                                          reweight_loss=task.reweight_loss)
+                                          reweight_loss=task.reweight_loss,
+                                          split_batch=bool(cfg.algorithm.get("split_batch", False)))
 
     # --- write raw results to this job's output dir ---
     hc = HydraConfig.get()
