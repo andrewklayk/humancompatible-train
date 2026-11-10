@@ -78,7 +78,7 @@ def _cifar(num_classes):
     def _build(cfg, batch_size, device, cv):
         # cifar K-folds the train set (test_size unused -> canonical test is held out).
         train_loader, val_loader, test_loader, opt_eval = _loaders.load_data_cifar(
-            num_classes=num_classes, device=device,
+            num_classes=num_classes, batch_size=batch_size, device=device,
             cv_seed=cv["cv_seed"], n_folds=cv["n_folds"], fold=cv["fold"],
             init_seed=cv["init_seed"], approach=cv["approach"],
             opt_eval_size=cv["opt_eval_size"],

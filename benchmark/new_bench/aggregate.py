@@ -210,6 +210,9 @@ def main():
     ap.add_argument("--approach", default="opt", choices=["ml", "opt"],
                     help="only aggregate runs of this approach; required if the tree mixes "
                          "approaches (ml and opt must not share a cell -- use a separate --out).")
+    ap.add_argument("--batch-size", type=int, default=None,
+                    help="only aggregate runs with this task.batch_size (runs without a recorded "
+                         "batch size are skipped); omit to keep each batch size as its own config")
     ap.add_argument("--csv", action="store_true",
                     help="also write <cell>.csv next to the parquet (slow for wide cells; "
                          "only useful for eyeballing the curves)")
@@ -227,15 +230,30 @@ def main():
         appr = meta.get("approach", "ml")
         if args.approach is not None and appr != args.approach:
             continue
+        bs = meta.get("batch_size")  # None for runs written before batch size was recorded
+        if args.batch_size is not None and bs != args.batch_size:
+            continue
         approaches.add(appr) # check if we're mixing ML and OPT runs (if len > 1 by the end, then we are -> stop)
         cell = (meta["task"], meta.get("data"), meta["algorithm"])
+        # Batch size (a task setting) is part of a config's identity: runs that differ only
+        # in batch size become separate configs, labelled via hyperparameters["batch_size"].
+        if bs is not None:
+            meta["hyperparameters"] = {**meta["hyperparameters"], "batch_size": bs}
         sig = json.dumps(meta["hyperparameters"], sort_keys=True, default=str)
         # idk why this is so convoluted but entry is that second {"meta": meta, runs: []} dict
         # clinically insane one-line way to update a (task, data, algorithm) "cell" with new runs OR initialize it if this is the first run
-        entry = cells.setdefault(cell, {}).setdefault(sig, {"meta": meta, "runs": []})
-        entry["runs"].append({"dir": os.path.dirname(meta_path),
-                              "fold": int(meta.get("fold", 0)),
-                              "init_seed": int(meta.get("init_seed", 0))})
+        entry = cells.setdefault(cell, {}).setdefault(sig, {"meta": meta, "runs": [], "seen": {}})
+        run = {"dir": os.path.dirname(meta_path),
+               "fold": int(meta.get("fold", 0)),
+               "init_seed": int(meta.get("init_seed", 0))}
+        # Never average two runs of the same seed (e.g. a config re-run into a new dir):
+        # it would silently double-count that seed in mean/std.
+        key = (run["fold"], run["init_seed"])
+        if key in entry["seen"]:
+            raise SystemExit(f"Duplicate run for {_cell_name(cell)} fold={key[0]} init={key[1]}:\n"
+                             f"  {entry['seen'][key]}\n  {run['dir']}\nDelete one of them.")
+        entry["seen"][key] = run["dir"]
+        entry["runs"].append(run)
 
     if args.approach is None and len(approaches) > 1:
         print(f"Runs under {args.runs} mix approaches {sorted(approaches)}; re-run with "

@@ -317,7 +317,7 @@ def _load_cifar_train_tensors(ds_cls, num_classes, device, transform):
     return _CIFAR_TRAIN_CACHE[key]
 
 
-def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
+def load_data_cifar(num_classes, *, batch_size, cv_seed, n_folds, fold, init_seed,
                     balanced=False, device='cpu', approach="opt", opt_eval_size=10000):
     """CIFAR-10 / CIFAR-100 with K-fold over the training set; the canonical
     torchvision test set is the fixed held-out TEST. ``sens`` is the class one-hot
@@ -332,7 +332,6 @@ def load_data_cifar(num_classes, *, cv_seed, n_folds, fold, init_seed,
 
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    batch_size = 40 if num_classes == 10 else 200
 
     ds_cls = torchvision.datasets.CIFAR10 if num_classes == 10 else torchvision.datasets.CIFAR100
     X, targets, eye = _load_cifar_train_tensors(ds_cls, num_classes, device, transform)

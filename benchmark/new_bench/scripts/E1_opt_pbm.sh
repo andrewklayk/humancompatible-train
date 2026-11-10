@@ -8,6 +8,7 @@
 #   Local smoke test:   LAUNCHER=local INIT_SEEDS=0 bash scripts/E1_opt_pbm.sh
 set -euo pipefail
 source scripts/_env.sh
+set -f  # no globbing: EXTRA_ARGS may hold [..] list overrides
 
 ALGO=pbm
 # init_seed loops OUTSIDE the multirun (one -m per seed): each seed re-runs the SAME
@@ -16,6 +17,6 @@ ALGO=pbm
 # and runs never overwrite each other. The launcher blocks per -m (chunks run serially).
 for s in ${INIT_SEEDS}; do
   python3 -u run.py -m ${LAUNCHER_ARG} \
-    +sweep=${ALGO} data=${DATA} task=${TASK} \
+    +sweep=${ALGO} data=${DATA} task=${TASK} ${BATCH_SIZES:+task.batch_size=${BATCH_SIZES}} ${EXTRA_ARGS:-} \
     approach=opt init_seed=${s} n_epochs=${N_EPOCHS}
 done

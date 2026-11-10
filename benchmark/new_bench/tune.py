@@ -174,7 +174,7 @@ def _write_run(out_dir, cfg, task, algorithm, h_train, h_opt, algo, data_name, t
     meta = {
         "task": tsk_name, "data": data_name, "algorithm": algo, "approach": approach,
         "init_seed": init_seed, "fold": fold, "n_folds": int(cfg.n_folds),
-        "cv_seed": int(cfg.cv_seed), "m": task.m, "bound": task.bound,
+        "cv_seed": int(cfg.cv_seed), "batch_size": int(cfg.task.batch_size), "m": task.m, "bound": task.bound,
         "select_filter": algorithm.select_filter,
         "hyperparameters": OmegaConf.to_container(cfg.algorithm, resolve=True),
     }

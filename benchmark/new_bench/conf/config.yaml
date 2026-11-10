@@ -29,4 +29,4 @@ hydra:
     dir: multirun/${task.name}/${algorithm.name}
     # per-config hash (not job.num) so distinct configs never collide and re-runs are
     # idempotent -- see run.py:_hp_hash. job.num restarts per `-m`, which would overwrite.
-    subdir: ${approach}/fold${fold}_init${init_seed}/${hp_hash:${algorithm}}
+    subdir: ${approach}/fold${fold}_init${init_seed}/bs${task.batch_size}/${hp_hash:${algorithm}}

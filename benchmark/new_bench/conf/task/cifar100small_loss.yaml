@@ -1,5 +1,5 @@
 name: cifar100small
-batch_size: 400
+batch_size: 200
 model: conv
 loss: ce
 constraint:
