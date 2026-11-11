@@ -13,6 +13,8 @@ from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 
 from humancompatible.train.sqp.ghost.ghost_sqp import GhostSQP
 from humancompatible.train.fairness.utils import BalancedBatchSampler
+from humancompatible.train.dual_optim import PBM
+from humancompatible.train.dual_optim.pbm import penalty_barrier_funcs
 
 def calc_constraints(constraint_fn, bounds, fuse, constraints_to_eq, model, out, sens, labels, loss):
     """Raw constraints and their bounded(/equality) form (c - bound)."""
@@ -25,6 +27,27 @@ def calc_constraints(constraint_fn, bounds, fuse, constraints_to_eq, model, out,
     else:
         constraints_bounded_eq = constraints - bounds
     return constraints, constraints_bounded_eq
+
+
+def cgrad_cov_term(dual, c_eq_a, c_eq_b):
+    """Extra objective term for split_cgrad + cgrad_var: puts back the covariance term
+    that shared sampling has and split_cgrad drops.
+
+    Shared samples:  E[lam phi'(c/p) grad c] = lam E[phi'(c/p)] grad c + lam Cov(phi'(c/p), grad c)
+    split_cgrad:     E[lam phi'(c_A/p) grad c_B] = lam E[phi'(c/p)] grad c      (no Cov term)
+    With A, B independent and identically distributed,
+        1/2 (phi'(c_A/p) - phi'(c_B/p)) (grad c_A - grad c_B)
+    is an unbiased estimate of Cov(phi'(c/p), grad c); this returns a scalar whose gradient
+    is lam_j times that, summed over j. In the quadratic region of phi (c/p >= -1/2),
+    phi'(c/p) = 1 + c/p and it equals the gradient of lam/(4p) (c_A - c_B)^2, whose
+    expectation is lam/(2p) Var(c): the variance penalty. Uses the pre-update lam, p
+    (call before algorithm.step), as PBM's surrogate does."""
+    lam = dual.duals.detach().reshape(-1)
+    pen = dual.penalties.detach().reshape(-1)
+    phi_d = penalty_barrier_funcs[dual.param_groups[0]["pbf"]]["d"]
+    c_a, c_b = c_eq_a.reshape(-1), c_eq_b.reshape(-1)
+    dphi = phi_d(c_a.detach() / pen) - phi_d(c_b.detach() / pen)
+    return (0.5 * lam * dphi) @ (c_a - c_b)
 
 
 def calc_perclass_acc(group_onehot, labels, out):
@@ -142,7 +165,7 @@ def evaluate_optimality(model, algorithm, task, bundle, device):
 
 
 def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbose=False,
-          reweight_loss=False, split_batch=False):
+          reweight_loss=False, split_batch=False, split_cgrad=False, cgrad_var=False):
     """Run training; returns (history_train, history_val, history_test, history_opt)
     as lists of dicts. ``history_opt`` holds the full-batch KKT optimality metrics
     (only populated when ``approach='opt'`` on a tabular task; empty otherwise).
@@ -172,11 +195,16 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
             raise ValueError("reweight_loss=True requires a BalancedBatchSampler train loader")
         group_weights = sampler.group_weights.to(device)
 
-    if split_batch:
+    if split_batch and split_cgrad:
+        raise ValueError("split_batch and split_cgrad are mutually exclusive")
+    if cgrad_var and not (split_cgrad and isinstance(algorithm.dual, PBM)
+                          and len(algorithm.dual.param_groups) == 1):
+        raise ValueError("cgrad_var needs split_cgrad=True and a single-group PBM dual")
+    if split_batch or split_cgrad:
         sampler = getattr(bundle.train_loader, "batch_sampler", None)
         if not isinstance(sampler, BalancedBatchSampler) or sampler._n_samples_per_group % 2:
-            raise ValueError("split_batch needs a BalancedBatchSampler with an even number "
-                             "of samples per group (batch_size / n_groups)")
+            raise ValueError("split_batch / split_cgrad need a BalancedBatchSampler with an even "
+                             "number of samples per group (batch_size / n_groups)")
 
     def _loss(out, labels, sens):
         if group_weights is None:
@@ -229,20 +257,40 @@ def train(model, algorithm, task, bundle, n_epochs, device, approach="ml", verbo
                 # SHUFFLES the batch, so first sort it by group (stable -> random order
                 # within a group kept); with an even B/S per group, alternating positions
                 # then give each half exactly B/(2S) samples of every group.
-                if split_batch:
+                if split_batch or split_cgrad:
                     order = torch.argsort(sens.argmax(dim=1), stable=True)
                     lo, co = order[0::2], order[1::2]
                 else:
                     lo, co = slice(None), slice(None)
-                loss = _loss(out[lo], labels[lo], sens[lo])
-                loss_for_c = None
-                if algorithm.passes_loss_to_constraints:
-                    loss_for_c = _loss(out[co], labels[co], sens[co]) if split_batch else loss
-                c, c_eq = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model,
-                                           out[co], sens[co], labels[co], loss_for_c)
+                pass_loss = algorithm.passes_loss_to_constraints
+                if split_cgrad:
+                    # split_cgrad: constraint VALUE on half A (lo), loss and constraint
+                    # GRADIENT on half B (co). Straight-through: c_eq has the value of
+                    # c_A and the gradient of c_B, so the dual sees c_A everywhere
+                    # (phi'(c_A/p), dual + penalty updates) and backward gives
+                    # lambda * phi'(c_A/p) * grad c_B -- no change to the dual optimizer.
+                    loss = _loss(out[co], labels[co], sens[co])
+                    c, c_eq_a = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model,
+                                                 out[lo], sens[lo], labels[lo],
+                                                 _loss(out[lo], labels[lo], sens[lo]) if pass_loss else None)
+                    _, c_eq_b = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model,
+                                                 out[co], sens[co], labels[co],
+                                                 loss if pass_loss else None)
+                    c_eq = c_eq_a.detach() + (c_eq_b - c_eq_b.detach())
+                    # cgrad_var: add back the shared-sampling covariance (variance) term
+                    extra = cgrad_cov_term(algorithm.dual, c_eq_a, c_eq_b) if cgrad_var else None
+                else:
+                    extra = None
+                    loss = _loss(out[lo], labels[lo], sens[lo])
+                    loss_for_c = None
+                    if pass_loss:
+                        loss_for_c = _loss(out[co], labels[co], sens[co]) if split_batch else loss
+                    c, c_eq = calc_constraints(constraint_fn, bounds, fuse, c_to_eq, model,
+                                               out[co], sens[co], labels[co], loss_for_c)
                 loss_mean = loss.mean() if loss.dim() > 0 else loss
                 
-                algorithm.step(loss_mean, c_eq)
+                # the extra term is optimized but not logged: losses keep the plain loss
+                algorithm.step(loss_mean if extra is None else loss_mean + extra, c_eq)
                 losses.append(loss_mean.detach().cpu().numpy().item())
                 constraints.append(c.detach().cpu().numpy())
                 accs.append(acc := calc_perclass_acc(sens, labels, out))

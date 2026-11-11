@@ -94,7 +94,9 @@ def main(cfg: DictConfig):
                                           n_epochs=int(cfg.n_epochs), device=device,
                                           approach=approach, verbose=cfg.verbose,
                                           reweight_loss=task.reweight_loss,
-                                          split_batch=bool(cfg.algorithm.get("split_batch", False)))
+                                          split_batch=bool(cfg.algorithm.get("split_batch", False)),
+                                          split_cgrad=bool(cfg.algorithm.get("split_cgrad", False)),
+                                          cgrad_var=bool(cfg.algorithm.get("cgrad_var", False)))
 
     # --- write raw results to this job's output dir ---
     hc = HydraConfig.get()
