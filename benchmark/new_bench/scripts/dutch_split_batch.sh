@@ -9,6 +9,7 @@
 # Baseline = the existing dutch_pbm_sweep.sh run at B=${BASE_BS}, same penalty_range.
 # split_batch is part of the algorithm config, so it gets its own hp-hash dir.
 #   Run from benchmark/new_bench/:   sbatch scripts/dutch_split_batch.sh
+#   Adapt variant:   PENALTY_UPDATE=dimin_adapt sbatch scripts/dutch_split_batch.sh
 # Then:
 #   python aggregate.py --runs multirun/dutch_positive_rate_pair --out selection/dutch --approach opt
 #   python plotting/plot_split.py --agg selection/dutch/aggregated --out plots/dutch_split_batch.pdf
