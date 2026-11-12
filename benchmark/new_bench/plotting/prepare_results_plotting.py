@@ -317,7 +317,7 @@ def metric_trajectory(spec, method, config_index, split, metric):
 
 def dual_trajectory(spec, method, config_index, split="opt"):
     """Seed-averaged per-epoch dual variables for one config/split:
-    (lambda_mean[m,L], lambda_std[m,L], epochs[L]), or None if the split has no
+    (lambda_mean[m,L], lambda_std[m,L] | None, epochs[L]), or None if the split has no
     lambda_j columns (unconstrained methods / SSG store no duals). m = number of
     constraints, rows ordered lambda_0..lambda_{m-1}."""
     curve = _curve(spec, method, config_index, split)
@@ -331,7 +331,9 @@ def dual_trajectory(spec, method, config_index, split="opt"):
     def stack(suffix):
         return np.vstack([curve[f"{c}_{suffix}"].to_numpy() for c in lam])
 
-    return stack("mean"), stack("std"), curve["epoch"].to_numpy()
+    # aggregate.py stores only lambda_j_mean (no spread), so lambda_std is None then
+    std = stack("std") if f"{lam[0]}_std" in curve.columns else None
+    return stack("mean"), std, curve["epoch"].to_numpy()
 
 
 if __name__ == "__main__":

@@ -9,7 +9,8 @@ Cgradvar: cgrad + the covariance/variance term of shared sampling (MODE=cgradvar
 One curve per --curves entry (penalty_update:penalty_range_lo:shared|split|cgrad|cgradvar); the default
 is dimin 0.001 shared vs. split, and the same pair for adapt.
 The x-axis counts optimizer steps in baseline epochs (epoch * base_bs / B), so the
-curves line up at an equal number of steps. Rows: loss | max_j c_j (opt split).
+curves line up at an equal number of steps. Rows: loss | max_j c_j | max_j lambda_j
+(opt split; lambda_j is the seed mean, its max over the constraints j is plotted, log axis).
 
     python plotting/plot_split.py --agg selection/dutch/aggregated --out plots/dutch_split_batch.pdf
 """
@@ -19,7 +20,8 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-from prepare_results_plotting import ExperimentSpec, list_configs, config_params, metric_trajectory
+from prepare_results_plotting import (ExperimentSpec, list_configs, config_params, metric_trajectory,
+                                     dual_trajectory)
 from plot_style import set_neurips_style, TEXT_WIDTH, ROW_H
 
 
@@ -64,7 +66,7 @@ def main():
                      "cgradvar": r"Independent $c$ / $\nabla c$ + Var"}[mode]
         curves.append((rf"{name}, $\ell_c$={float(lo):g}, {mode_name}", match[0], bs))
 
-    fig, axes = plt.subplots(2, 1, figsize=(TEXT_WIDTH / 2, 2 * ROW_H), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(TEXT_WIDTH / 2, 3 * ROW_H), sharex=True)
     loss_floor = np.inf  # lowest mean loss over all curves: bottom of the log axis
     for label, c, bs in curves:
         for ax, metric in zip(axes, ("loss", "max_viol")):
@@ -82,6 +84,11 @@ def main():
                     lower = np.maximum(lower, 0.5 * mean)
             if std is not None:
                 ax.fill_between(x, lower, mean + std, color=line.get_color(), alpha=0.2, lw=0)
+        # duals: seed-mean lambda_j per constraint, max over j (no band: a max of means)
+        dt = dual_trajectory(spec, args.method, c, args.split)
+        if dt is not None:
+            lam_mean, _, epochs = dt
+            axes[2].plot(epochs * args.base_bs / bs, lam_mean.max(axis=0), label=label)
     axes[0].legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, fontsize="small",
                    handlelength=1.2, columnspacing=0.8, borderaxespad=0.2)
     axes[1].axhline(args.bound, color="k", lw=0.6, ls="--")
@@ -90,7 +97,9 @@ def main():
         axes[0].set_ylim(bottom=0.9 * loss_floor)
     axes[0].set_ylabel("Mean Loss")
     axes[1].set_ylabel(r"$\max_j c_j$")
-    axes[1].set_xlabel(rf"Steps (in epochs at $B$ = {args.base_bs})")
+    axes[2].set_yscale("log")  # duals span ~1e-1 (stable) to the 1e2 cap (diverged cgrad)
+    axes[2].set_ylabel(r"$\max_j \lambda_j$")
+    axes[2].set_xlabel(rf"Steps (in epochs at $B$ = {args.base_bs})")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     fig.savefig(args.out)
